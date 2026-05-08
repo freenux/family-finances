@@ -1,0 +1,57 @@
+{{define "report_tables"}}
+<div class="report-grid">
+  <div class="section">
+    <div class="section-title">收入 (Income)</div>
+    <table class="ledger">
+      <thead>
+        <tr><th>项目</th><th style="width:140px">金额（元）</th></tr>
+      </thead>
+      <tbody>
+        {{range .Report.IncomeGroups}}
+          <tr class="group">
+            <td>{{.GroupEmoji}} {{.GroupName}}</td>
+            <td class="amount {{if gt .Subtotal 0}}positive{{else}}zero{{end}}">{{yuan .Subtotal}}</td>
+          </tr>
+          {{range .Items}}
+            <tr class="item">
+              <td class="name">{{.Name}}</td>
+              <td class="amount {{if gt .Amount 0}}positive{{else}}zero{{end}}">{{yuan .Amount}}</td>
+            </tr>
+          {{end}}
+        {{end}}
+        <tr class="subtotal">
+          <td>收入合计 (A)</td>
+          <td class="amount positive">{{yuan .Report.KPI.TotalIncome}}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <div class="section-title">支出 (Expenses)</div>
+    <table class="ledger">
+      <thead>
+        <tr><th>项目</th><th style="width:140px">金额（元）</th></tr>
+      </thead>
+      <tbody>
+        {{range .Report.ExpenseGroups}}
+          <tr class="group">
+            <td>{{.GroupEmoji}} {{.GroupName}}</td>
+            <td class="amount {{if gt .Subtotal 0}}negative{{else}}zero{{end}}">{{yuan .Subtotal}}</td>
+          </tr>
+          {{range .Items}}
+            <tr class="item">
+              <td class="name">{{.Name}}</td>
+              <td class="amount {{if gt .Amount 0}}negative{{else}}zero{{end}}">{{yuan .Amount}}</td>
+            </tr>
+          {{end}}
+        {{end}}
+        <tr class="subtotal">
+          <td>支出合计 (B)</td>
+          <td class="amount negative">{{yuan .Report.KPI.TotalExpense}}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{{end}}

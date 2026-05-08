@@ -1,0 +1,13 @@
+.env
+family.db
+family.db-journal
+family.db-shm
+family.db-wal
+*.db
+tmp/
+bin/
+dist/
+.DS_Store
+.idea/
+.vscode/
+.xlsx

@@ -1,0 +1,18 @@
+{{define "content"}}
+<div class="page-title">
+  <div>
+    <h2>{{.Period.Label}} 家庭财报</h2>
+    <div class="meta">对齐原 Excel 收支表结构，实时按流水聚合</div>
+  </div>
+  <div class="flex-row">
+    {{template "period_selector" .}}
+    <a class="btn" href="/transactions/new">＋ 录入流水</a>
+  </div>
+</div>
+
+<div id="report-container">
+  {{template "report_view" .}}
+</div>
+{{end}}
+
+{{define "page"}}{{template "base" .}}{{end}}

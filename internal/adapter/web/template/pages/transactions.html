@@ -1,0 +1,61 @@
+{{define "content"}}
+<div class="page-title">
+  <div>
+    <h2>{{.Period.Label}} 收支流水</h2>
+    <div class="meta">共 {{len .Transactions}} 条记录</div>
+  </div>
+  <div class="flex-row">
+    {{template "period_selector_tx" .}}
+    <a class="btn" href="/transactions/new">＋ 录入流水</a>
+  </div>
+</div>
+
+{{if eq (len .Transactions) 0}}
+  <div class="empty">本期间暂无流水，点击右上角「＋ 录入流水」手动添加一笔。</div>
+{{else}}
+  <table class="tx-list">
+    <thead>
+      <tr>
+        <th style="width:140px">日期</th>
+        <th style="width:80px">方向</th>
+        <th>交易对方 / 说明</th>
+        <th>科目</th>
+        <th style="width:100px">来源</th>
+        <th style="width:120px">金额（元）</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Transactions}}
+        <tr>
+          <td>{{formatDate .OccurredAt}}</td>
+          <td>{{if eq .Direction "income"}}<span class="badge">收</span>{{else}}<span class="badge warn">支</span>{{end}}</td>
+          <td>{{.Counterparty}}{{if .Description}} · <span class="meta">{{.Description}}</span>{{end}}</td>
+          <td>{{categoryName .CategoryID $.Categories}}</td>
+          <td>{{.Source}}</td>
+          <td class="amount {{if eq .Direction "income"}}positive{{else}}negative{{end}}">{{yuan .Amount}}</td>
+        </tr>
+      {{end}}
+    </tbody>
+  </table>
+{{end}}
+{{end}}
+
+{{define "period_selector_tx"}}
+<div class="period-selector"
+     hx-get="/transactions"
+     hx-target="body"
+     hx-push-url="true"
+     hx-trigger="change from:#period-input, change from:#period-type-input">
+  <select id="period-type-input" name="type">
+    <option value="quarterly" {{if eq .Period.Type "quarterly"}}selected{{end}}>季度</option>
+    <option value="annual"    {{if eq .Period.Type "annual"}}selected{{end}}>年度</option>
+  </select>
+  <select id="period-input" name="period">
+    {{range .PeriodOptions}}
+      <option value="{{.}}" {{if eq . $.Period.Label}}selected{{end}}>{{.}}</option>
+    {{end}}
+  </select>
+</div>
+{{end}}
+
+{{define "page"}}{{template "base" .}}{{end}}

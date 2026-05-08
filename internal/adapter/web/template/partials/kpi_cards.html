@@ -1,0 +1,24 @@
+{{define "kpi_cards"}}
+<div class="kpi-grid">
+  <div class="kpi-card">
+    <div class="label">💰 收入合计 (A)</div>
+    <div class="value positive">{{yuan .Report.KPI.TotalIncome}}</div>
+    <div class="sub">{{.Period.Label}}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="label">💸 支出合计 (B)</div>
+    <div class="value negative">{{yuan .Report.KPI.TotalExpense}}</div>
+    <div class="sub">{{.Period.Label}}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="label">🏆 结余 (A−B)</div>
+    <div class="value {{if gt .Report.KPI.Surplus 0}}positive{{else}}negative{{end}}">{{yuan .Report.KPI.Surplus}}</div>
+    <div class="sub">结余率 {{pct .Report.KPI.SurplusRate}}</div>
+  </div>
+  <div class="kpi-card {{if .Report.KPI.DiscretionWarning}}warning{{end}}">
+    <div class="label">⚡ 自由裁量占比</div>
+    <div class="value">{{pct .Report.KPI.DiscretionRatio}}</div>
+    <div class="sub">建议控制在 35% 以内 {{if .Report.KPI.DiscretionWarning}}<span class="badge warn">超标</span>{{end}}</div>
+  </div>
+</div>
+{{end}}

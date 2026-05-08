@@ -1,0 +1,70 @@
+{{define "content"}}
+<div class="page-title">
+  <div>
+    <h2>录入流水</h2>
+    <div class="meta">手工补录一笔收入或支出；CSV 批量导入待 M2 开放</div>
+  </div>
+  <a class="btn secondary" href="/">返回仪表盘</a>
+</div>
+
+{{if .Error}}
+  <div class="section" style="padding:12px;color:var(--negative);margin-bottom:16px">⚠️ {{.Error}}</div>
+{{end}}
+
+<form class="form-grid" method="POST" action="/transactions"
+      x-data="{ direction: '{{if .Form.Direction}}{{.Form.Direction}}{{else}}expense{{end}}' }">
+
+  <label>
+    发生日期
+    <input type="date" name="occurred_at" required value="{{.Form.OccurredAt}}">
+  </label>
+
+  <label>
+    方向
+    <select name="direction" x-model="direction">
+      <option value="income"  {{if eq .Form.Direction "income"}}selected{{end}}>收入</option>
+      <option value="expense" {{if eq .Form.Direction "expense"}}selected{{end}}>支出</option>
+    </select>
+  </label>
+
+  <label>
+    金额（元）
+    <input type="number" name="amount_yuan" step="0.01" min="0.01" required value="{{.Form.AmountYuan}}">
+  </label>
+
+  <label x-show="direction === 'income'">
+    科目
+    <select name="category_id" x-bind:disabled="direction !== 'income'">
+      {{range .IncomeCategories}}
+        <option value="{{.ID}}" {{if eq .ID $.Form.CategoryID}}selected{{end}}>{{.Name}}</option>
+      {{end}}
+    </select>
+  </label>
+
+  <label x-show="direction === 'expense'">
+    科目
+    <select name="category_id" x-bind:disabled="direction !== 'expense'">
+      {{range .ExpenseCategories}}
+        <option value="{{.ID}}" {{if eq .ID $.Form.CategoryID}}selected{{end}}>{{.Name}}</option>
+      {{end}}
+    </select>
+  </label>
+
+  <label class="full">
+    交易对方
+    <input type="text" name="counterparty" placeholder="如 盒马鲜生、小明、房东" value="{{.Form.Counterparty}}">
+  </label>
+
+  <label class="full">
+    说明
+    <textarea name="description" placeholder="可选：更详细的备注">{{.Form.Description}}</textarea>
+  </label>
+
+  <div class="form-actions">
+    <a class="btn secondary" href="/transactions">取消</a>
+    <button class="btn" type="submit">保存</button>
+  </div>
+</form>
+{{end}}
+
+{{define "page"}}{{template "base" .}}{{end}}
