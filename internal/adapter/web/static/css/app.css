@@ -306,3 +306,112 @@ table.tx-list .amount {
   margin-left: 6px;
 }
 .badge.warn { background: #fef3c7; color: var(--warning); }
+
+[x-cloak] { display: none !important; }
+
+.tx-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 22px;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.tx-toolbar .tx-search {
+  flex: 1 1 220px;
+  min-width: 180px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-family: inherit;
+}
+.tx-toolbar .tx-filter-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.tx-toolbar .tx-filter-group .label { color: var(--muted); }
+.tx-toolbar label {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  color: var(--text);
+  cursor: pointer;
+}
+.tx-toolbar select {
+  padding: 4px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-family: inherit;
+  background: #fff;
+}
+
+.tx-summary {
+  display: flex;
+  gap: 26px;
+  padding: 8px 14px;
+  margin-bottom: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+.tx-summary b {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  margin-left: 4px;
+}
+.tx-summary .positive { color: var(--positive); }
+.tx-summary .negative { color: var(--negative); }
+
+table.tx-list.editable th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+table.tx-list.editable th.sortable:hover { background: var(--accent-soft); }
+table.tx-list.editable tr.needs-review {
+  background: #fffbeb !important;
+}
+table.tx-list.editable tr.needs-review td { border-left: 0; }
+table.tx-list.editable tr.needs-review td:first-child {
+  border-left: 3px solid var(--warning);
+}
+table.tx-list.editable .meta-sm {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inline-select,
+.inline-input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text);
+}
+.inline-select:hover,
+.inline-input:hover {
+  border-color: var(--border-strong);
+  background: #fff;
+}
+.inline-select:focus,
+.inline-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: #fff;
+}

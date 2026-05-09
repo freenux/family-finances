@@ -1,11 +1,10 @@
 package handler
 
 import (
-	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"family-finances/internal/adapter/web"
@@ -15,17 +14,26 @@ import (
 )
 
 type Handler struct {
-	render    *web.Renderer
-	addTx     *usecase.AddTransaction
-	queryRep  *usecase.QueryReport
-	txRepo    port.TransactionRepo
-	catRepo   port.CategoryRepo
-	log       *slog.Logger
+	render     *web.Renderer
+	importBill *usecase.ImportBill
+	queryRep   *usecase.QueryReport
+	txRepo     port.TransactionRepo
+	catRepo    port.CategoryRepo
+	log        *slog.Logger
+	flash      *flashStore
 }
 
-func New(r *web.Renderer, addTx *usecase.AddTransaction, qr *usecase.QueryReport,
+func New(r *web.Renderer, importBill *usecase.ImportBill, qr *usecase.QueryReport,
 	txRepo port.TransactionRepo, catRepo port.CategoryRepo, log *slog.Logger) *Handler {
-	return &Handler{render: r, addTx: addTx, queryRep: qr, txRepo: txRepo, catRepo: catRepo, log: log}
+	return &Handler{
+		render:     r,
+		importBill: importBill,
+		queryRep:   qr,
+		txRepo:     txRepo,
+		catRepo:    catRepo,
+		log:        log,
+		flash:      newFlashStore(),
+	}
 }
 
 type pageBase struct {
@@ -33,9 +41,9 @@ type pageBase struct {
 	Nav           string
 	Period        domain.Period
 	PeriodOptions []string
+	Flash         string
 }
 
-// 生成最近 8 个季度 + 最近 5 年作为下拉选项
 func periodOptions(p domain.Period) []string {
 	now := time.Now()
 	switch p.Type {
@@ -59,7 +67,6 @@ func periodOptions(p domain.Period) []string {
 	return nil
 }
 
-// 从 query 参数解析 Period；缺省返回当前季度
 func parsePeriodFromQuery(r *http.Request) (domain.Period, error) {
 	typeStr := r.URL.Query().Get("type")
 	if typeStr == "" {
@@ -103,7 +110,6 @@ func (h *Handler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// HTMX 片段：只返回报表视图
 func (h *Handler) PartialReport(w http.ResponseWriter, r *http.Request) {
 	p, err := parsePeriodFromQuery(r)
 	if err != nil {
@@ -126,10 +132,36 @@ func (h *Handler) PartialReport(w http.ResponseWriter, r *http.Request) {
 
 // ----- Transactions list -----
 
+type txRowJSON struct {
+	ID           string `json:"id"`
+	OccurredAt   string `json:"occurred_at"`
+	Source       string `json:"source"`
+	Counterparty string `json:"counterparty"`
+	Description  string `json:"description"`
+	Note         string `json:"note"`
+	AmountFen    int64  `json:"amount_fen"`
+	Direction    string `json:"direction"`
+	Status       string `json:"status"`
+	CategoryID   string `json:"category_id"`
+}
+
+type catJSON struct {
+	ID        string `json:"id"`
+	ParentID  string `json:"parent_id"`
+	Name      string `json:"name"`
+	GroupName string `json:"group_name"`
+	Type      string `json:"type"`
+	Level     int    `json:"level"`
+}
+
 type txListVM struct {
 	pageBase
 	Transactions []domain.Transaction
 	Categories   []domain.Category
+
+	// 给 Alpine 用的 JSON 内联数据
+	TransactionsJSON string
+	CategoriesJSON   string
 }
 
 func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
@@ -148,127 +180,174 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		h.serverError(w, err)
 		return
 	}
+
+	txJSON := make([]txRowJSON, 0, len(txs))
+	for _, t := range txs {
+		txJSON = append(txJSON, txRowJSON{
+			ID:           t.ID,
+			OccurredAt:   t.OccurredAt.Format("2006-01-02"),
+			Source:       string(t.Source),
+			Counterparty: t.Counterparty,
+			Description:  t.Description,
+			Note:         t.Note,
+			AmountFen:    t.Amount,
+			Direction:    string(t.Direction),
+			Status:       string(t.Status),
+			CategoryID:   t.CategoryID,
+		})
+	}
+
+	catNameByID := make(map[string]string, len(cats))
+	for _, c := range cats {
+		if c.Level == 1 {
+			catNameByID[c.ID] = c.Name
+		}
+	}
+	catJSONs := make([]catJSON, 0, len(cats))
+	for _, c := range cats {
+		groupName := ""
+		if c.Level == 2 {
+			groupName = catNameByID[c.ParentID]
+		}
+		catJSONs = append(catJSONs, catJSON{
+			ID:        c.ID,
+			ParentID:  c.ParentID,
+			Name:      c.Name,
+			GroupName: groupName,
+			Type:      string(c.Type),
+			Level:     c.Level,
+		})
+	}
+
+	txBytes, _ := json.Marshal(txJSON)
+	catBytes, _ := json.Marshal(catJSONs)
+
 	vm := txListVM{
-		pageBase:     pageBase{Title: "收支流水", Nav: "transactions", Period: p, PeriodOptions: periodOptions(p)},
-		Transactions: txs,
-		Categories:   cats,
+		pageBase: pageBase{
+			Title:         "收支流水",
+			Nav:           "transactions",
+			Period:        p,
+			PeriodOptions: periodOptions(p),
+			Flash:         h.flash.pop(w, r),
+		},
+		Transactions:     txs,
+		Categories:       cats,
+		TransactionsJSON: string(txBytes),
+		CategoriesJSON:   string(catBytes),
 	}
 	if err := h.render.RenderPage(w, "transactions", vm); err != nil {
 		h.serverError(w, err)
 	}
 }
 
-// ----- New Transaction form -----
+// ----- Update single transaction (PATCH via form) -----
 
-type txFormData struct {
-	OccurredAt   string
-	Direction    string
-	AmountYuan   string
-	CategoryID   string
-	Counterparty string
-	Description  string
+type updateTxReq struct {
+	CategoryID *string `json:"category_id"`
+	Note       *string `json:"note"`
+	Status     *string `json:"status"`
 }
 
-type txNewVM struct {
-	pageBase
-	IncomeCategories  []domain.Category
-	ExpenseCategories []domain.Category
-	Form              txFormData
-	Error             string
-}
-
-func (h *Handler) NewTransactionForm(w http.ResponseWriter, r *http.Request) {
-	vm, err := h.buildNewVM(r.Context(), txFormData{
-		OccurredAt: time.Now().Format("2006-01-02"),
-		Direction:  "expense",
-	}, "")
-	if err != nil {
+func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
+	id := chiURLParam(r, "id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	var req updateTxReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	patch := port.TransactionUpdate{}
+	if req.CategoryID != nil {
+		v := *req.CategoryID
+		patch.CategoryID = &v
+		// 如果指定了分类，把 pending_review 自动转 confirmed
+		if v != "" {
+			st := domain.TxStatusConfirmed
+			patch.Status = &st
+		}
+	}
+	if req.Note != nil {
+		v := *req.Note
+		patch.Note = &v
+	}
+	if req.Status != nil {
+		s := domain.TxStatus(*req.Status)
+		patch.Status = &s
+	}
+	if err := h.txRepo.Update(r.Context(), id, patch); err != nil {
 		h.serverError(w, err)
 		return
 	}
-	if err := h.render.RenderPage(w, "transaction_new", vm); err != nil {
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ----- Import bill -----
+
+type importVM struct {
+	pageBase
+	Error string
+}
+
+func (h *Handler) ImportForm(w http.ResponseWriter, r *http.Request) {
+	vm := importVM{pageBase: pageBase{Title: "导入账单", Nav: "imports"}}
+	if err := h.render.RenderPage(w, "imports", vm); err != nil {
 		h.serverError(w, err)
 	}
 }
 
-func (h *Handler) CreateTransaction(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
+func (h *Handler) ImportSubmit(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(16 << 20); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	form := txFormData{
-		OccurredAt:   r.FormValue("occurred_at"),
-		Direction:    r.FormValue("direction"),
-		AmountYuan:   r.FormValue("amount_yuan"),
-		CategoryID:   r.FormValue("category_id"),
-		Counterparty: strings.TrimSpace(r.FormValue("counterparty")),
-		Description:  strings.TrimSpace(r.FormValue("description")),
+	sourceStr := r.FormValue("source")
+	var src domain.Source
+	switch sourceStr {
+	case "alipay":
+		src = domain.SourceAlipay
+	case "wechat":
+		src = domain.SourceWechat
+	default:
+		h.renderImportError(w, "请选择账单来源")
+		return
 	}
 
-	occurredAt, err := time.ParseInLocation("2006-01-02", form.OccurredAt, time.Local)
+	file, header, err := r.FormFile("file")
 	if err != nil {
-		h.renderFormError(w, r.Context(), form, "发生日期格式错误")
+		h.renderImportError(w, "请选择要导入的账单文件")
 		return
 	}
-	amountYuan, err := strconv.ParseFloat(form.AmountYuan, 64)
-	if err != nil || amountYuan <= 0 {
-		h.renderFormError(w, r.Context(), form, "请填写有效的金额")
-		return
-	}
-	amountFen := int64(amountYuan*100 + 0.5) // 分
+	defer file.Close()
 
-	_, err = h.addTx.Execute(r.Context(), usecase.AddTransactionInput{
-		OccurredAt:   occurredAt,
-		Counterparty: form.Counterparty,
-		Description:  form.Description,
-		Amount:       amountFen,
-		Direction:    domain.Direction(form.Direction),
-		CategoryID:   form.CategoryID,
+	res, err := h.importBill.Execute(r.Context(), usecase.ImportBillInput{
+		Source:   src,
+		Filename: header.Filename,
+		Reader:   file,
 	})
 	if err != nil {
-		h.renderFormError(w, r.Context(), form, err.Error())
+		h.log.Error("import", "err", err)
+		h.renderImportError(w, "导入失败："+err.Error())
 		return
 	}
 
+	msg := "导入完成：新增 " +
+		strconv.Itoa(res.InsertedRows) + " 条，跳过重复 " +
+		strconv.Itoa(res.SkippedDuplicates) + " 条，忽略转账/无效 " +
+		strconv.Itoa(res.SkippedInvalid) + " 条，未分类待处理 " +
+		strconv.Itoa(res.PendingCategory) + " 条。"
+	h.flash.set(w, msg)
 	http.Redirect(w, r, "/transactions", http.StatusSeeOther)
 }
 
-func (h *Handler) renderFormError(w http.ResponseWriter, ctx context.Context, form txFormData, msg string) {
-	vm, err := h.buildNewVM(ctx, form, msg)
-	if err != nil {
-		h.serverError(w, err)
-		return
-	}
+func (h *Handler) renderImportError(w http.ResponseWriter, msg string) {
+	vm := importVM{pageBase: pageBase{Title: "导入账单", Nav: "imports"}, Error: msg}
 	w.WriteHeader(http.StatusBadRequest)
-	if err := h.render.RenderPage(w, "transaction_new", vm); err != nil {
+	if err := h.render.RenderPage(w, "imports", vm); err != nil {
 		h.serverError(w, err)
 	}
-}
-
-func (h *Handler) buildNewVM(ctx context.Context, form txFormData, errMsg string) (txNewVM, error) {
-	cats, err := h.catRepo.ListAll(ctx)
-	if err != nil {
-		return txNewVM{}, err
-	}
-	var incomes, expenses []domain.Category
-	for _, c := range cats {
-		if c.Level != 2 {
-			continue
-		}
-		switch c.Type {
-		case domain.CategoryTypeIncome:
-			incomes = append(incomes, c)
-		case domain.CategoryTypeExpense:
-			expenses = append(expenses, c)
-		}
-	}
-	return txNewVM{
-		pageBase:          pageBase{Title: "录入流水", Nav: "transactions"},
-		IncomeCategories:  incomes,
-		ExpenseCategories: expenses,
-		Form:              form,
-		Error:             errMsg,
-	}, nil
 }
 
 func (h *Handler) serverError(w http.ResponseWriter, err error) {

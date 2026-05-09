@@ -1,13 +1,18 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"family-finances/internal/adapter/llm"
 	"family-finances/internal/adapter/web"
 	"family-finances/internal/adapter/web/handler"
 	"family-finances/internal/infrastructure/config"
@@ -40,15 +45,27 @@ func main() {
 	txRepo := sqlite.NewTransactionRepo(db)
 	catRepo := sqlite.NewCategoryRepo(db)
 
-	addTx := usecase.NewAddTransaction(txRepo, catRepo)
+	llmClient := llm.NewClient(llm.Config{
+		APIKey:  cfg.OpenAIAPIKey,
+		BaseURL: cfg.OpenAIBaseURL,
+		Model:   cfg.OpenAIModel,
+	})
+
+	classifyPending := usecase.NewClassifyPending(txRepo, catRepo, llmClient, log)
+	importBill := usecase.NewImportBill(txRepo).WithTrigger(classifyPending.Trigger)
 	queryRep := usecase.NewQueryReport(txRepo, catRepo)
+
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	go classifyPending.Run(ctx, 30*time.Second, 20)
 
 	renderer, err := web.NewRenderer()
 	if err != nil {
 		log.Error("init renderer", "err", err)
 		os.Exit(1)
 	}
-	h := handler.New(renderer, addTx, queryRep, txRepo, catRepo, log)
+	h := handler.New(renderer, importBill, queryRep, txRepo, catRepo, log)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
@@ -56,14 +73,22 @@ func main() {
 
 	r.Get("/", h.Dashboard)
 	r.Get("/transactions", h.ListTransactions)
-	r.Get("/transactions/new", h.NewTransactionForm)
-	r.Post("/transactions", h.CreateTransaction)
+	r.Patch("/transactions/{id}", h.UpdateTransaction)
+	r.Get("/imports", h.ImportForm)
+	r.Post("/imports", h.ImportSubmit)
 	r.Get("/partials/report", h.PartialReport)
 
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(web.StaticFS()))))
 
 	log.Info("listening", "addr", cfg.ServerAddr, "db", cfg.DatabasePath, "openai_key", cfg.MaskedAPIKey())
-	if err := http.ListenAndServe(cfg.ServerAddr, r); err != nil {
+	server := &http.Server{Addr: cfg.ServerAddr, Handler: r}
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
+	}()
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Error("server exited", "err", err)
 		os.Exit(1)
 	}

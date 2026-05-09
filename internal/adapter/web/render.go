@@ -27,6 +27,9 @@ func StaticFS() fs.FS {
 
 // funcMap 所有模板共享的函数
 var funcMap = template.FuncMap{
+	// rawJSON 把已经 marshal 好的 JSON 字符串注入到 <script type="application/json"> 里，
+	// 避免 html/template 的 JS 上下文把它再字符串化。
+	"rawJSON": func(s string) template.JS { return template.JS(s) },
 	"yuan": func(fen int64) string {
 		sign := ""
 		if fen < 0 {

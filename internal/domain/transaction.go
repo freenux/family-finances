@@ -32,6 +32,7 @@ type Transaction struct {
 	OccurredAt    time.Time
 	Counterparty  string
 	Description   string
+	Note          string // 用户在流水表中手填的备注
 	Amount        int64
 	Direction     Direction
 	Status        TxStatus
