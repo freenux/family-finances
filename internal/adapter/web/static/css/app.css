@@ -103,6 +103,61 @@ main {
 .period-selector select { border-right: 1px solid var(--border); }
 .period-selector button:hover { background: var(--accent-soft); }
 
+.stats-head {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  padding-bottom: 14px; margin-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+.stats-head .title-zh {
+  font-family: "Songti SC", "STSong", "SimSun", serif;
+  font-size: 26px; font-weight: 600; letter-spacing: 0.04em;
+  margin: 0;
+}
+.stats-head .subtitle {
+  color: var(--muted); font-size: 12px; margin-top: 6px;
+  letter-spacing: 0.08em;
+}
+.period-nav {
+  display: inline-flex; align-items: center; gap: 14px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 6px 10px;
+}
+.period-nav button {
+  border: 0; background: transparent; cursor: pointer;
+  color: var(--muted); font-size: 16px; line-height: 1;
+  padding: 2px 6px; border-radius: 4px;
+}
+.period-nav button:hover { color: var(--text); background: var(--accent-soft); }
+.period-nav .cur {
+  font-family: var(--mono); font-size: 14px; font-weight: 600;
+  letter-spacing: 0.05em; min-width: 90px; text-align: center;
+}
+
+.seg-row {
+  display: flex; flex-wrap: wrap; gap: 18px;
+  margin-bottom: 22px;
+}
+.seg {
+  display: inline-flex; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: hidden;
+}
+.seg .seg-label {
+  padding: 7px 12px; font-size: 11px; color: var(--muted);
+  background: var(--zebra); border-right: 1px solid var(--border);
+  letter-spacing: 0.08em; align-self: stretch; display: flex; align-items: center;
+}
+.seg button {
+  border: 0; background: transparent; cursor: pointer;
+  padding: 7px 14px; font-size: 13px; color: var(--text);
+  font-family: inherit; border-right: 1px solid var(--border);
+}
+.seg button:last-child { border-right: 0; }
+.seg button:hover { background: var(--accent-soft); }
+.seg button.active {
+  background: var(--accent); color: #fff;
+}
+
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

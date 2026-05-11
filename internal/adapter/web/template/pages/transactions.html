@@ -1,162 +1,167 @@
 {{define "content"}}
-<div class="page-title">
-  <div>
-    <h2>{{.Period.Label}} 收支流水</h2>
-    <div class="meta">共 {{len .Transactions}} 条记录 · 点击列头排序 · 下拉就地改分类</div>
-  </div>
-  <div class="flex-row">
-    {{template "period_selector_tx" .}}
-    <a class="btn" href="/imports">＋ 导入账单</a>
-  </div>
-</div>
-
-{{if .Flash}}
-  <div class="section" style="padding:10px 14px;margin-bottom:14px;background:var(--accent-soft);color:var(--accent)">
-    ✅ {{.Flash}}
-  </div>
-{{end}}
-
 <script id="data-transactions" type="application/json">{{rawJSON .TransactionsJSON}}</script>
 <script id="data-categories" type="application/json">{{rawJSON .CategoriesJSON}}</script>
 
-{{if eq (len .Transactions) 0}}
-  <div class="empty">本期间暂无流水，点击右上角「＋ 导入账单」上传微信/支付宝账单。</div>
-{{else}}
-<div x-data="txTable()" x-cloak>
-
-  <div class="tx-toolbar">
-    <input class="tx-search" type="search" placeholder="搜索对方 / 说明 / 备注"
-           x-model.debounce.200ms="keyword">
-
-    <div class="tx-filter-group">
-      <span class="label">方向：</span>
-      <label><input type="radio" value="all"     x-model="directionFilter"> 全部</label>
-      <label><input type="radio" value="expense" x-model="directionFilter"> 支出</label>
-      <label><input type="radio" value="income"  x-model="directionFilter"> 收入</label>
+<div x-data="txTable()"
+     data-initial-period="{{.Period.Label}}"
+     data-initial-granularity="{{.Period.Type}}"
+     data-initial-account="{{.Account}}"
+     x-cloak>
+  <div class="stats-head">
+    <div>
+      <h2 class="title-zh"><span x-text="periodKey">{{.Period.Label}}</span> 收支流水</h2>
+      <div class="subtitle">共 <span x-text="rows.length">{{len .Transactions}}</span> 条记录 · 点击列头排序 · 下拉就地改分类</div>
     </div>
-
-    <div class="tx-filter-group">
-      <span class="label">来源：</span>
-      <label><input type="checkbox" value="alipay" x-model="sourceFilter"> 支付宝</label>
-      <label><input type="checkbox" value="wechat" x-model="sourceFilter"> 微信</label>
-      <label><input type="checkbox" value="manual" x-model="sourceFilter"> 手填</label>
+    <div class="flex-row" style="gap:14px;align-items:center">
+      {{template "period_bar" .}}
+      <a class="btn" href="/imports">＋ 导入账单</a>
     </div>
+  </div>
 
-    <div class="tx-filter-group">
-      <span class="label">分类：</span>
-      <select x-model="categoryFilter">
-        <option value="">全部</option>
-        <option value="__none__">⚠️ 未分类</option>
-        <template x-for="g in groupedCategories" :key="g.groupId">
-          <optgroup :label="g.groupName">
-            <template x-for="c in g.items" :key="c.id">
-              <option :value="c.id" x-text="c.name"></option>
+  {{if .Flash}}
+    <div class="section" style="padding:10px 14px;margin-bottom:14px;background:var(--accent-soft);color:var(--accent)">
+      ✅ {{.Flash}}
+    </div>
+  {{end}}
+
+  <template x-if="errorMsg">
+    <div class="empty" style="color:var(--negative)">加载失败：<span x-text="errorMsg"></span></div>
+  </template>
+
+  <template x-if="!loading && rows.length === 0">
+    <div class="empty">本期间暂无流水，点击右上角「＋ 导入账单」上传微信/支付宝账单。</div>
+  </template>
+
+  <template x-if="rows.length > 0">
+    <div :style="loading ? 'opacity:0.5' : ''">
+      <div class="tx-toolbar">
+        <input class="tx-search" type="search" placeholder="搜索对方 / 说明 / 备注"
+               x-model.debounce.200ms="keyword">
+
+        <div class="tx-filter-group">
+          <span class="label">方向：</span>
+          <label><input type="radio" value="all"     x-model="directionFilter"> 全部</label>
+          <label><input type="radio" value="expense" x-model="directionFilter"> 支出</label>
+          <label><input type="radio" value="income"  x-model="directionFilter"> 收入</label>
+        </div>
+
+        <div class="tx-filter-group">
+          <span class="label">来源：</span>
+          <label><input type="checkbox" value="alipay" x-model="sourceFilter"> 支付宝</label>
+          <label><input type="checkbox" value="wechat" x-model="sourceFilter"> 微信</label>
+          <label><input type="checkbox" value="manual" x-model="sourceFilter"> 手填</label>
+        </div>
+
+        <div class="tx-filter-group">
+          <span class="label">账户：</span>
+          <label><input type="checkbox" value="husband" x-model="accountFilter"> 男主</label>
+          <label><input type="checkbox" value="wife"    x-model="accountFilter"> 女主</label>
+        </div>
+
+        <div class="tx-filter-group">
+          <span class="label">分类：</span>
+          <select x-model="categoryFilter">
+            <option value="">全部</option>
+            <option value="__none__">⚠️ 未分类</option>
+            <template x-for="g in groupedCategories" :key="g.groupId">
+              <optgroup :label="g.groupName">
+                <template x-for="c in g.items" :key="c.id">
+                  <option :value="c.id" x-text="c.name"></option>
+                </template>
+              </optgroup>
             </template>
-          </optgroup>
-        </template>
-      </select>
-    </div>
+          </select>
+        </div>
 
-    <div class="tx-filter-group">
-      <span class="label">状态：</span>
-      <label><input type="checkbox" value="pending_review" x-model="statusFilter"> 待处理</label>
-      <label><input type="checkbox" value="confirmed"      x-model="statusFilter"> 已确认</label>
-      <label><input type="checkbox" value="excluded"       x-model="statusFilter"> 已排除</label>
-    </div>
+        <div class="tx-filter-group">
+          <span class="label">状态：</span>
+          <label><input type="checkbox" value="pending_review" x-model="statusFilter"> 待处理</label>
+          <label><input type="checkbox" value="confirmed"      x-model="statusFilter"> 已确认</label>
+          <label><input type="checkbox" value="excluded"       x-model="statusFilter"> 已排除</label>
+        </div>
 
-    <button class="btn secondary" @click="resetFilters()">清空筛选</button>
-  </div>
+        <button class="btn secondary" @click="resetFilters()">清空筛选</button>
+      </div>
 
-  <div class="tx-summary">
-    <span>筛选结果：<b x-text="filtered.length"></b> 条</span>
-    <span>收入 <b class="positive" x-text="fmtYuan(totals.income)"></b></span>
-    <span>支出 <b class="negative" x-text="fmtYuan(totals.expense)"></b></span>
-    <span>净额 <b :class="totals.net >= 0 ? 'positive' : 'negative'" x-text="fmtYuan(totals.net)"></b></span>
-  </div>
+      <div class="tx-summary">
+        <span>筛选结果：<b x-text="filtered.length"></b> 条</span>
+        <span>收入 <b class="positive" x-text="fmtYuan(totals.income)"></b></span>
+        <span>支出 <b class="negative" x-text="fmtYuan(totals.expense)"></b></span>
+        <span>净额 <b :class="totals.net >= 0 ? 'positive' : 'negative'" x-text="fmtYuan(totals.net)"></b></span>
+      </div>
 
-  <table class="tx-list editable">
-    <thead>
-      <tr>
-        <th @click="sortBy('occurred_at')" class="sortable">日期 <span x-text="sortIcon('occurred_at')"></span></th>
-        <th @click="sortBy('source')"      class="sortable">来源 <span x-text="sortIcon('source')"></span></th>
-        <th @click="sortBy('direction')"   class="sortable" style="width:70px">方向 <span x-text="sortIcon('direction')"></span></th>
-        <th @click="sortBy('counterparty')" class="sortable">对方 / 说明 <span x-text="sortIcon('counterparty')"></span></th>
-        <th @click="sortBy('amount_fen')"  class="sortable" style="width:110px">金额 <span x-text="sortIcon('amount_fen')"></span></th>
-        <th @click="sortBy('category_id')" class="sortable" style="width:200px">分类 <span x-text="sortIcon('category_id')"></span></th>
-        <th style="width:180px">备注</th>
-        <th style="width:90px">状态</th>
-      </tr>
-    </thead>
-    <tbody>
-      <template x-for="t in filtered" :key="t.id">
-        <tr :class="{ 'needs-review': !t.category_id }">
-          <td x-text="t.occurred_at"></td>
-          <td x-text="sourceLabel(t.source)"></td>
-          <td>
-            <span :class="t.direction === 'income' ? 'badge' : 'badge warn'"
-                  x-text="t.direction === 'income' ? '收' : '支'"></span>
-          </td>
-          <td>
-            <div x-text="t.counterparty || '—'"></div>
-            <div class="meta-sm" x-text="t.description"></div>
-          </td>
-          <td class="amount" :class="t.direction === 'income' ? 'positive' : 'negative'"
-              x-text="fmtYuan(t.amount_fen)"></td>
-          <td>
-            <select class="inline-select"
-                    :value="t.category_id"
-                    @change="patchCategory(t, $event.target.value)">
-              <option value="">— 未分类 —</option>
-              <template x-for="g in groupedCategories" :key="g.groupId">
-                <optgroup :label="g.groupName">
-                  <template x-for="c in g.items" :key="c.id">
-                    <option :value="c.id" x-text="c.name"></option>
+      <table class="tx-list editable">
+        <thead>
+          <tr>
+            <th @click="sortBy('occurred_at')" class="sortable">日期 <span x-text="sortIcon('occurred_at')"></span></th>
+            <th @click="sortBy('source')"      class="sortable">来源 <span x-text="sortIcon('source')"></span></th>
+            <th @click="sortBy('account')"     class="sortable" style="width:110px">账户 <span x-text="sortIcon('account')"></span></th>
+            <th @click="sortBy('direction')"   class="sortable" style="width:70px">方向 <span x-text="sortIcon('direction')"></span></th>
+            <th @click="sortBy('counterparty')" class="sortable">对方 / 说明 <span x-text="sortIcon('counterparty')"></span></th>
+            <th @click="sortBy('amount_fen')"  class="sortable" style="width:110px">金额 <span x-text="sortIcon('amount_fen')"></span></th>
+            <th @click="sortBy('category_id')" class="sortable" style="width:200px">分类 <span x-text="sortIcon('category_id')"></span></th>
+            <th style="width:180px">备注</th>
+            <th style="width:90px">状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="t in filtered" :key="t.id">
+            <tr :class="{ 'needs-review': !t.category_id }">
+              <td x-text="t.occurred_at"></td>
+              <td x-text="sourceLabel(t.source)"></td>
+              <td>
+                <select class="inline-select"
+                        @change="patchAccount(t, $event.target.value)">
+                  <option value="husband" :selected="t.account === 'husband'">男主</option>
+                  <option value="wife"    :selected="t.account === 'wife'">女主</option>
+                </select>
+              </td>
+              <td>
+                <span :class="t.direction === 'income' ? 'badge' : 'badge warn'"
+                      x-text="t.direction === 'income' ? '收' : '支'"></span>
+              </td>
+              <td>
+                <div x-text="t.counterparty || '—'"></div>
+                <div class="meta-sm" x-text="t.description"></div>
+              </td>
+              <td class="amount" :class="t.direction === 'income' ? 'positive' : 'negative'"
+                  x-text="fmtYuan(t.amount_fen)"></td>
+              <td>
+                <select class="inline-select"
+                        @change="patchCategory(t, $event.target.value)">
+                  <option value="" :selected="!t.category_id">— 未分类 —</option>
+                  <template x-for="g in groupedCategories" :key="g.groupId">
+                    <optgroup :label="g.groupName">
+                      <template x-for="c in g.items" :key="c.id">
+                        <option :value="c.id" :selected="t.category_id === c.id" x-text="c.name"></option>
+                      </template>
+                    </optgroup>
                   </template>
-                </optgroup>
-              </template>
-            </select>
-          </td>
-          <td>
-            <input class="inline-input" type="text" placeholder="备注"
-                   :value="t.note"
-                   @blur="patchNote(t, $event.target.value)"
-                   @keydown.enter="$event.target.blur()">
-          </td>
-          <td>
-            <select class="inline-select"
-                    :value="t.status"
-                    @change="patchStatus(t, $event.target.value)">
-              <option value="pending_review">待处理</option>
-              <option value="confirmed">已确认</option>
-              <option value="excluded">已排除</option>
-            </select>
-          </td>
-        </tr>
-      </template>
-      <tr x-show="filtered.length === 0">
-        <td colspan="8" class="empty" style="padding:30px">没有匹配当前筛选条件的记录。</td>
-      </tr>
-    </tbody>
-  </table>
-</div>
-{{end}}
-{{end}}
-
-{{define "period_selector_tx"}}
-<div class="period-selector"
-     hx-get="/transactions"
-     hx-target="body"
-     hx-push-url="true"
-     hx-trigger="change from:#period-input, change from:#period-type-input">
-  <select id="period-type-input" name="type">
-    <option value="quarterly" {{if eq .Period.Type "quarterly"}}selected{{end}}>季度</option>
-    <option value="annual"    {{if eq .Period.Type "annual"}}selected{{end}}>年度</option>
-  </select>
-  <select id="period-input" name="period">
-    {{range .PeriodOptions}}
-      <option value="{{.}}" {{if eq . $.Period.Label}}selected{{end}}>{{.}}</option>
-    {{end}}
-  </select>
+                </select>
+              </td>
+              <td>
+                <input class="inline-input" type="text" placeholder="备注"
+                       :value="t.note"
+                       @blur="patchNote(t, $event.target.value)"
+                       @keydown.enter="$event.target.blur()">
+              </td>
+              <td>
+                <select class="inline-select"
+                        @change="patchStatus(t, $event.target.value)">
+                  <option value="pending_review" :selected="t.status === 'pending_review'">待处理</option>
+                  <option value="confirmed"      :selected="t.status === 'confirmed'">已确认</option>
+                  <option value="excluded"       :selected="t.status === 'excluded'">已排除</option>
+                </select>
+              </td>
+            </tr>
+          </template>
+          <tr x-show="filtered.length === 0">
+            <td colspan="9" class="empty" style="padding:30px">没有匹配当前筛选条件的记录。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </template>
 </div>
 {{end}}
 

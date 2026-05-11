@@ -21,6 +21,8 @@ go mod tidy
 # 测试（项目当前没有 *_test.go，建议新代码带 table-driven 测试）
 go test ./...
 go test ./internal/usecase -run TestXxx -v
+
+网页测试使用playwright-cli **不要使用**curl测试
 ```
 
 `.env`（参见 `.env.example`）控制 `OPENAI_API_KEY/BASE_URL/MODEL`、`SERVER_ADDR`（默认 `:8787`）、`DATABASE_PATH`（默认 `./family.db`）。未设 `.env` 也能跑，但大模型相关功能会失效。
@@ -94,7 +96,8 @@ internal/
 
 ### HTTP / 渲染
 
-- chi router，中间件 `Recoverer` + `Logger`。路由见 `cmd/server/main.go`（`GET /`, `GET /transactions`, `PATCH /transactions/{id}`, `GET/POST /imports`, `GET /partials/report`）。
+- chi router，中间件 `Recoverer` + `Logger`。路由见 `cmd/server/main.go`（`GET /`, `GET /transactions`, `GET /transactions/new` → 301 `/imports`, `PATCH /api/transactions/{id}`, `GET/POST /imports`, `GET /partials/report`）。
+- **注意**：chi 的 trie 里 `{id}` 占位段会"吞掉"同级字面量段（即使不同 method），所以页面路由 `/transactions/{something}` 故意避免注册，API 用 `/api/transactions/{id}` 分开。
 - 模板组织：`base.html`（layout，定义 `{{define "base"}}`）+ 每个 `pages/*.html`（定义 `{{define "content"}}` 和 `{{define "page"}}{{template "base" .}}{{end}}`）+ `partials/*.html`（独立 `define`，HTMX 局部刷新用）。
 - `Renderer.RenderPage(w, "dashboard", vm)` 渲染整页；`RenderPartial(w, "report_view", vm)` 给 HTMX 返回片段。新加页面时按 `pages/` 文件名即为 key，模板自动被 `NewRenderer` 注册。
 - 模板函数：`yuan`、`pct`、`formatDate`、`categoryName`、`rawJSON`（见上方"流水列表就地编辑"一节）。新增函数加到 `render.go` 的 `funcMap`。

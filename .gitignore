@@ -11,3 +11,7 @@ dist/
 .idea/
 .vscode/
 .xlsx
+data/*
+server
+.playwright-cli/
+.claude

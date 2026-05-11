@@ -30,6 +30,7 @@ func (uc *ImportBill) WithTrigger(f func()) *ImportBill {
 
 type ImportBillInput struct {
 	Source   domain.Source
+	Account  domain.Account
 	Filename string
 	Reader   io.Reader
 }
@@ -38,6 +39,9 @@ type ImportBillInput struct {
 // 未命中分类的行以 status=pending_review + category_id=NULL 落地，等 LLM 或人工处理。
 // "应跳过"的行（转账/中性交易等）不入库，仅计入 SkippedInvalid。
 func (uc *ImportBill) Execute(ctx context.Context, in ImportBillInput) (port.ImportResult, error) {
+	if !in.Account.IsStorageAccount() {
+		return port.ImportResult{}, fmt.Errorf("未指定账户归属（husband/wife）")
+	}
 	parser, ok := bill.ParserFor(in.Source)
 	if !ok {
 		return port.ImportResult{}, fmt.Errorf("不支持的账单来源: %s", in.Source)
@@ -73,6 +77,7 @@ func (uc *ImportBill) Execute(ctx context.Context, in ImportBillInput) (port.Imp
 			Tx: domain.Transaction{
 				ID:            uuid.NewString(),
 				Source:        r.Source,
+				Account:       in.Account,
 				ImportBatchID: batchID,
 				OccurredAt:    r.OccurredAt,
 				Counterparty:  r.Counterparty,
@@ -98,6 +103,7 @@ func (uc *ImportBill) Execute(ctx context.Context, in ImportBillInput) (port.Imp
 	batch := domain.ImportBatch{
 		ID:          batchID,
 		Source:      in.Source,
+		Account:     in.Account,
 		Filename:    in.Filename,
 		PeriodStart: periodStart,
 		PeriodEnd:   periodEnd,

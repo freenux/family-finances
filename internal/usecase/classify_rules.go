@@ -22,6 +22,7 @@ var alipayCategoryMap = map[string]string{
 	"文化休闲":   "expense.discretion.leisure",
 	"娱乐休闲":   "expense.discretion.leisure",
 	"交通出行":   "expense.necessary.transport",
+	"爱车养车":   "expense.necessary.transport", // ETC、加油、保养
 	"酒店住宿":   "expense.discretion.travel",
 	"旅游出行":   "expense.discretion.travel",
 	"医疗健康":   "expense.necessary.medical",
@@ -31,6 +32,8 @@ var alipayCategoryMap = map[string]string{
 	"家居家装":   "expense.family.home_maintenance",
 	"通讯物流":   "expense.necessary.home",
 	"公共服务":   "expense.fixed.housing",
+	"保险":       "expense.fixed.insurance",
+	"金融服务":   "expense.fixed.insurance",
 	"亲友代付":   "", // 跳过：通常是转账
 	"转账红包":   "",
 	"转账":       "",
@@ -49,30 +52,51 @@ var wechatKeywordRules = []wechatKeywordRule{
 	// 交通
 	{[]string{"深圳通", "地铁", "公交", "出行", "哈啰", "摩拜", "滴滴", "高速", "通行费", "加油", "停车", "ETC"}, "expense.necessary.transport"},
 	{[]string{"12306", "铁路", "航空", "机票", "高铁"}, "expense.discretion.travel"},
+	// 餐饮（长辈买菜/做饭代付）
+	{[]string{"伊一奶奶", "六六爷爷"}, "expense.necessary.food"},
 	// 餐饮
-	{[]string{"餐饮", "美食", "咖啡", "luckin", "星巴克", "茶饮", "奶茶", "火锅", "烤肉", "快餐", "胡辣汤", "拌饭", "汤包", "米线", "面馆", "饺子", "烧烤"}, "expense.necessary.food"},
+	{[]string{
+		"餐饮", "美食", "食品", "咖啡", "coffee", "luckin", "cotti", "星巴克",
+		"茶饮", "茶", "奶茶", "奈雪", "喜茶",
+		"火锅", "烤肉", "快餐", "胡辣汤", "拌饭", "汤包", "米线", "面馆", "饺子", "烧烤",
+		"牛肉面", "粑粑", "锅盔", "私房", "味道", "小女当家", "阿甘", "张家", "唐穆",
+		"百果园", "果园", "水果", "蛋糕", "烘焙", "面包",
+		"美团", // 默认归餐饮；不是外卖的可由用户改
+		"送水", "售卖机",
+	}, "expense.necessary.food"},
 	// 超市/日用
-	{[]string{"超市", "便利", "盒马", "美宜多", "永辉", "沃尔玛", "百货"}, "expense.necessary.home"},
+	{[]string{"超市", "便利", "盒马", "美宜多", "永辉", "沃尔玛", "百货", "天虹", "壹方汇"}, "expense.necessary.home"},
 	// 医疗
 	{[]string{"医院", "药房", "药店", "诊所", "体检"}, "expense.necessary.medical"},
 	// 教育/子女
 	{[]string{"幼儿园", "培训", "教育", "学校", "早教", "兴趣班"}, "expense.fixed.education"},
 	// 居住
 	{[]string{"物业", "水费", "电费", "燃气", "宽带", "房租"}, "expense.fixed.housing"},
-	// 自由裁量
+	// 自由裁量 - 个人消费
 	{[]string{"理发", "美容", "美发", "spa"}, "expense.discretion.shopping"},
-	{[]string{"电影", "影院", "KTV", "演出", "游乐", "游戏", "Steam"}, "expense.discretion.leisure"},
-	{[]string{"淘宝", "天猫", "京东", "拼多多", "唯品会"}, "expense.discretion.shopping"},
-	// 亲属卡 / 转账默认跳过
-	{[]string{"亲属卡"}, ""},
+	// 自由裁量 - 娱乐
+	{[]string{
+		"电影", "影院", "KTV", "演出", "游乐", "游戏", "Steam",
+		"运动", "球馆", "健身", "乐刻", "体育",
+	}, "expense.discretion.leisure"},
+	// 自由裁量 - 网购
+	{[]string{"淘宝", "天猫", "京东", "拼多多", "唯品会", "apple.com", "app store", "itunes"}, "expense.discretion.shopping"},
+	// 通讯/订阅
+	{[]string{"腾讯云", "阿里云", "话费", "流量"}, "expense.necessary.home"},
 }
 
-// wechatPlatformMap 微信"交易类型"字段兜底
+// wechatPlatformMap 微信"交易类型"字段兜底。
+// 亲属卡交易：你为家人花钱、从自己账户扣；需要人工区分子女/父母/配偶，
+// 所以这里不做跳过、也不预填分类，保持未分类待处理，由用户在列表页下拉选。
 var wechatPlatformMap = map[string]string{
-	"零钱提现":   "",
-	"信用卡还款": "",
-	"理财通转入": "",
-	"零钱通存入": "",
+	"零钱提现":    "",
+	"信用卡还款":  "",
+	"理财通转入":  "",
+	"理财通转出":  "",
+	"零钱通存入":  "",
+	"零钱通取出":  "",
+	"充值":        "",
+	"提现":        "",
 }
 
 // ClassifyByRules 根据本地规则返回二级科目 ID。

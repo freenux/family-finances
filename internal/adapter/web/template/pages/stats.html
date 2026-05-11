@@ -1,0 +1,406 @@
+{{define "content"}}
+<style>
+  .stats-wrap { font-feature-settings: "tnum"; }
+
+  /* overview cards */
+  .overview {
+    display: grid; grid-template-columns: 2fr 1fr 1fr;
+    gap: 14px; margin-bottom: 24px;
+  }
+  .overview .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px 18px;
+  }
+  .overview .card .cap {
+    font-size: 11px; color: var(--muted); letter-spacing: 0.1em;
+    margin-bottom: 8px;
+  }
+  .overview .card .big {
+    font-family: var(--mono); font-size: 30px; font-weight: 600;
+    letter-spacing: -0.01em; font-variant-numeric: tabular-nums;
+  }
+  .overview .card .big.expense { color: var(--negative); }
+  .overview .card .big.income  { color: var(--positive); }
+  .overview .card .sub {
+    font-size: 12px; color: var(--muted); margin-top: 4px;
+  }
+  .overview .card.small .big { font-size: 18px; color: var(--text); }
+  .overview .card .delta.up    { color: var(--negative); }
+  .overview .card .delta.down  { color: var(--positive); }
+
+  /* panel */
+  .panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 22px; overflow: hidden;
+  }
+  .panel h3 {
+    margin: 0; padding: 12px 16px; font-size: 13px; font-weight: 600;
+    letter-spacing: 0.04em; background: var(--accent-soft); color: var(--accent);
+    border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .panel h3 .hint { font-size: 11px; font-weight: 400; color: var(--muted); letter-spacing: 0.04em; }
+  .panel-body { padding: 18px 20px; }
+
+  /* pie + category list */
+  .compose {
+    display: grid; grid-template-columns: 260px 1fr; gap: 32px;
+    align-items: start;
+  }
+  @media (max-width: 820px) { .compose { grid-template-columns: 1fr; } }
+  .pie-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .pie {
+    width: 220px; height: 220px; border-radius: 50%;
+    position: relative;
+    box-shadow: 0 1px 2px rgba(0,0,0,.06);
+  }
+  .pie::after {
+    content: ""; position: absolute;
+    width: 120px; height: 120px; top: 50px; left: 50px;
+    background: var(--surface); border-radius: 50%;
+    box-shadow: inset 0 1px 1px rgba(0,0,0,.03);
+  }
+  .pie .pie-center {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 1; pointer-events: none;
+  }
+  .pie .pie-center .total-num {
+    font-family: var(--mono); font-size: 18px; font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .pie .pie-center .total-cap {
+    font-size: 10px; color: var(--muted); margin-top: 2px; letter-spacing: 0.12em;
+  }
+
+  .cat-list { display: flex; flex-direction: column; gap: 10px; }
+  .cat-row {
+    display: grid;
+    grid-template-columns: 14px 1fr auto auto;
+    column-gap: 10px; align-items: center;
+    font-size: 13px;
+  }
+  .cat-row .dot {
+    width: 10px; height: 10px; border-radius: 2px;
+  }
+  .cat-row .name {
+    font-weight: 500;
+  }
+  .cat-row .pct {
+    font-family: var(--mono); color: var(--muted); font-size: 12px;
+    min-width: 46px; text-align: right;
+  }
+  .cat-row .amt {
+    font-family: var(--mono); font-weight: 600; font-variant-numeric: tabular-nums;
+    min-width: 96px; text-align: right;
+  }
+  .cat-row .bar {
+    grid-column: 2 / 5;
+    height: 3px; border-radius: 2px; background: var(--zebra);
+    margin-top: 2px; position: relative; overflow: hidden;
+  }
+  .cat-row .bar > span {
+    position: absolute; inset: 0 auto 0 0;
+    background: currentColor; opacity: .75;
+    border-radius: 2px;
+  }
+
+  /* column-chart bars */
+  .col-bars {
+    display: flex; gap: 10px; align-items: stretch;
+    height: 210px;
+  }
+  .col-bar {
+    flex: 1; min-width: 0;
+    border: 0; background: transparent; cursor: pointer;
+    padding: 0; display: flex; flex-direction: column; align-items: center;
+    gap: 6px; font-family: inherit; color: inherit;
+  }
+  .col-bar .col-val {
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    min-height: 14px; font-variant-numeric: tabular-nums;
+  }
+  .col-bar .col-track {
+    width: 100%; max-width: 54px; flex: 1;
+    background: var(--zebra);
+    border-radius: 3px 3px 0 0;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    box-shadow: inset 0 -1px 0 var(--border);
+  }
+  .col-bar .col-fill {
+    width: 100%;
+    background: var(--accent); opacity: .72;
+    border-radius: 3px 3px 0 0;
+    transition: height .35s ease, opacity .2s ease;
+    min-height: 2px;
+  }
+  .col-bar:hover .col-fill { opacity: .92; }
+  .col-bar .col-lbl {
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    letter-spacing: 0.02em;
+  }
+  .col-bar.active .col-fill {
+    opacity: 1;
+    box-shadow: inset 0 -3px 0 rgba(0,0,0,.15);
+  }
+  .col-bar.active .col-val,
+  .col-bar.active .col-lbl { color: var(--accent); font-weight: 600; }
+  .col-bar .col-cmp {
+    display: flex; flex-direction: column; gap: 1px;
+    font-family: var(--mono); font-size: 10px; line-height: 1.25;
+    font-variant-numeric: tabular-nums; letter-spacing: 0.02em;
+    min-height: 26px; /* 即使没有基期也保留高度，避免柱子高低错位 */
+  }
+  .col-bar .col-cmp .row {
+    display: flex; gap: 3px; justify-content: center; align-items: baseline;
+  }
+  .col-bar .col-cmp .row .tag { color: var(--muted); font-size: 9px; }
+  .col-bar .col-cmp .row.bad  { color: var(--negative); }
+  .col-bar .col-cmp .row.good { color: var(--positive); }
+  .col-bar .col-cmp .row.flat { color: var(--muted); }
+  .col-bar .col-cmp .row.na   { color: var(--muted); opacity: .6; }
+
+  /* top tx list */
+  .top-head {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 11px; color: var(--muted); letter-spacing: 0.08em;
+    padding: 4px 0 8px; border-bottom: 1px dashed var(--border);
+    margin-bottom: 6px;
+  }
+  .top-row {
+    display: grid;
+    grid-template-columns: 64px 1fr auto;
+    gap: 14px; padding: 8px 2px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    align-items: center;
+  }
+  .top-row:last-child { border-bottom: 0; }
+  .top-row .date { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .top-row .who { font-weight: 500; }
+  .top-row .desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .top-row .tag {
+    display: inline-block; font-size: 10px; padding: 1px 6px;
+    border-radius: 8px; background: var(--accent-soft); color: var(--accent);
+    margin-left: 6px; letter-spacing: 0.04em;
+  }
+  .top-row .amt {
+    font-family: var(--mono); font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .top-more {
+    margin-top: 10px; text-align: center;
+  }
+  .top-more button {
+    border: 0; background: transparent; color: var(--accent);
+    cursor: pointer; font-size: 12px; font-family: inherit;
+    padding: 6px 14px; border-radius: 4px;
+  }
+  .top-more button:hover { background: var(--accent-soft); }
+
+  .empty-soft {
+    padding: 28px 20px; text-align: center; color: var(--muted);
+    font-size: 12px; letter-spacing: 0.04em;
+  }
+</style>
+
+<div class="stats-wrap" x-data="statsPage()" x-cloak>
+
+  <div class="stats-head">
+    <div>
+      <h2 class="title-zh">家庭账簿 · 统计</h2>
+      <div class="subtitle" x-text="headSubtitle()"></div>
+    </div>
+    <div class="period-nav">
+      <button @click="shiftPeriod(-1)" title="上一期">◀</button>
+      <span class="cur" x-text="periodKey"></span>
+      <button @click="shiftPeriod(1)" title="下一期">▶</button>
+    </div>
+  </div>
+
+  <div class="seg-row">
+    <div class="seg">
+      <span class="seg-label">周期</span>
+      <button :class="granularity==='month'   ? 'active' : ''" @click="setGranularity('month')">月度</button>
+      <button :class="granularity==='quarter' ? 'active' : ''" @click="setGranularity('quarter')">季度</button>
+      <button :class="granularity==='year'    ? 'active' : ''" @click="setGranularity('year')">年度</button>
+    </div>
+    <div class="seg">
+      <span class="seg-label">方向</span>
+      <button :class="direction==='expense' ? 'active' : ''" @click="setDirection('expense')">支出</button>
+      <button :class="direction==='income'  ? 'active' : ''" @click="setDirection('income')">收入</button>
+    </div>
+    <div class="seg">
+      <span class="seg-label">账户</span>
+      <button :class="account==='husband' ? 'active' : ''" @click="setAccount('husband')">男主</button>
+      <button :class="account==='wife'    ? 'active' : ''" @click="setAccount('wife')">女主</button>
+      <button :class="account==='family'  ? 'active' : ''" @click="setAccount('family')">家庭总账</button>
+    </div>
+  </div>
+
+  <template x-if="loading">
+    <div class="panel"><div class="empty-soft">加载中…</div></div>
+  </template>
+  <template x-if="errorMsg">
+    <div class="panel"><div class="empty-soft" style="color:var(--negative)">加载失败：<span x-text="errorMsg"></span></div></div>
+  </template>
+
+  <template x-if="view && !loading">
+    <div>
+      <div class="overview">
+        <div class="card">
+          <div class="cap" x-text="direction==='expense' ? '本期支出合计' : '本期收入合计'"></div>
+          <div class="big" :class="direction"
+               x-text="fmtYuan(view.total)"></div>
+          <div class="sub" x-text="perDayLabel()"></div>
+        </div>
+        <div class="card small">
+          <div class="cap">涉及分类</div>
+          <div class="big" x-text="view.categories.length + ' 项'"></div>
+          <div class="sub" x-text="'共 ' + view.topTransactions.length + ' 笔本期流水'"></div>
+        </div>
+        <div class="card small">
+          <div class="cap">上一期</div>
+          <div class="big" x-text="prevPeriodKey()"></div>
+          <div class="sub">点击 ◀ 返回查看</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>
+          <span x-text="direction==='expense' ? '支出构成' : '收入构成'"></span>
+          <span class="hint" x-text="'按二级科目'"></span>
+        </h3>
+        <div class="panel-body">
+          <div class="compose">
+            <div class="pie-wrap">
+              <div class="pie" :style="pieStyle()">
+                <div class="pie-center">
+                  <div class="total-num" x-text="fmtYuan(view.total)"></div>
+                  <div class="total-cap">元</div>
+                </div>
+              </div>
+            </div>
+            <div class="cat-list">
+              <template x-for="(c, i) in view.categories" :key="c.name">
+                <div class="cat-row" :style="'color:' + c.color">
+                  <span class="dot" :style="'background:' + c.color"></span>
+                  <span class="name" style="color:var(--text)" x-text="c.name"></span>
+                  <span class="pct" x-text="pctOf(c.amount)"></span>
+                  <span class="amt" style="color:var(--text)" x-text="fmtYuan(c.amount)"></span>
+                  <div class="bar"><span :style="'width:' + barPct(c.amount) + '%'"></span></div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>
+          <span>月度对比 <span class="hint" style="margin-left:4px">近 6 个月 · 点击切换当期</span></span>
+          <span class="hint" x-text="'当期 ' + (focusMonth() || '—')"></span>
+        </h3>
+        <div class="panel-body">
+          <div class="col-bars">
+            <template x-for="b in view.monthlyCompare" :key="b.label">
+              <button type="button" class="col-bar"
+                      :class="b.label===focusMonth() ? 'active' : ''"
+                      @click="focusBar('month', b.label)">
+                <span class="col-val" x-text="fmtYuan(b.amount)"></span>
+                <span class="col-track">
+                  <span class="col-fill" :style="'height:' + normBar(b.amount, view.monthlyCompare) + '%'"></span>
+                </span>
+                <span class="col-lbl" x-text="b.label"></span>
+                <span class="col-cmp">
+                  <span class="row" :class="fmtRatio(b.chain).cls" :title="'环比上月'">
+                    <span class="tag">环</span><span x-text="fmtRatio(b.chain).text"></span>
+                  </span>
+                  <span class="row" :class="fmtRatio(b.yoy).cls" :title="'同比去年同月'">
+                    <span class="tag">同</span><span x-text="fmtRatio(b.yoy).text"></span>
+                  </span>
+                </span>
+              </button>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>
+          <span>季度对比 <span class="hint" style="margin-left:4px">近 4 季 · 点击切换当期</span></span>
+          <span class="hint" x-text="'当期 ' + (focusQuarter() || '—')"></span>
+        </h3>
+        <div class="panel-body">
+          <div class="col-bars">
+            <template x-for="b in view.quarterlyCompare" :key="b.label">
+              <button type="button" class="col-bar"
+                      :class="b.label===focusQuarter() ? 'active' : ''"
+                      @click="focusBar('quarter', b.label)">
+                <span class="col-val" x-text="fmtYuan(b.amount)"></span>
+                <span class="col-track">
+                  <span class="col-fill" :style="'height:' + normBar(b.amount, view.quarterlyCompare) + '%'"></span>
+                </span>
+                <span class="col-lbl" x-text="b.label"></span>
+                <span class="col-cmp">
+                  <span class="row" :class="fmtRatio(b.chain).cls" :title="'环比上一季'">
+                    <span class="tag">环</span><span x-text="fmtRatio(b.chain).text"></span>
+                  </span>
+                  <span class="row" :class="fmtRatio(b.yoy).cls" :title="'同比去年同季'">
+                    <span class="tag">同</span><span x-text="fmtRatio(b.yoy).text"></span>
+                  </span>
+                </span>
+              </button>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>
+          <span x-text="topPeriodLabel() + ' Top ' + (expandTop ? shownTopTotal() : Math.min(5, shownTopTotal())) + ' 流水'"></span>
+          <span class="hint">
+            按单笔金额排序
+            <template x-if="focusKind">
+              <span style="margin-left:8px;color:var(--accent)">· 跟随柱状图</span>
+            </template>
+          </span>
+        </h3>
+        <div class="panel-body">
+          <div class="top-head">
+            <span>日期</span><span>对方 · 说明</span><span>金额</span>
+          </div>
+          <template x-for="(t, i) in shownTop()" :key="t.date + t.who + i">
+            <div class="top-row">
+              <span class="date" x-text="t.date"></span>
+              <div>
+                <span class="who" x-text="t.who"></span>
+                <span class="tag" x-text="t.category"></span>
+                <div class="desc" x-text="t.desc"></div>
+              </div>
+              <span class="amt" x-text="fmtYuan(t.amount)"></span>
+            </div>
+          </template>
+          <template x-if="shownTopTotal() > 5">
+            <div class="top-more">
+              <button @click="expandTop = !expandTop"
+                      x-text="expandTop ? '收起 ↑' : ('展开全部 ' + shownTopTotal() + ' 条 →')"></button>
+            </div>
+          </template>
+          <template x-if="shownTopTotal() === 0">
+            <div class="empty-soft">该期暂无流水数据（原型 Mock 未覆盖此组合）。</div>
+          </template>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <template x-if="view && view.total === 0 && !loading">
+    <div class="panel">
+      <div class="empty-soft">本周期 · 本账户 · 本方向下暂无已确认的流水。换个周期或账户试试。</div>
+    </div>
+  </template>
+</div>
+
+{{end}}
+{{define "page"}}{{template "base" .}}{{end}}

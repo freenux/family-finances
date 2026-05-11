@@ -17,12 +17,12 @@ func NewQueryReport(tx port.TransactionRepo, cat port.CategoryRepo) *QueryReport
 	return &QueryReport{txRepo: tx, catRepo: cat}
 }
 
-func (uc *QueryReport) Execute(ctx context.Context, p domain.Period) (domain.ReportData, error) {
+func (uc *QueryReport) Execute(ctx context.Context, p domain.Period, account domain.Account) (domain.ReportData, error) {
 	cats, err := uc.catRepo.ListAll(ctx)
 	if err != nil {
 		return domain.ReportData{}, err
 	}
-	aggs, err := uc.txRepo.AggregateByCategory(ctx, p)
+	aggs, err := uc.txRepo.AggregateByCategory(ctx, p, account)
 	if err != nil {
 		return domain.ReportData{}, err
 	}

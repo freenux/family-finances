@@ -24,6 +24,7 @@ type RawBillRow struct {
 type ImportBatch struct {
 	ID           string
 	Source       Source
+	Account      Account
 	Filename     string
 	PeriodStart  time.Time
 	PeriodEnd    time.Time

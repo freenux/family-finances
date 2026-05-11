@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"time"
 )
@@ -23,9 +24,22 @@ type Client struct {
 }
 
 func NewClient(cfg Config) *Client {
+	// Transport 显式走 ProxyFromEnvironment，保证即便服务以非登录 shell 启动
+	// （例如 launchd / systemd / IDE run）也能读到 HTTP_PROXY / HTTPS_PROXY / NO_PROXY。
+	tr := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+	}
 	return &Client{
 		cfg: cfg,
-		hc:  &http.Client{Timeout: 60 * time.Second},
+		hc:  &http.Client{Timeout: 90 * time.Second, Transport: tr},
 	}
 }
 

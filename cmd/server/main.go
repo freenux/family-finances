@@ -54,26 +54,34 @@ func main() {
 	classifyPending := usecase.NewClassifyPending(txRepo, catRepo, llmClient, log)
 	importBill := usecase.NewImportBill(txRepo).WithTrigger(classifyPending.Trigger)
 	queryRep := usecase.NewQueryReport(txRepo, catRepo)
+	queryStats := usecase.NewQueryStats(txRepo, catRepo)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	go classifyPending.Run(ctx, 30*time.Second, 20)
+	go classifyPending.Run(ctx, 30*time.Second, 200)
 
 	renderer, err := web.NewRenderer()
 	if err != nil {
 		log.Error("init renderer", "err", err)
 		os.Exit(1)
 	}
-	h := handler.New(renderer, importBill, queryRep, txRepo, catRepo, log)
+	h := handler.New(renderer, importBill, queryRep, queryStats, txRepo, catRepo, log)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Logger)
 
 	r.Get("/", h.Dashboard)
+	r.Get("/stats", h.Stats)
+	r.Get("/api/stats", h.StatsAPI)
+	r.Get("/api/stats/top", h.StatsTopAPI)
 	r.Get("/transactions", h.ListTransactions)
-	r.Patch("/transactions/{id}", h.UpdateTransaction)
+	r.Get("/transactions/new", func(w http.ResponseWriter, req *http.Request) {
+		http.Redirect(w, req, "/imports", http.StatusMovedPermanently)
+	})
+	r.Get("/api/transactions", h.ListTransactionsAPI)
+	r.Patch("/api/transactions/{id}", h.UpdateTransaction)
 	r.Get("/imports", h.ImportForm)
 	r.Post("/imports", h.ImportSubmit)
 	r.Get("/partials/report", h.PartialReport)

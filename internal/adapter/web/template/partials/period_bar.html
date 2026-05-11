@@ -1,0 +1,13 @@
+{{define "period_bar"}}
+<div class="period-nav">
+  <button type="button" @click="shiftPeriod(-1)" title="上一期">◀</button>
+  <span class="cur" x-text="periodKey"></span>
+  <button type="button" @click="shiftPeriod(1)" title="下一期">▶</button>
+</div>
+<div class="seg">
+  <span class="seg-label">周期</span>
+  <button type="button" :class="granularity==='month'   ? 'active' : ''" @click="setGranularity('month')">月度</button>
+  <button type="button" :class="granularity==='quarter' ? 'active' : ''" @click="setGranularity('quarter')">季度</button>
+  <button type="button" :class="granularity==='year'    ? 'active' : ''" @click="setGranularity('year')">年度</button>
+</div>
+{{end}}

@@ -12,7 +12,16 @@
 {{end}}
 
 <form class="form-grid" method="POST" action="/imports" enctype="multipart/form-data">
-  <label class="full">
+  <label>
+    账户归属
+    <select name="account" required>
+      <option value="">— 请选择 —</option>
+      <option value="husband">男主</option>
+      <option value="wife">女主</option>
+    </select>
+  </label>
+
+  <label>
     账单来源
     <select name="source" required>
       <option value="alipay">支付宝（.csv，GB18030 编码）</option>

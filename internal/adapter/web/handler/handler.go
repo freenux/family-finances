@@ -2,9 +2,11 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"family-finances/internal/adapter/web"
@@ -17,18 +19,20 @@ type Handler struct {
 	render     *web.Renderer
 	importBill *usecase.ImportBill
 	queryRep   *usecase.QueryReport
+	queryStats *usecase.QueryStats
 	txRepo     port.TransactionRepo
 	catRepo    port.CategoryRepo
 	log        *slog.Logger
 	flash      *flashStore
 }
 
-func New(r *web.Renderer, importBill *usecase.ImportBill, qr *usecase.QueryReport,
+func New(r *web.Renderer, importBill *usecase.ImportBill, qr *usecase.QueryReport, qs *usecase.QueryStats,
 	txRepo port.TransactionRepo, catRepo port.CategoryRepo, log *slog.Logger) *Handler {
 	return &Handler{
 		render:     r,
 		importBill: importBill,
 		queryRep:   qr,
+		queryStats: qs,
 		txRepo:     txRepo,
 		catRepo:    catRepo,
 		log:        log,
@@ -37,34 +41,11 @@ func New(r *web.Renderer, importBill *usecase.ImportBill, qr *usecase.QueryRepor
 }
 
 type pageBase struct {
-	Title         string
-	Nav           string
-	Period        domain.Period
-	PeriodOptions []string
-	Flash         string
-}
-
-func periodOptions(p domain.Period) []string {
-	now := time.Now()
-	switch p.Type {
-	case domain.PeriodQuarterly:
-		curr := domain.CurrentQuarter(now)
-		opts := make([]string, 0, 8)
-		cursor := curr
-		for i := 0; i < 8; i++ {
-			opts = append(opts, cursor.Label)
-			cursor = cursor.Previous()
-		}
-		return opts
-	case domain.PeriodAnnual:
-		y := now.Year()
-		opts := make([]string, 0, 5)
-		for i := 0; i < 5; i++ {
-			opts = append(opts, strconv.Itoa(y-i))
-		}
-		return opts
-	}
-	return nil
+	Title   string
+	Nav     string
+	Period  domain.Period
+	Flash   string
+	Account domain.Account
 }
 
 func parsePeriodFromQuery(r *http.Request) (domain.Period, error) {
@@ -73,14 +54,35 @@ func parsePeriodFromQuery(r *http.Request) (domain.Period, error) {
 		typeStr = string(domain.PeriodQuarterly)
 	}
 	label := r.URL.Query().Get("period")
-	if label == "" {
-		if typeStr == string(domain.PeriodAnnual) {
+	// 若 label 与 type 不匹配（例如切换季→年时旧 label 还是 2026Q1），退回到 type 的默认值
+	labelMatchesType := label != "" &&
+		((typeStr == string(domain.PeriodQuarterly) && strings.Contains(label, "Q")) ||
+			(typeStr == string(domain.PeriodAnnual) && !strings.Contains(label, "Q") && !strings.Contains(label, "-")) ||
+			(typeStr == string(domain.PeriodMonthly) && strings.Contains(label, "-")))
+	if !labelMatchesType {
+		switch typeStr {
+		case string(domain.PeriodAnnual):
 			label = strconv.Itoa(time.Now().Year())
-		} else {
+		case string(domain.PeriodMonthly):
+			label = domain.CurrentMonth(time.Now()).Label
+		default:
 			label = domain.CurrentQuarter(time.Now()).Label
 		}
 	}
 	return domain.ParsePeriod(label)
+}
+
+// parseAccountFromQuery 默认 family
+func parseAccountFromQuery(r *http.Request) domain.Account {
+	v := r.URL.Query().Get("account")
+	switch v {
+	case string(domain.AccountHusband):
+		return domain.AccountHusband
+	case string(domain.AccountWife):
+		return domain.AccountWife
+	default:
+		return domain.AccountFamily
+	}
 }
 
 // ----- Dashboard -----
@@ -96,13 +98,14 @@ func (h *Handler) Dashboard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	rep, err := h.queryRep.Execute(r.Context(), p)
+	acc := parseAccountFromQuery(r)
+	rep, err := h.queryRep.Execute(r.Context(), p, acc)
 	if err != nil {
 		h.serverError(w, err)
 		return
 	}
 	vm := dashboardVM{
-		pageBase: pageBase{Title: "仪表盘", Nav: "dashboard", Period: p, PeriodOptions: periodOptions(p)},
+		pageBase: pageBase{Title: "仪表盘", Nav: "dashboard", Period: p, Account: acc},
 		Report:   rep,
 	}
 	if err := h.render.RenderPage(w, "dashboard", vm); err != nil {
@@ -116,17 +119,126 @@ func (h *Handler) PartialReport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	rep, err := h.queryRep.Execute(r.Context(), p)
+	acc := parseAccountFromQuery(r)
+	rep, err := h.queryRep.Execute(r.Context(), p, acc)
 	if err != nil {
 		h.serverError(w, err)
 		return
 	}
 	vm := dashboardVM{
-		pageBase: pageBase{Period: p, PeriodOptions: periodOptions(p)},
+		pageBase: pageBase{Period: p, Account: acc},
 		Report:   rep,
 	}
 	if err := h.render.RenderPartial(w, "report_view", vm); err != nil {
 		h.serverError(w, err)
+	}
+}
+
+// ----- Stats -----
+
+func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
+	vm := pageBase{Title: "统计", Nav: "stats"}
+	if err := h.render.RenderPage(w, "stats", vm); err != nil {
+		h.serverError(w, err)
+	}
+}
+
+// StatsAPI: GET /api/stats?granularity=month|quarter|year&period=2026-05&direction=expense&account=family
+func (h *Handler) StatsAPI(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	gran := q.Get("granularity")
+	if gran == "" {
+		gran = "month"
+	}
+	label := q.Get("period")
+	if label == "" {
+		switch gran {
+		case "month":
+			label = domain.CurrentMonth(time.Now()).Label
+		case "quarter":
+			label = domain.CurrentQuarter(time.Now()).Label
+		case "year":
+			label = strconv.Itoa(time.Now().Year())
+		}
+	}
+	p, err := domain.ParsePeriod(label)
+	if err != nil {
+		http.Error(w, "invalid period: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	dir := domain.Direction(q.Get("direction"))
+	if dir == "" {
+		dir = domain.DirectionExpense
+	}
+	acc := parseAccountFromQuery(r)
+
+	view, err := h.queryStats.Execute(r.Context(), p, dir, acc, 10)
+	if err != nil {
+		h.serverError(w, err)
+		return
+	}
+	writeJSON(w, view)
+}
+
+// StatsTopAPI: GET /api/stats/top?granularity=&period=&direction=&account=&limit=
+// 独立端点让"点柱状图切 Top"走轻量查询，不用重跑全套聚合
+func (h *Handler) StatsTopAPI(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	p, err := domain.ParsePeriod(q.Get("period"))
+	if err != nil {
+		http.Error(w, "invalid period: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	dir := domain.Direction(q.Get("direction"))
+	if dir == "" {
+		dir = domain.DirectionExpense
+	}
+	acc := parseAccountFromQuery(r)
+	limit := 10
+	if l, err := strconv.Atoi(q.Get("limit")); err == nil && l > 0 && l <= 200 {
+		limit = l
+	}
+
+	tops, err := h.txRepo.TopTransactions(r.Context(), p, dir, acc, limit)
+	if err != nil {
+		h.serverError(w, err)
+		return
+	}
+	out := make([]usecase.StatsTopTx, 0, len(tops))
+	for _, t := range tops {
+		desc := t.Description
+		if t.Note != "" {
+			if desc != "" {
+				desc = desc + "（" + t.Note + "）"
+			} else {
+				desc = t.Note
+			}
+		}
+		cat := t.CategoryName
+		if cat == "" {
+			cat = "未分类"
+		}
+		who := t.Counterparty
+		if who == "" {
+			who = "—"
+		}
+		out = append(out, usecase.StatsTopTx{
+			ID:       t.ID,
+			Date:     t.OccurredAt.Format("01-02"),
+			Who:      who,
+			Desc:     desc,
+			Amount:   t.Amount,
+			Category: cat,
+			Account:  string(t.Account),
+		})
+	}
+	writeJSON(w, out)
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
@@ -136,6 +248,7 @@ type txRowJSON struct {
 	ID           string `json:"id"`
 	OccurredAt   string `json:"occurred_at"`
 	Source       string `json:"source"`
+	Account      string `json:"account"`
 	Counterparty string `json:"counterparty"`
 	Description  string `json:"description"`
 	Note         string `json:"note"`
@@ -170,7 +283,8 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	txs, err := h.txRepo.List(r.Context(), p)
+	acc := parseAccountFromQuery(r)
+	txs, err := h.txRepo.List(r.Context(), p, acc)
 	if err != nil {
 		h.serverError(w, err)
 		return
@@ -187,6 +301,7 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 			ID:           t.ID,
 			OccurredAt:   t.OccurredAt.Format("2006-01-02"),
 			Source:       string(t.Source),
+			Account:      string(t.Account),
 			Counterparty: t.Counterparty,
 			Description:  t.Description,
 			Note:         t.Note,
@@ -224,11 +339,11 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 
 	vm := txListVM{
 		pageBase: pageBase{
-			Title:         "收支流水",
-			Nav:           "transactions",
-			Period:        p,
-			PeriodOptions: periodOptions(p),
-			Flash:         h.flash.pop(w, r),
+			Title:   "收支流水",
+			Nav:     "transactions",
+			Period:  p,
+			Flash:   h.flash.pop(w, r),
+			Account: acc,
 		},
 		Transactions:     txs,
 		Categories:       cats,
@@ -240,12 +355,46 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ListTransactionsAPI: GET /api/transactions?type=...&period=...&account=...
+// 返回与列表页 SSR 嵌入 JSON 相同的 txRowJSON 数组，供前端切换周期时客户端刷新。
+func (h *Handler) ListTransactionsAPI(w http.ResponseWriter, r *http.Request) {
+	p, err := parsePeriodFromQuery(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	acc := parseAccountFromQuery(r)
+	txs, err := h.txRepo.List(r.Context(), p, acc)
+	if err != nil {
+		h.serverError(w, err)
+		return
+	}
+	out := make([]txRowJSON, 0, len(txs))
+	for _, t := range txs {
+		out = append(out, txRowJSON{
+			ID:           t.ID,
+			OccurredAt:   t.OccurredAt.Format("2006-01-02"),
+			Source:       string(t.Source),
+			Account:      string(t.Account),
+			Counterparty: t.Counterparty,
+			Description:  t.Description,
+			Note:         t.Note,
+			AmountFen:    t.Amount,
+			Direction:    string(t.Direction),
+			Status:       string(t.Status),
+			CategoryID:   t.CategoryID,
+		})
+	}
+	writeJSON(w, map[string]any{"transactions": out})
+}
+
 // ----- Update single transaction (PATCH via form) -----
 
 type updateTxReq struct {
 	CategoryID *string `json:"category_id"`
 	Note       *string `json:"note"`
 	Status     *string `json:"status"`
+	Account    *string `json:"account"`
 }
 
 func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
@@ -276,6 +425,14 @@ func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 	if req.Status != nil {
 		s := domain.TxStatus(*req.Status)
 		patch.Status = &s
+	}
+	if req.Account != nil {
+		a := domain.Account(*req.Account)
+		if !a.IsStorageAccount() {
+			http.Error(w, "invalid account", http.StatusBadRequest)
+			return
+		}
+		patch.Account = &a
 	}
 	if err := h.txRepo.Update(r.Context(), id, patch); err != nil {
 		h.serverError(w, err)
@@ -315,6 +472,13 @@ func (h *Handler) ImportSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	accStr := r.FormValue("account")
+	acc := domain.Account(accStr)
+	if !acc.IsStorageAccount() {
+		h.renderImportError(w, "请选择账户归属（男主/女主）")
+		return
+	}
+
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		h.renderImportError(w, "请选择要导入的账单文件")
@@ -324,6 +488,7 @@ func (h *Handler) ImportSubmit(w http.ResponseWriter, r *http.Request) {
 
 	res, err := h.importBill.Execute(r.Context(), usecase.ImportBillInput{
 		Source:   src,
+		Account:  acc,
 		Filename: header.Filename,
 		Reader:   file,
 	})
@@ -333,13 +498,10 @@ func (h *Handler) ImportSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msg := "导入完成：新增 " +
-		strconv.Itoa(res.InsertedRows) + " 条，跳过重复 " +
-		strconv.Itoa(res.SkippedDuplicates) + " 条，忽略转账/无效 " +
-		strconv.Itoa(res.SkippedInvalid) + " 条，未分类待处理 " +
-		strconv.Itoa(res.PendingCategory) + " 条。"
+	msg := fmt.Sprintf("导入完成（%s）：新增 %d 条，跳过重复 %d 条，忽略转账/无效 %d 条，未分类待处理 %d 条。",
+		acc.Label(), res.InsertedRows, res.SkippedDuplicates, res.SkippedInvalid, res.PendingCategory)
 	h.flash.set(w, msg)
-	http.Redirect(w, r, "/transactions", http.StatusSeeOther)
+	http.Redirect(w, r, "/transactions?account="+string(acc), http.StatusSeeOther)
 }
 
 func (h *Handler) renderImportError(w http.ResponseWriter, msg string) {

@@ -1,4 +1,6 @@
-// Alpine 组件：流水列表的排序 / 筛选 / 汇总 / 就地编辑
+// Alpine 组件：流水列表的排序 / 筛选 / 汇总 / 就地编辑 + 周期切换。
+// 首屏通过 SSR 嵌入的 #data-transactions / #data-categories bootstrap，
+// 周期切换时 GET /api/transactions 刷新 rows。依赖 period_utils.js。
 function txTable() {
   const txData = JSON.parse(document.getElementById('data-transactions').textContent || '[]');
   const catData = JSON.parse(document.getElementById('data-categories').textContent || '[]');
@@ -27,25 +29,77 @@ function txTable() {
     groupedCategories: groups,
     catNameById,
 
+    // 周期状态
+    granularity: 'month',
+    periodKey:   '',
+    account:     'family',
+    loading:     false,
+    errorMsg:    '',
+
     keyword: '',
     directionFilter: 'all',
     sourceFilter: ['alipay', 'wechat', 'manual'],
+    accountFilter: ['husband', 'wife'],
     statusFilter: ['pending_review', 'confirmed'],
     categoryFilter: '',
 
     sortKey: 'occurred_at',
-    sortDir: 'desc', // 'asc' | 'desc' | null
+    sortDir: 'desc',
+
+    init() {
+      const el = this.$el;
+      this.granularity = granularityFromPeriodType(el.dataset.initialGranularity || 'monthly');
+      this.periodKey = el.dataset.initialPeriod || defaultPeriodKey(this.granularity);
+      this.account = el.dataset.initialAccount || 'family';
+    },
+
+    setGranularity(g) {
+      if (this.granularity === g) return;
+      this.granularity = g;
+      this.periodKey = defaultPeriodKey(g);
+      this.fetchTransactions();
+    },
+
+    shiftPeriod(delta) {
+      const next = shiftPeriodKey(this.granularity, this.periodKey, delta);
+      if (!next) return;
+      this.periodKey = next;
+      this.fetchTransactions();
+    },
+
+    async fetchTransactions() {
+      this.loading = true;
+      this.errorMsg = '';
+      const q = new URLSearchParams({
+        type:    periodTypeFromGranularity(this.granularity),
+        period:  this.periodKey,
+        account: this.account,
+      });
+      window.history.replaceState(null, '', window.location.pathname + '?' + q.toString());
+      try {
+        const r = await fetch('/api/transactions?' + q.toString());
+        if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (await r.text()));
+        const data = await r.json();
+        this.rows = data.transactions || [];
+      } catch (e) {
+        this.errorMsg = e.message;
+      } finally {
+        this.loading = false;
+      }
+    },
 
     get filtered() {
       const kw = this.keyword.trim().toLowerCase();
       const dir = this.directionFilter;
       const sources = new Set(this.sourceFilter);
+      const accounts = new Set(this.accountFilter);
       const statuses = new Set(this.statusFilter);
       const catFilter = this.categoryFilter;
 
       let out = this.rows.filter((t) => {
         if (dir !== 'all' && t.direction !== dir) return false;
         if (!sources.has(t.source)) return false;
+        if (t.account && !accounts.has(t.account)) return false;
         if (!statuses.has(t.status)) return false;
         if (catFilter === '__none__') {
           if (t.category_id) return false;
@@ -121,6 +175,7 @@ function txTable() {
       this.keyword = '';
       this.directionFilter = 'all';
       this.sourceFilter = ['alipay', 'wechat', 'manual'];
+      this.accountFilter = ['husband', 'wife'];
       this.statusFilter = ['pending_review', 'confirmed'];
       this.categoryFilter = '';
     },
@@ -128,7 +183,6 @@ function txTable() {
     async patchCategory(t, value) {
       const prev = t.category_id;
       t.category_id = value;
-      // 命中分类时，后端会自动把 pending_review 转 confirmed
       if (value) t.status = 'confirmed';
       const ok = await this._patch(t.id, { category_id: value });
       if (!ok) t.category_id = prev;
@@ -149,9 +203,16 @@ function txTable() {
       if (!ok) t.status = prev;
     },
 
+    async patchAccount(t, value) {
+      const prev = t.account;
+      t.account = value;
+      const ok = await this._patch(t.id, { account: value });
+      if (!ok) t.account = prev;
+    },
+
     async _patch(id, body) {
       try {
-        const r = await fetch(`/transactions/${id}`, {
+        const r = await fetch(`/api/transactions/${id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),

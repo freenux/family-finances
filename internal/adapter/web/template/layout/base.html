@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{.Title}} · 家庭财务</title>
   <link rel="stylesheet" href="/static/css/app.css">
+  <script src="/static/js/period_utils.js" defer></script>
   <script src="/static/js/tx_table.js" defer></script>
+  <script src="/static/js/stats_page.js" defer></script>
+  <script src="/static/js/dashboard_page.js" defer></script>
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
   <script src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js" defer></script>
 </head>
@@ -14,6 +17,7 @@
   <h1>🏠 家庭财务</h1>
   <nav>
     <a href="/"             class="{{if eq .Nav "dashboard"}}active{{end}}">仪表盘</a>
+    <a href="/stats"        class="{{if eq .Nav "stats"}}active{{end}}">统计</a>
     <a href="/transactions" class="{{if eq .Nav "transactions"}}active{{end}}">收支流水</a>
     <a href="/imports"      class="{{if eq .Nav "imports"}}active{{end}}">导入账单</a>
   </nav>
