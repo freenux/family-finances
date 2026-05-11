@@ -26,6 +26,12 @@ function dashboardPage() {
       this.refreshReport();
     },
 
+    setAccount(a) {
+      if (this.account === a) return;
+      this.account = a;
+      this.refreshReport();
+    },
+
     shiftPeriod(delta) {
       const next = shiftPeriodKey(this.granularity, this.periodKey, delta);
       if (!next) return;

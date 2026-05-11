@@ -66,6 +66,33 @@ var funcMap = template.FuncMap{
 		}
 		return id
 	},
+	"groupCategories": func(cats []domain.Category) []struct {
+		Group domain.Category
+		Items []domain.Category
+	} {
+		var groups []struct {
+			Group domain.Category
+			Items []domain.Category
+		}
+		idx := map[string]int{}
+		for _, c := range cats {
+			if c.Level == 1 {
+				idx[c.ID] = len(groups)
+				groups = append(groups, struct {
+					Group domain.Category
+					Items []domain.Category
+				}{Group: c})
+			}
+		}
+		for _, c := range cats {
+			if c.Level == 2 {
+				if i, ok := idx[c.ParentID]; ok {
+					groups[i].Items = append(groups[i].Items, c)
+				}
+			}
+		}
+		return groups
+	},
 }
 
 type Renderer struct {

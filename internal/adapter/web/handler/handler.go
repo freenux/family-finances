@@ -9,11 +9,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"family-finances/internal/adapter/web"
 	"family-finances/internal/domain"
 	"family-finances/internal/port"
 	"family-finances/internal/usecase"
 )
+
+func newID() string { return uuid.NewString() }
 
 type Handler struct {
 	render     *web.Renderer
@@ -105,7 +109,7 @@ func (h *Handler) Dashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	vm := dashboardVM{
-		pageBase: pageBase{Title: "仪表盘", Nav: "dashboard", Period: p, Account: acc},
+		pageBase: pageBase{Title: "现金流表", Nav: "dashboard", Period: p, Account: acc},
 		Report:   rep,
 	}
 	if err := h.render.RenderPage(w, "dashboard", vm); err != nil {
@@ -137,7 +141,7 @@ func (h *Handler) PartialReport(w http.ResponseWriter, r *http.Request) {
 // ----- Stats -----
 
 func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
-	vm := pageBase{Title: "统计", Nav: "stats"}
+	vm := pageBase{Title: "仪表盘", Nav: "stats"}
 	if err := h.render.RenderPage(w, "stats", vm); err != nil {
 		h.serverError(w, err)
 	}
@@ -445,11 +449,17 @@ func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 
 type importVM struct {
 	pageBase
-	Error string
+	Error      string
+	Categories []domain.Category
 }
 
 func (h *Handler) ImportForm(w http.ResponseWriter, r *http.Request) {
-	vm := importVM{pageBase: pageBase{Title: "导入账单", Nav: "imports"}}
+	cats, err := h.catRepo.ListAll(r.Context())
+	if err != nil {
+		h.serverError(w, err)
+		return
+	}
+	vm := importVM{pageBase: pageBase{Title: "导入账单", Nav: "imports"}, Categories: cats}
 	if err := h.render.RenderPage(w, "imports", vm); err != nil {
 		h.serverError(w, err)
 	}
@@ -468,20 +478,20 @@ func (h *Handler) ImportSubmit(w http.ResponseWriter, r *http.Request) {
 	case "wechat":
 		src = domain.SourceWechat
 	default:
-		h.renderImportError(w, "请选择账单来源")
+		h.renderImportError(w, r, "请选择账单来源")
 		return
 	}
 
 	accStr := r.FormValue("account")
 	acc := domain.Account(accStr)
 	if !acc.IsStorageAccount() {
-		h.renderImportError(w, "请选择账户归属（男主/女主）")
+		h.renderImportError(w, r, "请选择账户归属（男主/女主）")
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		h.renderImportError(w, "请选择要导入的账单文件")
+		h.renderImportError(w, r, "请选择要导入的账单文件")
 		return
 	}
 	defer file.Close()
@@ -494,7 +504,7 @@ func (h *Handler) ImportSubmit(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.log.Error("import", "err", err)
-		h.renderImportError(w, "导入失败："+err.Error())
+		h.renderImportError(w, r, "导入失败："+err.Error())
 		return
 	}
 
@@ -504,12 +514,72 @@ func (h *Handler) ImportSubmit(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/transactions?account="+string(acc), http.StatusSeeOther)
 }
 
-func (h *Handler) renderImportError(w http.ResponseWriter, msg string) {
-	vm := importVM{pageBase: pageBase{Title: "导入账单", Nav: "imports"}, Error: msg}
+func (h *Handler) renderImportError(w http.ResponseWriter, r *http.Request, msg string) {
+	cats, _ := h.catRepo.ListAll(r.Context())
+	vm := importVM{pageBase: pageBase{Title: "导入账单", Nav: "imports"}, Error: msg, Categories: cats}
 	w.WriteHeader(http.StatusBadRequest)
 	if err := h.render.RenderPage(w, "imports", vm); err != nil {
 		h.serverError(w, err)
 	}
+}
+
+func (h *Handler) ManualEntrySubmit(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		h.renderImportError(w, r, "表单解析失败")
+		return
+	}
+
+	occurredStr := r.FormValue("occurred_at")
+	occurredAt, err := time.ParseInLocation("2006-01-02T15:04", occurredStr, time.Local)
+	if err != nil {
+		h.renderImportError(w, r, "日期时间格式不正确")
+		return
+	}
+
+	acc := domain.Account(r.FormValue("account"))
+	if !acc.IsStorageAccount() {
+		h.renderImportError(w, r, "请选择账户归属（男主/女主）")
+		return
+	}
+
+	dir := domain.Direction(r.FormValue("direction"))
+	if dir != domain.DirectionIncome && dir != domain.DirectionExpense {
+		h.renderImportError(w, r, "请选择收支方向")
+		return
+	}
+
+	amountStr := r.FormValue("amount")
+	amountFloat, parseErr := strconv.ParseFloat(strings.TrimSpace(amountStr), 64)
+	if parseErr != nil || amountFloat <= 0 {
+		h.renderImportError(w, r, "金额必须为正数")
+		return
+	}
+	amountFen := int64(amountFloat*100 + 0.5)
+
+	now := time.Now()
+	tx := domain.Transaction{
+		ID:           newID(),
+		Source:       domain.SourceManual,
+		Account:      acc,
+		OccurredAt:   occurredAt,
+		Counterparty: strings.TrimSpace(r.FormValue("counterparty")),
+		Description:  strings.TrimSpace(r.FormValue("description")),
+		Note:         strings.TrimSpace(r.FormValue("note")),
+		Amount:       amountFen,
+		Direction:    dir,
+		Status:       domain.TxStatusConfirmed,
+		CategoryID:   r.FormValue("category_id"),
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := h.txRepo.Insert(r.Context(), tx); err != nil {
+		h.log.Error("manual entry insert", "err", err)
+		h.renderImportError(w, r, "写入失败："+err.Error())
+		return
+	}
+
+	h.flash.set(w, fmt.Sprintf("手工录入成功（%s）：%s ¥%s", acc.Label(), string(dir), amountStr))
+	http.Redirect(w, r, "/transactions?account="+string(acc), http.StatusSeeOther)
 }
 
 func (h *Handler) serverError(w http.ResponseWriter, err error) {

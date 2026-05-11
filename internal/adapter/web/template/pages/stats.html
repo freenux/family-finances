@@ -206,35 +206,27 @@
 
 <div class="stats-wrap" x-data="statsPage()" x-cloak>
 
-  <div class="stats-head">
-    <div>
-      <h2 class="title-zh">家庭账簿 · 统计</h2>
-      <div class="subtitle" x-text="headSubtitle()"></div>
+  <div class="stats-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+    <div class="flex-row" style="gap:10px;align-items:center;flex-wrap:wrap">
+      <div class="seg">
+        <button :class="account==='husband' ? 'active' : ''" @click="setAccount('husband')">男主</button>
+        <button :class="account==='wife'    ? 'active' : ''" @click="setAccount('wife')">女主</button>
+        <button :class="account==='family'  ? 'active' : ''" @click="setAccount('family')">家庭总账</button>
+      </div>
+      <div class="seg">
+        <button :class="direction==='expense' ? 'active' : ''" @click="setDirection('expense')">支出</button>
+        <button :class="direction==='income'  ? 'active' : ''" @click="setDirection('income')">收入</button>
+      </div>
+      <div class="seg">
+        <button :class="granularity==='month'   ? 'active' : ''" @click="setGranularity('month')">月度</button>
+        <button :class="granularity==='quarter' ? 'active' : ''" @click="setGranularity('quarter')">季度</button>
+        <button :class="granularity==='year'    ? 'active' : ''" @click="setGranularity('year')">年度</button>
+      </div>
     </div>
     <div class="period-nav">
       <button @click="shiftPeriod(-1)" title="上一期">◀</button>
       <span class="cur" x-text="periodKey"></span>
       <button @click="shiftPeriod(1)" title="下一期">▶</button>
-    </div>
-  </div>
-
-  <div class="seg-row">
-    <div class="seg">
-      <span class="seg-label">周期</span>
-      <button :class="granularity==='month'   ? 'active' : ''" @click="setGranularity('month')">月度</button>
-      <button :class="granularity==='quarter' ? 'active' : ''" @click="setGranularity('quarter')">季度</button>
-      <button :class="granularity==='year'    ? 'active' : ''" @click="setGranularity('year')">年度</button>
-    </div>
-    <div class="seg">
-      <span class="seg-label">方向</span>
-      <button :class="direction==='expense' ? 'active' : ''" @click="setDirection('expense')">支出</button>
-      <button :class="direction==='income'  ? 'active' : ''" @click="setDirection('income')">收入</button>
-    </div>
-    <div class="seg">
-      <span class="seg-label">账户</span>
-      <button :class="account==='husband' ? 'active' : ''" @click="setAccount('husband')">男主</button>
-      <button :class="account==='wife'    ? 'active' : ''" @click="setAccount('wife')">女主</button>
-      <button :class="account==='family'  ? 'active' : ''" @click="setAccount('family')">家庭总账</button>
     </div>
   </div>
 

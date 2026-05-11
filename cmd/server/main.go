@@ -72,8 +72,11 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Logger)
 
-	r.Get("/", h.Dashboard)
-	r.Get("/stats", h.Stats)
+	r.Get("/", h.Stats)
+	r.Get("/stats", func(w http.ResponseWriter, req *http.Request) {
+		http.Redirect(w, req, "/", http.StatusMovedPermanently)
+	})
+	r.Get("/cashflow", h.Dashboard)
 	r.Get("/api/stats", h.StatsAPI)
 	r.Get("/api/stats/top", h.StatsTopAPI)
 	r.Get("/transactions", h.ListTransactions)
@@ -84,6 +87,7 @@ func main() {
 	r.Patch("/api/transactions/{id}", h.UpdateTransaction)
 	r.Get("/imports", h.ImportForm)
 	r.Post("/imports", h.ImportSubmit)
+	r.Post("/imports/manual", h.ManualEntrySubmit)
 	r.Get("/partials/report", h.PartialReport)
 
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(web.StaticFS()))))

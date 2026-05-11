@@ -24,8 +24,8 @@
   <label>
     账单来源
     <select name="source" required>
-      <option value="alipay">支付宝（.csv，GB18030 编码）</option>
-      <option value="wechat">微信支付（.xlsx）</option>
+      <option value="wechat" selected>微信支付（.xlsx）</option>
+      <option value="alipay">支付宝（.csv）</option>
     </select>
   </label>
 
@@ -45,6 +45,78 @@
   <div class="form-actions">
     <a class="btn secondary" href="/transactions">取消</a>
     <button class="btn" type="submit">解析并导入</button>
+  </div>
+</form>
+
+<hr style="margin:32px 0;border:none;border-top:1px solid var(--border)">
+
+<div class="page-title" style="margin-bottom:16px">
+  <div>
+    <h2>手工录入单笔</h2>
+    <div class="meta">直接录入一条已确认流水，来源标记为「手填」</div>
+  </div>
+</div>
+
+<form class="form-grid" method="POST" action="/imports/manual">
+  <label>
+    日期时间
+    <input type="datetime-local" name="occurred_at" required>
+  </label>
+
+  <label>
+    账户归属
+    <select name="account" required>
+      <option value="">— 请选择 —</option>
+      <option value="husband">男主</option>
+      <option value="wife">女主</option>
+    </select>
+  </label>
+
+  <label>
+    收支方向
+    <select name="direction" required>
+      <option value="expense">支出</option>
+      <option value="income">收入</option>
+    </select>
+  </label>
+
+  <label>
+    金额（元）
+    <input type="number" name="amount" step="0.01" min="0.01" required placeholder="0.00">
+  </label>
+
+  <label>
+    分类
+    <select name="category_id">
+      <option value="">— 暂不分类 —</option>
+      {{range groupCategories .Categories}}
+        <optgroup label="{{.Group.Name}}">
+          {{range .Items}}
+            <option value="{{.ID}}">{{.Name}}</option>
+          {{end}}
+        </optgroup>
+      {{end}}
+    </select>
+  </label>
+
+  <label>
+    对方（可选）
+    <input type="text" name="counterparty" placeholder="收款方或付款方">
+  </label>
+
+  <label>
+    说明（可选）
+    <input type="text" name="description" placeholder="交易描述">
+  </label>
+
+  <label>
+    备注（可选）
+    <input type="text" name="note" placeholder="个人备注">
+  </label>
+
+  <div class="form-actions">
+    <a class="btn secondary" href="/transactions">取消</a>
+    <button class="btn" type="submit">保存流水</button>
   </div>
 </form>
 {{end}}

@@ -11,7 +11,12 @@
     </div>
     <div class="flex-row" style="gap:14px;align-items:center">
       {{template "period_bar" .}}
-      <a class="btn" href="/transactions/new">＋ 录入流水</a>
+      <div class="seg">
+        <span class="seg-label">账户</span>
+        <button type="button" :class="account==='husband' ? 'active' : ''" @click="setAccount('husband')">男主</button>
+        <button type="button" :class="account==='wife'    ? 'active' : ''" @click="setAccount('wife')">女主</button>
+        <button type="button" :class="account==='family'  ? 'active' : ''" @click="setAccount('family')">家庭总账</button>
+      </div>
     </div>
   </div>
 
