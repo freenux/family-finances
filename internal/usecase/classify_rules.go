@@ -11,34 +11,34 @@ import (
 
 // alipayCategoryMap 支付宝的"交易分类"字段 → 我们的二级科目 ID
 var alipayCategoryMap = map[string]string{
-	"餐饮美食":   "expense.necessary.food",
-	"食品酒水":   "expense.necessary.food",
-	"超市便利":   "expense.necessary.home",
-	"日用百货":   "expense.necessary.home",
-	"数码电器":   "expense.discretion.shopping",
-	"服饰装扮":   "expense.discretion.shopping",
-	"美容美发":   "expense.discretion.shopping",
-	"运动户外":   "expense.discretion.leisure",
-	"文化休闲":   "expense.discretion.leisure",
-	"娱乐休闲":   "expense.discretion.leisure",
-	"交通出行":   "expense.necessary.transport",
-	"爱车养车":   "expense.necessary.transport", // ETC、加油、保养
-	"酒店住宿":   "expense.discretion.travel",
-	"旅游出行":   "expense.discretion.travel",
-	"医疗健康":   "expense.necessary.medical",
-	"教育培训":   "expense.fixed.education",
-	"母婴亲子":   "expense.family.child_growth",
-	"生活服务":   "expense.necessary.home",
-	"家居家装":   "expense.family.home_maintenance",
-	"通讯物流":   "expense.necessary.home",
-	"公共服务":   "expense.fixed.housing",
-	"保险":       "expense.fixed.insurance",
-	"金融服务":   "expense.fixed.insurance",
-	"亲友代付":   "", // 跳过：通常是转账
-	"转账红包":   "",
-	"转账":       "",
-	"信用借还":   "",
-	"投资理财":   "",
+	"餐饮美食": "expense.necessary.food",
+	"食品酒水": "expense.necessary.food",
+	"超市便利": "expense.necessary.home",
+	"日用百货": "expense.necessary.home",
+	"数码电器": "expense.discretion.shopping",
+	"服饰装扮": "expense.discretion.shopping",
+	"美容美发": "expense.discretion.shopping",
+	"运动户外": "expense.discretion.leisure",
+	"文化休闲": "expense.discretion.leisure",
+	"娱乐休闲": "expense.discretion.leisure",
+	"交通出行": "expense.necessary.transport",
+	"爱车养车": "expense.necessary.transport", // ETC、加油、保养
+	"酒店住宿": "expense.discretion.travel",
+	"旅游出行": "expense.discretion.travel",
+	"医疗健康": "expense.necessary.medical",
+	"教育培训": "expense.fixed.education",
+	"母婴亲子": "expense.family.child_growth",
+	"生活服务": "expense.necessary.home",
+	"家居家装": "expense.family.home_maintenance",
+	"通讯物流": "expense.necessary.home",
+	"公共服务": "expense.fixed.housing",
+	"保险":   "expense.fixed.insurance",
+	"金融服务": "expense.fixed.insurance",
+	"亲友代付": "", // 跳过：通常是转账
+	"转账红包": "",
+	"转账":   "",
+	"信用借还": "",
+	"投资理财": "",
 }
 
 // wechatKeywordRule 微信按关键词匹配；按优先级（越靠前越优先）。
@@ -89,14 +89,14 @@ var wechatKeywordRules = []wechatKeywordRule{
 // 亲属卡交易：你为家人花钱、从自己账户扣；需要人工区分子女/父母/配偶，
 // 所以这里不做跳过、也不预填分类，保持未分类待处理，由用户在列表页下拉选。
 var wechatPlatformMap = map[string]string{
-	"零钱提现":    "",
-	"信用卡还款":  "",
-	"理财通转入":  "",
-	"理财通转出":  "",
-	"零钱通存入":  "",
-	"零钱通取出":  "",
-	"充值":        "",
-	"提现":        "",
+	"零钱提现":  "",
+	"信用卡还款": "",
+	"理财通转入": "",
+	"理财通转出": "",
+	"零钱通存入": "",
+	"零钱通取出": "",
+	"充值":    "",
+	"提现":    "",
 }
 
 // ClassifyByRules 根据本地规则返回二级科目 ID。
@@ -129,4 +129,50 @@ func ClassifyByRules(row domain.RawBillRow) (categoryID string, skip, matched bo
 		}
 	}
 	return "", false, false
+}
+
+func ClassifyByCustomRules(row domain.RawBillRow, rules []domain.CategoryRule) (categoryID string, matched bool) {
+	for _, rule := range rules {
+		if !rule.IsActive || rule.CategoryID == "" || rule.Pattern == "" {
+			continue
+		}
+		if ruleMatches(row, rule) {
+			return rule.CategoryID, true
+		}
+	}
+	return "", false
+}
+
+func ruleMatches(row domain.RawBillRow, rule domain.CategoryRule) bool {
+	pattern := strings.ToLower(strings.TrimSpace(rule.Pattern))
+	if pattern == "" {
+		return false
+	}
+	for _, value := range ruleFieldValues(row, rule.Field) {
+		value = strings.ToLower(value)
+		switch rule.PatternType {
+		case "exact":
+			if value == pattern {
+				return true
+			}
+		default:
+			if strings.Contains(value, pattern) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func ruleFieldValues(row domain.RawBillRow, field string) []string {
+	switch field {
+	case "counterparty":
+		return []string{row.Counterparty}
+	case "description":
+		return []string{row.Description}
+	case "platform_category":
+		return []string{row.PlatformCategory}
+	default:
+		return []string{row.Counterparty, row.Description, row.PlatformCategory}
+	}
 }

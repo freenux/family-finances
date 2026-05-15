@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -26,12 +27,13 @@ type Handler struct {
 	queryStats *usecase.QueryStats
 	txRepo     port.TransactionRepo
 	catRepo    port.CategoryRepo
+	ruleRepo   port.CategoryRuleRepo
 	log        *slog.Logger
 	flash      *flashStore
 }
 
 func New(r *web.Renderer, importBill *usecase.ImportBill, qr *usecase.QueryReport, qs *usecase.QueryStats,
-	txRepo port.TransactionRepo, catRepo port.CategoryRepo, log *slog.Logger) *Handler {
+	txRepo port.TransactionRepo, catRepo port.CategoryRepo, ruleRepo port.CategoryRuleRepo, log *slog.Logger) *Handler {
 	return &Handler{
 		render:     r,
 		importBill: importBill,
@@ -39,6 +41,7 @@ func New(r *web.Renderer, importBill *usecase.ImportBill, qr *usecase.QueryRepor
 		queryStats: qs,
 		txRepo:     txRepo,
 		catRepo:    catRepo,
+		ruleRepo:   ruleRepo,
 		log:        log,
 		flash:      newFlashStore(),
 	}
@@ -237,6 +240,157 @@ func (h *Handler) StatsTopAPI(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, out)
+}
+
+// ----- Category rules -----
+
+type rulesVM struct {
+	pageBase
+	Rules      []domain.CategoryRule
+	Categories []domain.Category
+	Error      string
+}
+
+func (h *Handler) Rules(w http.ResponseWriter, r *http.Request) {
+	h.renderRules(w, r, "")
+}
+
+func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
+	rule, err := h.ruleFromForm(r)
+	if err != nil {
+		h.renderRulesWithStatus(w, r, err.Error(), http.StatusBadRequest)
+		return
+	}
+	rule.ID = newID()
+	rule.Source = "user"
+	rule.IsActive = true
+	rule.CreatedAt = time.Now()
+	if err := h.ruleRepo.InsertRule(r.Context(), rule); err != nil {
+		h.serverError(w, err)
+		return
+	}
+	h.flash.set(w, "规则已新增。")
+	http.Redirect(w, r, "/rules", http.StatusSeeOther)
+}
+
+func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
+	id := chiURLParam(r, "id")
+	rule, err := h.ruleFromForm(r)
+	if err != nil {
+		h.renderRulesWithStatus(w, r, err.Error(), http.StatusBadRequest)
+		return
+	}
+	rule.ID = id
+	if err := h.ruleRepo.UpdateRule(r.Context(), rule); err != nil {
+		h.serverError(w, err)
+		return
+	}
+	h.flash.set(w, "规则已保存。")
+	http.Redirect(w, r, "/rules", http.StatusSeeOther)
+}
+
+func (h *Handler) ToggleRule(w http.ResponseWriter, r *http.Request) {
+	id := chiURLParam(r, "id")
+	active := r.FormValue("active") == "1"
+	if err := h.ruleRepo.SetRuleActive(r.Context(), id, active); err != nil {
+		h.serverError(w, err)
+		return
+	}
+	http.Redirect(w, r, "/rules", http.StatusSeeOther)
+}
+
+func (h *Handler) DeleteRule(w http.ResponseWriter, r *http.Request) {
+	id := chiURLParam(r, "id")
+	if err := h.ruleRepo.DeleteRule(r.Context(), id); err != nil {
+		h.serverError(w, err)
+		return
+	}
+	h.flash.set(w, "规则已删除。")
+	http.Redirect(w, r, "/rules", http.StatusSeeOther)
+}
+
+func (h *Handler) renderRules(w http.ResponseWriter, r *http.Request, msg string) {
+	h.renderRulesWithStatus(w, r, msg, http.StatusOK)
+}
+
+func (h *Handler) renderRulesWithStatus(w http.ResponseWriter, r *http.Request, msg string, status int) {
+	rules, err := h.ruleRepo.ListRules(r.Context())
+	if err != nil {
+		h.serverError(w, err)
+		return
+	}
+	cats, err := h.catRepo.ListAll(r.Context())
+	if err != nil {
+		h.serverError(w, err)
+		return
+	}
+	if status != http.StatusOK {
+		w.WriteHeader(status)
+	}
+	vm := rulesVM{
+		pageBase:   pageBase{Title: "分类规则", Nav: "rules", Flash: h.flash.pop(w, r)},
+		Rules:      rules,
+		Categories: cats,
+		Error:      msg,
+	}
+	if err := h.render.RenderPage(w, "rules", vm); err != nil {
+		h.serverError(w, err)
+	}
+}
+
+func (h *Handler) ruleFromForm(r *http.Request) (domain.CategoryRule, error) {
+	if err := r.ParseForm(); err != nil {
+		return domain.CategoryRule{}, fmt.Errorf("表单解析失败")
+	}
+	pattern := strings.TrimSpace(r.FormValue("pattern"))
+	if pattern == "" {
+		return domain.CategoryRule{}, fmt.Errorf("请输入匹配内容")
+	}
+	patternType := r.FormValue("pattern_type")
+	if patternType != "exact" {
+		patternType = "contains"
+	}
+	field := r.FormValue("field")
+	switch field {
+	case "counterparty", "description", "platform_category":
+	default:
+		field = "any"
+	}
+	categoryID := r.FormValue("category_id")
+	if categoryID == "" {
+		return domain.CategoryRule{}, fmt.Errorf("请选择分类")
+	}
+	if err := h.ensureLeafCategory(r.Context(), categoryID); err != nil {
+		return domain.CategoryRule{}, err
+	}
+	priority := 10
+	if raw := strings.TrimSpace(r.FormValue("priority")); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil {
+			return domain.CategoryRule{}, fmt.Errorf("优先级必须是整数")
+		}
+		priority = v
+	}
+	return domain.CategoryRule{
+		Pattern:     pattern,
+		PatternType: patternType,
+		Field:       field,
+		CategoryID:  categoryID,
+		Priority:    priority,
+	}, nil
+}
+
+func (h *Handler) ensureLeafCategory(ctx context.Context, id string) error {
+	cats, err := h.catRepo.ListAll(ctx)
+	if err != nil {
+		return err
+	}
+	for _, c := range cats {
+		if c.ID == id && c.Level == 2 {
+			return nil
+		}
+	}
+	return fmt.Errorf("请选择有效的二级分类")
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

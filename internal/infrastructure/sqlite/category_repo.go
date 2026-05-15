@@ -45,3 +45,75 @@ func (r *CategoryRepo) query(ctx context.Context, q string, args ...any) ([]doma
 	}
 	return out, rows.Err()
 }
+
+func (r *CategoryRepo) ListRules(ctx context.Context) ([]domain.CategoryRule, error) {
+	return r.queryRules(ctx, `
+SELECT id, pattern, pattern_type, field, category_id, priority, source, is_active, created_at
+FROM category_rules
+ORDER BY is_active DESC, priority ASC, created_at DESC`)
+}
+
+func (r *CategoryRepo) ListActiveRules(ctx context.Context) ([]domain.CategoryRule, error) {
+	return r.queryRules(ctx, `
+SELECT id, pattern, pattern_type, field, category_id, priority, source, is_active, created_at
+FROM category_rules
+WHERE is_active = 1
+ORDER BY priority ASC, created_at DESC`)
+}
+
+func (r *CategoryRepo) InsertRule(ctx context.Context, rule domain.CategoryRule) error {
+	_, err := r.db.ExecContext(ctx, `
+INSERT INTO category_rules (id, pattern, pattern_type, field, category_id, priority, source, is_active, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		rule.ID, rule.Pattern, rule.PatternType, rule.Field, rule.CategoryID,
+		rule.Priority, rule.Source, boolInt(rule.IsActive), rule.CreatedAt)
+	return err
+}
+
+func (r *CategoryRepo) UpdateRule(ctx context.Context, rule domain.CategoryRule) error {
+	_, err := r.db.ExecContext(ctx, `
+UPDATE category_rules
+SET pattern = ?, pattern_type = ?, field = ?, category_id = ?, priority = ?
+WHERE id = ?`,
+		rule.Pattern, rule.PatternType, rule.Field, rule.CategoryID, rule.Priority, rule.ID)
+	return err
+}
+
+func (r *CategoryRepo) SetRuleActive(ctx context.Context, id string, active bool) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE category_rules SET is_active = ? WHERE id = ?`, boolInt(active), id)
+	return err
+}
+
+func (r *CategoryRepo) DeleteRule(ctx context.Context, id string) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM category_rules WHERE id = ?`, id)
+	return err
+}
+
+func (r *CategoryRepo) queryRules(ctx context.Context, q string, args ...any) ([]domain.CategoryRule, error) {
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.CategoryRule
+	for rows.Next() {
+		var rule domain.CategoryRule
+		var active int
+		if err := rows.Scan(
+			&rule.ID, &rule.Pattern, &rule.PatternType, &rule.Field, &rule.CategoryID,
+			&rule.Priority, &rule.Source, &active, &rule.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		rule.IsActive = active == 1
+		out = append(out, rule)
+	}
+	return out, rows.Err()
+}
+
+func boolInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}

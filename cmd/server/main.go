@@ -52,7 +52,7 @@ func main() {
 	})
 
 	classifyPending := usecase.NewClassifyPending(txRepo, catRepo, llmClient, log)
-	importBill := usecase.NewImportBill(txRepo).WithTrigger(classifyPending.Trigger)
+	importBill := usecase.NewImportBill(txRepo, catRepo).WithTrigger(classifyPending.Trigger)
 	queryRep := usecase.NewQueryReport(txRepo, catRepo)
 	queryStats := usecase.NewQueryStats(txRepo, catRepo)
 
@@ -66,7 +66,7 @@ func main() {
 		log.Error("init renderer", "err", err)
 		os.Exit(1)
 	}
-	h := handler.New(renderer, importBill, queryRep, queryStats, txRepo, catRepo, log)
+	h := handler.New(renderer, importBill, queryRep, queryStats, txRepo, catRepo, catRepo, log)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
@@ -77,6 +77,11 @@ func main() {
 		http.Redirect(w, req, "/", http.StatusMovedPermanently)
 	})
 	r.Get("/cashflow", h.Dashboard)
+	r.Get("/rules", h.Rules)
+	r.Post("/rules", h.CreateRule)
+	r.Post("/rules/{id}", h.UpdateRule)
+	r.Post("/rules/{id}/active", h.ToggleRule)
+	r.Post("/rules/{id}/delete", h.DeleteRule)
 	r.Get("/api/stats", h.StatsAPI)
 	r.Get("/api/stats/top", h.StatsTopAPI)
 	r.Get("/transactions", h.ListTransactions)

@@ -1,5 +1,7 @@
 package domain
 
+import "time"
+
 type CategoryType string
 
 const (
@@ -23,4 +25,16 @@ type CategoryAggregation struct {
 	Name       string
 	ParentID   string
 	Amount     int64
+}
+
+type CategoryRule struct {
+	ID          string
+	Pattern     string
+	PatternType string
+	Field       string
+	CategoryID  string
+	Priority    int
+	Source      string
+	IsActive    bool
+	CreatedAt   time.Time
 }

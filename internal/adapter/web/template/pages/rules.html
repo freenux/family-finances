@@ -1,0 +1,159 @@
+{{define "content"}}
+<div class="rules-page">
+  <div class="rules-hero">
+    <div>
+      <div class="rules-kicker">RULE WORKBENCH</div>
+      <h2>分类规则</h2>
+      <div class="meta">导入账单时优先匹配启用规则；未命中再回退内置规则与 AI 分类</div>
+    </div>
+    <a class="btn secondary" href="/imports">导入账单</a>
+  </div>
+
+  {{if .Flash}}
+    <div class="rule-notice success">{{.Flash}}</div>
+  {{end}}
+  {{if .Error}}
+    <div class="rule-notice error">{{.Error}}</div>
+  {{end}}
+
+  <section class="rules-layout">
+    <aside class="rule-create-panel">
+      <div class="panel-label">新增规则</div>
+      <form class="rules-form" method="POST" action="/rules">
+        <label>
+          匹配字段
+          <select name="field">
+            <option value="any">对方 / 说明 / 平台分类</option>
+            <option value="counterparty">交易对方</option>
+            <option value="description">商品说明</option>
+            <option value="platform_category">平台分类</option>
+          </select>
+        </label>
+
+        <label>
+          匹配方式
+          <select name="pattern_type">
+            <option value="contains">包含</option>
+            <option value="exact">精确等于</option>
+          </select>
+        </label>
+
+        <label class="full">
+          匹配内容
+          <input type="text" name="pattern" required placeholder="例如：停车、物业、深圳通">
+        </label>
+
+        <label class="full">
+          分类
+          <select name="category_id" required>
+            <option value="">— 请选择 —</option>
+            {{range groupCategories .Categories}}
+              <optgroup label="{{.Group.Name}}">
+                {{range .Items}}
+                  <option value="{{.ID}}">{{.Name}}</option>
+                {{end}}
+              </optgroup>
+            {{end}}
+          </select>
+        </label>
+
+        <label>
+          优先级
+          <input type="number" name="priority" value="10" step="1">
+        </label>
+
+        <div class="rules-hint">
+          数字越小越先匹配。把更具体的词放在更高优先级，例如“停车”优先于“出行”。
+        </div>
+
+        <button class="btn" type="submit">新增规则</button>
+      </form>
+    </aside>
+
+    <div class="rules-panel">
+      <div class="rules-panel-head">
+        <div>
+          <div class="panel-label">规则清单</div>
+          <h3>自动分类匹配顺序</h3>
+        </div>
+        <div class="rules-count">{{len .Rules}} 条</div>
+      </div>
+
+      {{if .Rules}}
+        <div class="rule-list">
+          {{range .Rules}}
+            {{$rule := .}}
+            <form class="rule-card {{if not .IsActive}}is-paused{{end}}" method="POST" action="/rules/{{.ID}}">
+              <div class="rule-status">
+                {{if .IsActive}}
+                  <span class="status-pill active">启用</span>
+                {{else}}
+                  <span class="status-pill paused">停用</span>
+                {{end}}
+              </div>
+
+              <label class="rule-field">
+                <span>匹配字段</span>
+                <select name="field">
+                  <option value="any" {{if eq .Field "any"}}selected{{end}}>任意字段</option>
+                  <option value="counterparty" {{if eq .Field "counterparty"}}selected{{end}}>交易对方</option>
+                  <option value="description" {{if eq .Field "description"}}selected{{end}}>商品说明</option>
+                  <option value="platform_category" {{if eq .Field "platform_category"}}selected{{end}}>平台分类</option>
+                </select>
+              </label>
+
+              <label class="rule-kind">
+                <span>方式</span>
+                <select name="pattern_type">
+                  <option value="contains" {{if eq .PatternType "contains"}}selected{{end}}>包含</option>
+                  <option value="exact" {{if eq .PatternType "exact"}}selected{{end}}>等于</option>
+                </select>
+              </label>
+
+              <label class="rule-pattern">
+                <span>匹配内容</span>
+                <input type="text" name="pattern" required value="{{.Pattern}}">
+              </label>
+
+              <label class="rule-category">
+                <span>分类</span>
+                <select name="category_id">
+                  {{range groupCategories $.Categories}}
+                    <optgroup label="{{.Group.Name}}">
+                      {{range .Items}}
+                        <option value="{{.ID}}" {{if eq .ID $rule.CategoryID}}selected{{end}}>{{.Name}}</option>
+                      {{end}}
+                    </optgroup>
+                  {{end}}
+                </select>
+              </label>
+
+              <label class="rule-priority">
+                <span>优先级</span>
+                <input type="number" name="priority" value="{{.Priority}}" step="1">
+              </label>
+
+              <div class="rule-actions">
+                <button class="btn secondary" type="submit">保存</button>
+                {{if .IsActive}}
+                  <button class="btn ghost" type="submit" name="active" value="0" formaction="/rules/{{.ID}}/active">停用</button>
+                {{else}}
+                  <button class="btn ghost" type="submit" name="active" value="1" formaction="/rules/{{.ID}}/active">启用</button>
+                {{end}}
+                <button class="btn danger" type="submit" formaction="/rules/{{.ID}}/delete">删除</button>
+              </div>
+            </form>
+          {{end}}
+        </div>
+      {{else}}
+        <div class="rules-empty">
+          <div class="empty-title">还没有自定义规则</div>
+          <div class="meta">新增后，下一次账单导入会自动使用。</div>
+        </div>
+      {{end}}
+    </div>
+  </section>
+</div>
+{{end}}
+
+{{define "page"}}{{template "base" .}}{{end}}

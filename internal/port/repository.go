@@ -70,3 +70,12 @@ type CategoryRepo interface {
 	ListAll(ctx context.Context) ([]domain.Category, error)
 	ListByType(ctx context.Context, t domain.CategoryType) ([]domain.Category, error)
 }
+
+type CategoryRuleRepo interface {
+	ListRules(ctx context.Context) ([]domain.CategoryRule, error)
+	ListActiveRules(ctx context.Context) ([]domain.CategoryRule, error)
+	InsertRule(ctx context.Context, rule domain.CategoryRule) error
+	UpdateRule(ctx context.Context, rule domain.CategoryRule) error
+	SetRuleActive(ctx context.Context, id string, active bool) error
+	DeleteRule(ctx context.Context, id string) error
+}

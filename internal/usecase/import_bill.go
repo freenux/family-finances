@@ -14,12 +14,13 @@ import (
 )
 
 type ImportBill struct {
-	txRepo  port.TransactionRepo
-	trigger func()
+	txRepo   port.TransactionRepo
+	ruleRepo port.CategoryRuleRepo
+	trigger  func()
 }
 
-func NewImportBill(txRepo port.TransactionRepo) *ImportBill {
-	return &ImportBill{txRepo: txRepo}
+func NewImportBill(txRepo port.TransactionRepo, ruleRepo port.CategoryRuleRepo) *ImportBill {
+	return &ImportBill{txRepo: txRepo, ruleRepo: ruleRepo}
 }
 
 // WithTrigger 挂一个导入成功后的钩子（例如唤醒 LLM 后台分类）
@@ -51,6 +52,10 @@ func (uc *ImportBill) Execute(ctx context.Context, in ImportBillInput) (port.Imp
 	if err != nil {
 		return port.ImportResult{}, fmt.Errorf("解析账单失败: %w", err)
 	}
+	customRules, err := uc.ruleRepo.ListActiveRules(ctx)
+	if err != nil {
+		return port.ImportResult{}, fmt.Errorf("读取分类规则失败: %w", err)
+	}
 
 	batchID := uuid.NewString()
 	now := time.Now()
@@ -62,7 +67,11 @@ func (uc *ImportBill) Execute(ctx context.Context, in ImportBillInput) (port.Imp
 		pendingCat     int
 	)
 	for _, r := range rawRows {
-		catID, skip, _ := ClassifyByRules(r)
+		catID, customMatched := ClassifyByCustomRules(r, customRules)
+		skip := false
+		if !customMatched {
+			catID, skip, _ = ClassifyByRules(r)
+		}
 		if skip {
 			skippedInvalid++
 			continue
