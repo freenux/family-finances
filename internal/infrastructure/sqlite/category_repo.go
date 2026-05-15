@@ -61,6 +61,20 @@ WHERE is_active = 1
 ORDER BY priority ASC, created_at DESC`)
 }
 
+func (r *CategoryRepo) GetRule(ctx context.Context, id string) (domain.CategoryRule, error) {
+	rows, err := r.queryRules(ctx, `
+SELECT id, pattern, pattern_type, field, category_id, priority, source, is_active, created_at
+FROM category_rules
+WHERE id = ?`, id)
+	if err != nil {
+		return domain.CategoryRule{}, err
+	}
+	if len(rows) == 0 {
+		return domain.CategoryRule{}, sql.ErrNoRows
+	}
+	return rows[0], nil
+}
+
 func (r *CategoryRepo) InsertRule(ctx context.Context, rule domain.CategoryRule) error {
 	_, err := r.db.ExecContext(ctx, `
 INSERT INTO category_rules (id, pattern, pattern_type, field, category_id, priority, source, is_active, created_at)

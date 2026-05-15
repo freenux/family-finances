@@ -427,6 +427,29 @@ table.tx-list .amount {
 .tx-summary .positive { color: var(--positive); }
 .tx-summary .negative { color: var(--negative); }
 
+.rule-apply-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  background: #f3fbf6;
+  color: var(--positive);
+  border: 1px solid #b9dcc9;
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+.rule-apply-bar strong {
+  margin-right: 8px;
+  color: var(--text);
+}
+.rule-apply-bar .btn:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+  filter: none;
+}
+
 table.tx-list.editable th.sortable {
   cursor: pointer;
   user-select: none;
@@ -620,10 +643,9 @@ table.tx-list.editable .meta-sm {
   flex-direction: column;
 }
 .rule-card {
-  display: grid;
-  grid-template-columns: 68px minmax(112px, .85fr) 82px minmax(170px, 1.25fr) minmax(170px, 1fr) 76px auto;
-  gap: 10px;
-  align-items: end;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
@@ -640,6 +662,19 @@ table.tx-list.editable .meta-sm {
 .rule-card.is-paused input,
 .rule-card.is-paused select {
   color: var(--muted);
+}
+.rule-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.rule-card-fields {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(90px, .7fr) minmax(180px, 1.35fr);
+  gap: 10px;
+  align-items: end;
+  min-width: 0;
 }
 .status-pill {
   display: inline-flex;
@@ -695,18 +730,8 @@ table.tx-list.editable .meta-sm {
 }
 
 @media (max-width: 1100px) {
-  .rule-card {
-    grid-template-columns: 64px 1fr 86px;
-  }
-  .rule-field,
-  .rule-pattern,
-  .rule-category {
-    grid-column: span 1;
-  }
-  .rule-kind,
-  .rule-priority,
-  .rule-actions {
-    grid-column: span 1;
+  .rule-card-fields {
+    grid-template-columns: minmax(150px, 1fr) minmax(96px, .7fr);
   }
   .rule-actions {
     justify-content: flex-start;
@@ -728,8 +753,12 @@ table.tx-list.editable .meta-sm {
     flex-direction: column;
   }
   .rules-form,
-  .rule-card {
+  .rule-card-fields {
     grid-template-columns: 1fr;
+  }
+  .rule-card-top {
+    align-items: flex-start;
+    flex-direction: column;
   }
   .rule-actions {
     flex-wrap: wrap;

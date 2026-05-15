@@ -414,6 +414,7 @@ type txRowJSON struct {
 	Direction    string `json:"direction"`
 	Status       string `json:"status"`
 	CategoryID   string `json:"category_id"`
+	RawRow       string `json:"raw_row"`
 }
 
 type catJSON struct {
@@ -425,6 +426,15 @@ type catJSON struct {
 	Level     int    `json:"level"`
 }
 
+type ruleJSON struct {
+	ID           string `json:"id"`
+	Pattern      string `json:"pattern"`
+	PatternType  string `json:"pattern_type"`
+	Field        string `json:"field"`
+	CategoryID   string `json:"category_id"`
+	CategoryName string `json:"category_name"`
+}
+
 type txListVM struct {
 	pageBase
 	Transactions []domain.Transaction
@@ -433,6 +443,25 @@ type txListVM struct {
 	// 给 Alpine 用的 JSON 内联数据
 	TransactionsJSON string
 	CategoriesJSON   string
+	RuleJSON         string
+}
+
+func ruleJSONFromDomain(rule domain.CategoryRule, cats []domain.Category) ruleJSON {
+	name := rule.CategoryID
+	for _, c := range cats {
+		if c.ID == rule.CategoryID {
+			name = c.Name
+			break
+		}
+	}
+	return ruleJSON{
+		ID:           rule.ID,
+		Pattern:      rule.Pattern,
+		PatternType:  rule.PatternType,
+		Field:        rule.Field,
+		CategoryID:   rule.CategoryID,
+		CategoryName: name,
+	}
 }
 
 func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
@@ -467,6 +496,7 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 			Direction:    string(t.Direction),
 			Status:       string(t.Status),
 			CategoryID:   t.CategoryID,
+			RawRow:       t.RawRow,
 		})
 	}
 
@@ -494,6 +524,15 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 
 	txBytes, _ := json.Marshal(txJSON)
 	catBytes, _ := json.Marshal(catJSONs)
+	ruleBytes := []byte("null")
+	if ruleID := strings.TrimSpace(r.URL.Query().Get("rule_id")); ruleID != "" {
+		rule, err := h.ruleRepo.GetRule(r.Context(), ruleID)
+		if err != nil {
+			http.Error(w, "规则不存在: "+err.Error(), http.StatusNotFound)
+			return
+		}
+		ruleBytes, _ = json.Marshal(ruleJSONFromDomain(rule, cats))
+	}
 
 	vm := txListVM{
 		pageBase: pageBase{
@@ -507,6 +546,7 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		Categories:       cats,
 		TransactionsJSON: string(txBytes),
 		CategoriesJSON:   string(catBytes),
+		RuleJSON:         string(ruleBytes),
 	}
 	if err := h.render.RenderPage(w, "transactions", vm); err != nil {
 		h.serverError(w, err)
@@ -541,6 +581,7 @@ func (h *Handler) ListTransactionsAPI(w http.ResponseWriter, r *http.Request) {
 			Direction:    string(t.Direction),
 			Status:       string(t.Status),
 			CategoryID:   t.CategoryID,
+			RawRow:       t.RawRow,
 		})
 	}
 	writeJSON(w, map[string]any{"transactions": out})

@@ -84,63 +84,67 @@
           {{range .Rules}}
             {{$rule := .}}
             <form class="rule-card {{if not .IsActive}}is-paused{{end}}" method="POST" action="/rules/{{.ID}}">
-              <div class="rule-status">
-                {{if .IsActive}}
-                  <span class="status-pill active">启用</span>
-                {{else}}
-                  <span class="status-pill paused">停用</span>
-                {{end}}
+              <div class="rule-card-top">
+                <div class="rule-status">
+                  {{if .IsActive}}
+                    <span class="status-pill active">启用</span>
+                  {{else}}
+                    <span class="status-pill paused">停用</span>
+                  {{end}}
+                </div>
+                <div class="rule-actions">
+                  <a class="btn ghost" href="/transactions?rule_id={{.ID}}">查看流水</a>
+                  <button class="btn secondary" type="submit">保存</button>
+                  {{if .IsActive}}
+                    <button class="btn ghost" type="submit" name="active" value="0" formaction="/rules/{{.ID}}/active">停用</button>
+                  {{else}}
+                    <button class="btn ghost" type="submit" name="active" value="1" formaction="/rules/{{.ID}}/active">启用</button>
+                  {{end}}
+                  <button class="btn danger" type="submit" formaction="/rules/{{.ID}}/delete">删除</button>
+                </div>
               </div>
 
-              <label class="rule-field">
-                <span>匹配字段</span>
-                <select name="field">
-                  <option value="any" {{if eq .Field "any"}}selected{{end}}>任意字段</option>
-                  <option value="counterparty" {{if eq .Field "counterparty"}}selected{{end}}>交易对方</option>
-                  <option value="description" {{if eq .Field "description"}}selected{{end}}>商品说明</option>
-                  <option value="platform_category" {{if eq .Field "platform_category"}}selected{{end}}>平台分类</option>
-                </select>
-              </label>
+              <div class="rule-card-fields">
+                <label class="rule-field">
+                  <span>匹配字段</span>
+                  <select name="field">
+                    <option value="any" {{if eq .Field "any"}}selected{{end}}>任意字段</option>
+                    <option value="counterparty" {{if eq .Field "counterparty"}}selected{{end}}>交易对方</option>
+                    <option value="description" {{if eq .Field "description"}}selected{{end}}>商品说明</option>
+                    <option value="platform_category" {{if eq .Field "platform_category"}}selected{{end}}>平台分类</option>
+                  </select>
+                </label>
 
-              <label class="rule-kind">
-                <span>方式</span>
-                <select name="pattern_type">
-                  <option value="contains" {{if eq .PatternType "contains"}}selected{{end}}>包含</option>
-                  <option value="exact" {{if eq .PatternType "exact"}}selected{{end}}>等于</option>
-                </select>
-              </label>
+                <label class="rule-kind">
+                  <span>方式</span>
+                  <select name="pattern_type">
+                    <option value="contains" {{if eq .PatternType "contains"}}selected{{end}}>包含</option>
+                    <option value="exact" {{if eq .PatternType "exact"}}selected{{end}}>等于</option>
+                  </select>
+                </label>
 
-              <label class="rule-pattern">
-                <span>匹配内容</span>
-                <input type="text" name="pattern" required value="{{.Pattern}}">
-              </label>
+                <label class="rule-pattern">
+                  <span>匹配内容</span>
+                  <input type="text" name="pattern" required value="{{.Pattern}}">
+                </label>
 
-              <label class="rule-category">
-                <span>分类</span>
-                <select name="category_id">
-                  {{range groupCategories $.Categories}}
-                    <optgroup label="{{.Group.Name}}">
-                      {{range .Items}}
-                        <option value="{{.ID}}" {{if eq .ID $rule.CategoryID}}selected{{end}}>{{.Name}}</option>
-                      {{end}}
-                    </optgroup>
-                  {{end}}
-                </select>
-              </label>
+                <label class="rule-category">
+                  <span>分类</span>
+                  <select name="category_id">
+                    {{range groupCategories $.Categories}}
+                      <optgroup label="{{.Group.Name}}">
+                        {{range .Items}}
+                          <option value="{{.ID}}" {{if eq .ID $rule.CategoryID}}selected{{end}}>{{.Name}}</option>
+                        {{end}}
+                      </optgroup>
+                    {{end}}
+                  </select>
+                </label>
 
-              <label class="rule-priority">
-                <span>优先级</span>
-                <input type="number" name="priority" value="{{.Priority}}" step="1">
-              </label>
-
-              <div class="rule-actions">
-                <button class="btn secondary" type="submit">保存</button>
-                {{if .IsActive}}
-                  <button class="btn ghost" type="submit" name="active" value="0" formaction="/rules/{{.ID}}/active">停用</button>
-                {{else}}
-                  <button class="btn ghost" type="submit" name="active" value="1" formaction="/rules/{{.ID}}/active">启用</button>
-                {{end}}
-                <button class="btn danger" type="submit" formaction="/rules/{{.ID}}/delete">删除</button>
+                <label class="rule-priority">
+                  <span>优先级</span>
+                  <input type="number" name="priority" value="{{.Priority}}" step="1">
+                </label>
               </div>
             </form>
           {{end}}

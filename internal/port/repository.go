@@ -74,6 +74,7 @@ type CategoryRepo interface {
 type CategoryRuleRepo interface {
 	ListRules(ctx context.Context) ([]domain.CategoryRule, error)
 	ListActiveRules(ctx context.Context) ([]domain.CategoryRule, error)
+	GetRule(ctx context.Context, id string) (domain.CategoryRule, error)
 	InsertRule(ctx context.Context, rule domain.CategoryRule) error
 	UpdateRule(ctx context.Context, rule domain.CategoryRule) error
 	SetRuleActive(ctx context.Context, id string, active bool) error

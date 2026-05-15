@@ -4,6 +4,8 @@
 function txTable() {
   const txData = JSON.parse(document.getElementById('data-transactions').textContent || '[]');
   const catData = JSON.parse(document.getElementById('data-categories').textContent || '[]');
+  const ruleEl = document.getElementById('data-rule');
+  const ruleData = ruleEl ? JSON.parse(ruleEl.textContent || 'null') : null;
 
   // 按一级分组组装二级科目，给下拉用
   const groups = [];
@@ -35,6 +37,8 @@ function txTable() {
     account:     'family',
     loading:     false,
     errorMsg:    '',
+    activeRule:  ruleData,
+    applyingRule: false,
 
     keyword: '',
     directionFilter: 'all',
@@ -51,6 +55,11 @@ function txTable() {
       this.granularity = granularityFromPeriodType(el.dataset.initialGranularity || 'monthly');
       this.periodKey = el.dataset.initialPeriod || defaultPeriodKey(this.granularity);
       this.account = el.dataset.initialAccount || 'family';
+      if (this.activeRule) {
+        this.keyword = this.activeRule.pattern || '';
+        this.categoryFilter = '';
+        this.statusFilter = ['pending_review', 'confirmed'];
+      }
     },
 
     setGranularity(g) {
@@ -75,6 +84,7 @@ function txTable() {
         period:  this.periodKey,
         account: this.account,
       });
+      if (this.activeRule) q.set('rule_id', this.activeRule.id);
       window.history.replaceState(null, '', window.location.pathname + '?' + q.toString());
       try {
         const r = await fetch('/api/transactions?' + q.toString());
@@ -110,10 +120,12 @@ function txTable() {
           const hay = (
             (t.counterparty || '') + ' ' +
             (t.description || '') + ' ' +
-            (t.note || '')
+            (t.note || '') + ' ' +
+            (t.raw_row || '')
           ).toLowerCase();
           if (!hay.includes(kw)) return false;
         }
+        if (this.activeRule && !this.matchesRule(t, this.activeRule)) return false;
         return true;
       });
 
@@ -178,6 +190,66 @@ function txTable() {
       this.accountFilter = ['husband', 'wife'];
       this.statusFilter = ['pending_review', 'confirmed'];
       this.categoryFilter = '';
+      this.activeRule = null;
+      const q = new URLSearchParams(window.location.search);
+      q.delete('rule_id');
+      window.history.replaceState(null, '', window.location.pathname + (q.toString() ? '?' + q.toString() : ''));
+    },
+
+    ruleLabel() {
+      if (!this.activeRule) return '';
+      const field = {
+        any: '任意字段',
+        counterparty: '交易对方',
+        description: '商品说明',
+        platform_category: '平台分类',
+      }[this.activeRule.field] || '任意字段';
+      const kind = this.activeRule.pattern_type === 'exact' ? '等于' : '包含';
+      return `${field} ${kind}「${this.activeRule.pattern}」`;
+    },
+
+    matchesRule(t, rule) {
+      const pattern = String(rule.pattern || '').trim().toLowerCase();
+      if (!pattern) return false;
+      const values = this.ruleFieldValues(t, rule.field);
+      return values.some((value) => {
+        value = String(value || '').toLowerCase();
+        if (rule.pattern_type === 'exact') return value === pattern;
+        return value.includes(pattern);
+      });
+    },
+
+    ruleFieldValues(t, field) {
+      if (field === 'counterparty') return [t.counterparty];
+      if (field === 'description') return [t.description];
+      if (field === 'platform_category') return [t.raw_row];
+      return [t.counterparty, t.description, t.note, t.raw_row];
+    },
+
+    async applyRule() {
+      if (!this.activeRule || this.filtered.length === 0 || this.applyingRule) return;
+      this.applyingRule = true;
+      const categoryID = this.activeRule.category_id;
+      let okCount = 0;
+      try {
+        for (const t of [...this.filtered]) {
+          if (t.category_id === categoryID && t.status === 'confirmed') continue;
+          const prevCategory = t.category_id;
+          const prevStatus = t.status;
+          t.category_id = categoryID;
+          t.status = 'confirmed';
+          const ok = await this._patch(t.id, { category_id: categoryID });
+          if (!ok) {
+            t.category_id = prevCategory;
+            t.status = prevStatus;
+            break;
+          }
+          okCount++;
+        }
+        if (okCount > 0) alert(`已应用 ${okCount} 条流水。`);
+      } finally {
+        this.applyingRule = false;
+      }
     },
 
     async patchCategory(t, value) {

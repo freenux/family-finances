@@ -1,6 +1,7 @@
 {{define "content"}}
 <script id="data-transactions" type="application/json">{{rawJSON .TransactionsJSON}}</script>
 <script id="data-categories" type="application/json">{{rawJSON .CategoriesJSON}}</script>
+<script id="data-rule" type="application/json">{{rawJSON .RuleJSON}}</script>
 
 <div x-data="txTable()"
      data-initial-period="{{.Period.Label}}"
@@ -89,6 +90,20 @@
         <span>支出 <b class="negative" x-text="fmtYuan(totals.expense)"></b></span>
         <span>净额 <b :class="totals.net >= 0 ? 'positive' : 'negative'" x-text="fmtYuan(totals.net)"></b></span>
       </div>
+
+      <template x-if="activeRule">
+        <div class="rule-apply-bar">
+          <div>
+            <strong>规则匹配</strong>
+            <span x-text="ruleLabel()"></span>
+            <span>命中 <b x-text="filtered.length"></b> 条，应用后分类为</span>
+            <b x-text="activeRule.category_name"></b>
+          </div>
+          <button class="btn" type="button" @click="applyRule()" :disabled="applyingRule || filtered.length === 0">
+            <span x-text="applyingRule ? '应用中...' : '应用到当前匹配流水'"></span>
+          </button>
+        </div>
+      </template>
 
       <table class="tx-list editable">
         <thead>
