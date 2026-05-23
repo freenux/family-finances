@@ -67,11 +67,7 @@ func (uc *ImportBill) Execute(ctx context.Context, in ImportBillInput) (port.Imp
 		pendingCat     int
 	)
 	for _, r := range rawRows {
-		catID, customMatched := ClassifyByCustomRules(r, customRules)
-		skip := false
-		if !customMatched {
-			catID, skip, _ = ClassifyByRules(r)
-		}
+		catID, skip, _ := ClassifyByCustomRules(r, customRules)
 		if skip {
 			skippedInvalid++
 			continue
@@ -84,20 +80,21 @@ func (uc *ImportBill) Execute(ctx context.Context, in ImportBillInput) (port.Imp
 		rows = append(rows, port.ImportRow{
 			TransactionNo: r.TransactionNo,
 			Tx: domain.Transaction{
-				ID:            uuid.NewString(),
-				Source:        r.Source,
-				Account:       in.Account,
-				ImportBatchID: batchID,
-				OccurredAt:    r.OccurredAt,
-				Counterparty:  r.Counterparty,
-				Description:   r.Description,
-				Amount:        r.Amount,
-				Direction:     r.Direction,
-				Status:        status,
-				CategoryID:    catID,
-				RawRow:        r.RawRow,
-				CreatedAt:     now,
-				UpdatedAt:     now,
+				ID:               uuid.NewString(),
+				Source:           r.Source,
+				Account:          in.Account,
+				ImportBatchID:    batchID,
+				OccurredAt:       r.OccurredAt,
+				Counterparty:     r.Counterparty,
+				Description:      r.Description,
+				PlatformCategory: r.PlatformCategory,
+				Amount:           r.Amount,
+				Direction:        r.Direction,
+				Status:           status,
+				CategoryID:       catID,
+				RawRow:           r.RawRow,
+				CreatedAt:        now,
+				UpdatedAt:        now,
 			},
 		})
 

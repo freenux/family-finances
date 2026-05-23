@@ -48,14 +48,14 @@ func (r *CategoryRepo) query(ctx context.Context, q string, args ...any) ([]doma
 
 func (r *CategoryRepo) ListRules(ctx context.Context) ([]domain.CategoryRule, error) {
 	return r.queryRules(ctx, `
-SELECT id, pattern, pattern_type, field, category_id, priority, source, is_active, created_at
+SELECT id, pattern, pattern_type, field, COALESCE(category_id, ''), priority, source, is_active, created_at
 FROM category_rules
 ORDER BY is_active DESC, priority ASC, created_at DESC`)
 }
 
 func (r *CategoryRepo) ListActiveRules(ctx context.Context) ([]domain.CategoryRule, error) {
 	return r.queryRules(ctx, `
-SELECT id, pattern, pattern_type, field, category_id, priority, source, is_active, created_at
+SELECT id, pattern, pattern_type, field, COALESCE(category_id, ''), priority, source, is_active, created_at
 FROM category_rules
 WHERE is_active = 1
 ORDER BY priority ASC, created_at DESC`)
@@ -63,7 +63,7 @@ ORDER BY priority ASC, created_at DESC`)
 
 func (r *CategoryRepo) GetRule(ctx context.Context, id string) (domain.CategoryRule, error) {
 	rows, err := r.queryRules(ctx, `
-SELECT id, pattern, pattern_type, field, category_id, priority, source, is_active, created_at
+SELECT id, pattern, pattern_type, field, COALESCE(category_id, ''), priority, source, is_active, created_at
 FROM category_rules
 WHERE id = ?`, id)
 	if err != nil {
@@ -79,7 +79,7 @@ func (r *CategoryRepo) InsertRule(ctx context.Context, rule domain.CategoryRule)
 	_, err := r.db.ExecContext(ctx, `
 INSERT INTO category_rules (id, pattern, pattern_type, field, category_id, priority, source, is_active, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		rule.ID, rule.Pattern, rule.PatternType, rule.Field, rule.CategoryID,
+		rule.ID, rule.Pattern, rule.PatternType, rule.Field, nullableString(rule.CategoryID),
 		rule.Priority, rule.Source, boolInt(rule.IsActive), rule.CreatedAt)
 	return err
 }
@@ -89,7 +89,7 @@ func (r *CategoryRepo) UpdateRule(ctx context.Context, rule domain.CategoryRule)
 UPDATE category_rules
 SET pattern = ?, pattern_type = ?, field = ?, category_id = ?, priority = ?
 WHERE id = ?`,
-		rule.Pattern, rule.PatternType, rule.Field, rule.CategoryID, rule.Priority, rule.ID)
+		rule.Pattern, rule.PatternType, rule.Field, nullableString(rule.CategoryID), rule.Priority, rule.ID)
 	return err
 }
 
@@ -130,4 +130,11 @@ func boolInt(v bool) int {
 		return 1
 	}
 	return 0
+}
+
+func nullableString(v string) any {
+	if v == "" {
+		return nil
+	}
+	return v
 }

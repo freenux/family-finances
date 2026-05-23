@@ -1,5 +1,6 @@
 .env
 family.db
+family.db.*
 family.db-journal
 family.db-shm
 family.db-wal
@@ -16,3 +17,4 @@ server
 .playwright-cli/
 .claude
 .agents
+*.sql

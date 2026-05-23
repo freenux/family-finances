@@ -23,9 +23,9 @@ func TestClassifyByCustomRules(t *testing.T) {
 		},
 	}
 
-	got, ok := ClassifyByCustomRules(row, rules)
-	if !ok || got != "expense.necessary.transport" {
-		t.Fatalf("ClassifyByCustomRules() = %q, %v; want transport, true", got, ok)
+	got, skip, ok := ClassifyByCustomRules(row, rules)
+	if !ok || skip || got != "expense.necessary.transport" {
+		t.Fatalf("ClassifyByCustomRules() = %q, %v, %v; want transport, false, true", got, skip, ok)
 	}
 }
 
@@ -41,7 +41,27 @@ func TestClassifyByCustomRulesIgnoresInactive(t *testing.T) {
 		},
 	}
 
-	if got, ok := ClassifyByCustomRules(row, rules); ok || got != "" {
-		t.Fatalf("ClassifyByCustomRules() = %q, %v; want empty, false", got, ok)
+	if got, skip, ok := ClassifyByCustomRules(row, rules); ok || skip || got != "" {
+		t.Fatalf("ClassifyByCustomRules() = %q, %v, %v; want empty, false, false", got, skip, ok)
+	}
+}
+
+func TestClassifyByCustomRulesSupportsSkip(t *testing.T) {
+	row := domain.RawBillRow{
+		PlatformCategory: "转账",
+		Direction:        domain.DirectionExpense,
+	}
+	rules := []domain.CategoryRule{
+		{
+			Pattern:     "转账",
+			PatternType: "exact",
+			Field:       "platform_category",
+			IsActive:    true,
+		},
+	}
+
+	got, skip, ok := ClassifyByCustomRules(row, rules)
+	if !ok || !skip || got != "" {
+		t.Fatalf("ClassifyByCustomRules() = %q, %v, %v; want empty, true, true", got, skip, ok)
 	}
 }

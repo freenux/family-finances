@@ -246,9 +246,11 @@ func (h *Handler) StatsTopAPI(w http.ResponseWriter, r *http.Request) {
 
 type rulesVM struct {
 	pageBase
-	Rules      []domain.CategoryRule
-	Categories []domain.Category
-	Error      string
+	Rules            []domain.CategoryRule
+	Categories       []domain.Category
+	FilterCategoryID string
+	TotalRules       int
+	Error            string
 }
 
 func (h *Handler) Rules(w http.ResponseWriter, r *http.Request) {
@@ -319,23 +321,44 @@ func (h *Handler) renderRulesWithStatus(w http.ResponseWriter, r *http.Request, 
 		h.serverError(w, err)
 		return
 	}
+	totalRules := len(rules)
 	cats, err := h.catRepo.ListAll(r.Context())
 	if err != nil {
 		h.serverError(w, err)
 		return
 	}
+	filterCategoryID := strings.TrimSpace(r.URL.Query().Get("category_id"))
+	if filterCategoryID != "" {
+		rules = filterRulesByCategory(rules, filterCategoryID)
+	}
 	if status != http.StatusOK {
 		w.WriteHeader(status)
 	}
 	vm := rulesVM{
-		pageBase:   pageBase{Title: "分类规则", Nav: "rules", Flash: h.flash.pop(w, r)},
-		Rules:      rules,
-		Categories: cats,
-		Error:      msg,
+		pageBase:         pageBase{Title: "分类规则", Nav: "rules", Flash: h.flash.pop(w, r)},
+		Rules:            rules,
+		Categories:       cats,
+		FilterCategoryID: filterCategoryID,
+		TotalRules:       totalRules,
+		Error:            msg,
 	}
 	if err := h.render.RenderPage(w, "rules", vm); err != nil {
 		h.serverError(w, err)
 	}
+}
+
+func filterRulesByCategory(rules []domain.CategoryRule, categoryID string) []domain.CategoryRule {
+	out := make([]domain.CategoryRule, 0, len(rules))
+	for _, rule := range rules {
+		if categoryID == "__skip__" && rule.CategoryID == "" {
+			out = append(out, rule)
+			continue
+		}
+		if rule.CategoryID == categoryID {
+			out = append(out, rule)
+		}
+	}
+	return out
 }
 
 func (h *Handler) ruleFromForm(r *http.Request) (domain.CategoryRule, error) {
@@ -357,11 +380,10 @@ func (h *Handler) ruleFromForm(r *http.Request) (domain.CategoryRule, error) {
 		field = "any"
 	}
 	categoryID := r.FormValue("category_id")
-	if categoryID == "" {
-		return domain.CategoryRule{}, fmt.Errorf("请选择分类")
-	}
-	if err := h.ensureLeafCategory(r.Context(), categoryID); err != nil {
-		return domain.CategoryRule{}, err
+	if categoryID != "" {
+		if err := h.ensureLeafCategory(r.Context(), categoryID); err != nil {
+			return domain.CategoryRule{}, err
+		}
 	}
 	priority := 10
 	if raw := strings.TrimSpace(r.FormValue("priority")); raw != "" {
@@ -403,18 +425,19 @@ func writeJSON(w http.ResponseWriter, v any) {
 // ----- Transactions list -----
 
 type txRowJSON struct {
-	ID           string `json:"id"`
-	OccurredAt   string `json:"occurred_at"`
-	Source       string `json:"source"`
-	Account      string `json:"account"`
-	Counterparty string `json:"counterparty"`
-	Description  string `json:"description"`
-	Note         string `json:"note"`
-	AmountFen    int64  `json:"amount_fen"`
-	Direction    string `json:"direction"`
-	Status       string `json:"status"`
-	CategoryID   string `json:"category_id"`
-	RawRow       string `json:"raw_row"`
+	ID               string `json:"id"`
+	OccurredAt       string `json:"occurred_at"`
+	Source           string `json:"source"`
+	Account          string `json:"account"`
+	Counterparty     string `json:"counterparty"`
+	Description      string `json:"description"`
+	PlatformCategory string `json:"platform_category"`
+	Note             string `json:"note"`
+	AmountFen        int64  `json:"amount_fen"`
+	Direction        string `json:"direction"`
+	Status           string `json:"status"`
+	CategoryID       string `json:"category_id"`
+	RawRow           string `json:"raw_row"`
 }
 
 type catJSON struct {
@@ -448,6 +471,9 @@ type txListVM struct {
 
 func ruleJSONFromDomain(rule domain.CategoryRule, cats []domain.Category) ruleJSON {
 	name := rule.CategoryID
+	if name == "" {
+		name = "跳过导入"
+	}
 	for _, c := range cats {
 		if c.ID == rule.CategoryID {
 			name = c.Name
@@ -485,18 +511,19 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 	txJSON := make([]txRowJSON, 0, len(txs))
 	for _, t := range txs {
 		txJSON = append(txJSON, txRowJSON{
-			ID:           t.ID,
-			OccurredAt:   t.OccurredAt.Format("2006-01-02"),
-			Source:       string(t.Source),
-			Account:      string(t.Account),
-			Counterparty: t.Counterparty,
-			Description:  t.Description,
-			Note:         t.Note,
-			AmountFen:    t.Amount,
-			Direction:    string(t.Direction),
-			Status:       string(t.Status),
-			CategoryID:   t.CategoryID,
-			RawRow:       t.RawRow,
+			ID:               t.ID,
+			OccurredAt:       t.OccurredAt.Format("2006-01-02"),
+			Source:           string(t.Source),
+			Account:          string(t.Account),
+			Counterparty:     t.Counterparty,
+			Description:      t.Description,
+			PlatformCategory: t.PlatformCategory,
+			Note:             t.Note,
+			AmountFen:        t.Amount,
+			Direction:        string(t.Direction),
+			Status:           string(t.Status),
+			CategoryID:       t.CategoryID,
+			RawRow:           t.RawRow,
 		})
 	}
 
@@ -570,18 +597,19 @@ func (h *Handler) ListTransactionsAPI(w http.ResponseWriter, r *http.Request) {
 	out := make([]txRowJSON, 0, len(txs))
 	for _, t := range txs {
 		out = append(out, txRowJSON{
-			ID:           t.ID,
-			OccurredAt:   t.OccurredAt.Format("2006-01-02"),
-			Source:       string(t.Source),
-			Account:      string(t.Account),
-			Counterparty: t.Counterparty,
-			Description:  t.Description,
-			Note:         t.Note,
-			AmountFen:    t.Amount,
-			Direction:    string(t.Direction),
-			Status:       string(t.Status),
-			CategoryID:   t.CategoryID,
-			RawRow:       t.RawRow,
+			ID:               t.ID,
+			OccurredAt:       t.OccurredAt.Format("2006-01-02"),
+			Source:           string(t.Source),
+			Account:          string(t.Account),
+			Counterparty:     t.Counterparty,
+			Description:      t.Description,
+			PlatformCategory: t.PlatformCategory,
+			Note:             t.Note,
+			AmountFen:        t.Amount,
+			Direction:        string(t.Direction),
+			Status:           string(t.Status),
+			CategoryID:       t.CategoryID,
+			RawRow:           t.RawRow,
 		})
 	}
 	writeJSON(w, map[string]any{"transactions": out})

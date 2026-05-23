@@ -22,7 +22,7 @@ func NewTransactionRepo(db *sql.DB) *TransactionRepo {
 func (r *TransactionRepo) Insert(ctx context.Context, tx domain.Transaction) error {
 	_, err := r.db.ExecContext(ctx, insertTxSQL,
 		tx.ID, string(tx.Source), string(tx.Account), nullIfEmpty(tx.ImportBatchID), tx.OccurredAt,
-		tx.Counterparty, tx.Description, tx.Note, tx.Amount,
+		tx.Counterparty, tx.Description, tx.PlatformCategory, tx.Note, tx.Amount,
 		string(tx.Direction), string(tx.Status), nullIfEmpty(tx.CategoryID),
 		tx.RawRow, tx.CreatedAt, tx.UpdatedAt,
 	)
@@ -31,9 +31,9 @@ func (r *TransactionRepo) Insert(ctx context.Context, tx domain.Transaction) err
 
 const insertTxSQL = `
 INSERT INTO transactions
-  (id, source, account, import_batch_id, occurred_at, counterparty, description, note,
+  (id, source, account, import_batch_id, occurred_at, counterparty, description, platform_category, note,
    amount, direction, status, category_id, raw_row, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 // InsertBatch 把一批候选行写入，逐行检查 imported_transaction_keys 去重，同一事务内提交。
 // 去重键是 (source, account, transaction_no)。
@@ -83,7 +83,7 @@ SELECT 1 FROM imported_transaction_keys WHERE source = ? AND account = ? AND tra
 		t := row.Tx
 		if _, err := insertTx.ExecContext(ctx,
 			t.ID, string(t.Source), string(t.Account), nullIfEmpty(t.ImportBatchID), t.OccurredAt,
-			t.Counterparty, t.Description, t.Note, t.Amount,
+			t.Counterparty, t.Description, t.PlatformCategory, t.Note, t.Amount,
 			string(t.Direction), string(t.Status), nullIfEmpty(t.CategoryID),
 			t.RawRow, t.CreatedAt, t.UpdatedAt,
 		); err != nil {
@@ -284,7 +284,7 @@ LIMIT ?`
 
 const selectTxSQL = `
 SELECT id, source, account, COALESCE(import_batch_id,''), occurred_at, COALESCE(counterparty,''),
-       COALESCE(description,''), COALESCE(note,''), amount, direction, status, COALESCE(category_id,''),
+       COALESCE(description,''), COALESCE(platform_category,''), COALESCE(note,''), amount, direction, status, COALESCE(category_id,''),
        COALESCE(raw_row,''), created_at, updated_at
 FROM transactions`
 
@@ -296,7 +296,7 @@ func scanTx(s scanner) (domain.Transaction, error) {
 	var t domain.Transaction
 	var src, acc, dir, st string
 	if err := s.Scan(&t.ID, &src, &acc, &t.ImportBatchID, &t.OccurredAt, &t.Counterparty,
-		&t.Description, &t.Note, &t.Amount, &dir, &st, &t.CategoryID, &t.RawRow,
+		&t.Description, &t.PlatformCategory, &t.Note, &t.Amount, &dir, &st, &t.CategoryID, &t.RawRow,
 		&t.CreatedAt, &t.UpdatedAt); err != nil {
 		return domain.Transaction{}, err
 	}

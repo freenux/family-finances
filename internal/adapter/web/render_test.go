@@ -22,12 +22,14 @@ func TestRenderRulesPage(t *testing.T) {
 	}
 
 	vm := struct {
-		Title      string
-		Nav        string
-		Rules      []domain.CategoryRule
-		Categories []domain.Category
-		Flash      string
-		Error      string
+		Title            string
+		Nav              string
+		Rules            []domain.CategoryRule
+		Categories       []domain.Category
+		FilterCategoryID string
+		TotalRules       int
+		Flash            string
+		Error            string
 	}{
 		Title: "分类规则",
 		Nav:   "rules",
@@ -47,6 +49,7 @@ func TestRenderRulesPage(t *testing.T) {
 			{ID: "expense.necessary", Level: 1, Name: "变动必要支出", SortOrder: 120},
 			{ID: "expense.necessary.transport", ParentID: "expense.necessary", Level: 2, Name: "交通出行", SortOrder: 123},
 		},
+		TotalRules: 1,
 	}
 
 	var out bytes.Buffer
@@ -54,7 +57,7 @@ func TestRenderRulesPage(t *testing.T) {
 		t.Fatalf("RenderPage() error = %v", err)
 	}
 	html := out.String()
-	for _, want := range []string{"RULE WORKBENCH", "rule-card", "深圳通", "交通出行"} {
+	for _, want := range []string{"RULE WORKBENCH", "筛选分类", "rule-card", "深圳通", "交通出行"} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("rendered rules page missing %q", want)
 		}

@@ -39,7 +39,7 @@ cmd/server/main.go         组装入口：config → sqlite.Open → Migrate →
 internal/
   domain/                  纯领域模型（Transaction / Category / Period / ReportData / KPI / RawBillRow / ImportBatch）
   port/                    Repository 接口 + ImportRow / TransactionUpdate / ImportResult 数据对象
-  usecase/                 QueryReport、ImportBill、ClassifyByRules、ClassifyPending（LLM）
+  usecase/                 QueryReport、ImportBill、ClassifyByCustomRules、ClassifyPending（LLM）
   infrastructure/
     config/                env/godotenv 加载 Config
     sqlite/                sql.DB + goose 迁移 + 各 Repo 实现
@@ -75,7 +75,7 @@ internal/
 2. `POST /imports` → `ImportBill.Execute`：
    - `adapter/bill/ParserFor(source)` 得到解析器；alipay 走 GB18030 → UTF-8 → `encoding/csv`；wechat 走 `excelize.OpenFile`（先拷贝到临时文件）。
    - 解析器跳过元信息头，找 `交易时间` 表头行后逐行解析，过滤非交易成功 / 不计收支。输出 `[]RawBillRow`。
-   - `ClassifyByRules(row)` 本地规则分类：alipay 直接映射"交易分类"（`alipayCategoryMap`）；wechat 按关键词（`wechatKeywordRules`，顺序敏感）。规则命中空字符串 → 视为"应跳过"（转账/中性交易），不入库；未命中 → `category_id=NULL`, `status=pending_review`。
+   - `ClassifyByCustomRules(row, rules)` 读取 `category_rules` 数据库规则分类；页面新增/保存的规则和迁移种下的内置规则都在同一张表。规则 `category_id=NULL` → 视为"应跳过"（转账/提现等），不入库；未命中 → `category_id=NULL`, `status=pending_review`。
    - `TransactionRepo.InsertBatch` 一个事务里：对每行 `SELECT FROM imported_transaction_keys` 去重 → `INSERT transactions` + `INSERT imported_transaction_keys` → 最后 `INSERT import_batches`。
    - 成功后调 `uc.trigger()`（在 main.go 里绑定到 `ClassifyPending.Trigger`）唤醒 LLM 后台兜底。
 3. Flash cookie 回显结果，302 到 `/transactions`。
@@ -113,5 +113,5 @@ internal/
 
 - UI 文本、错误信息、模板注释用简体中文；代码注释按需简短。
 - 新增 Repository 方法：先在 `internal/port/` 加接口，再在 `internal/infrastructure/sqlite/` 加实现，usecase 通过接口依赖。
-- 新增分类规则：优先改 `internal/usecase/classify_rules.go`（快、白盒、可测）。LLM 只是兜底，不要把"期望永远命中"的规则丢给它。
+- 新增分类规则：优先在"分类规则"页面维护，规则存入 `category_rules` 表；需要默认自带的规则时新增迁移种子。LLM 只是兜底，不要把"期望永远命中"的规则丢给它。
 - 新增账单来源：在 `internal/adapter/bill/` 下加 `xxx.go` 实现 `Parser` 接口，然后在 `bill.go` 的 `ParserFor` 里注册，再在 handler 上传表单里加 option。

@@ -56,7 +56,7 @@ CREATE TABLE category_rules (
     pattern       TEXT NOT NULL,
     pattern_type  TEXT NOT NULL,
     field         TEXT NOT NULL,
-    category_id   TEXT NOT NULL,
+    category_id   TEXT,
     priority      INTEGER NOT NULL DEFAULT 10,
     source        TEXT NOT NULL DEFAULT 'builtin',
     is_active     INTEGER NOT NULL DEFAULT 1,

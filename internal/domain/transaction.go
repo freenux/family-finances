@@ -54,19 +54,20 @@ func (a Account) Label() string {
 }
 
 type Transaction struct {
-	ID            string
-	Source        Source
-	Account       Account
-	ImportBatchID string
-	OccurredAt    time.Time
-	Counterparty  string
-	Description   string
-	Note          string // 用户在流水表中手填的备注
-	Amount        int64
-	Direction     Direction
-	Status        TxStatus
-	CategoryID    string
-	RawRow        string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID               string
+	Source           Source
+	Account          Account
+	ImportBatchID    string
+	OccurredAt       time.Time
+	Counterparty     string
+	Description      string
+	PlatformCategory string
+	Note             string // 用户在流水表中手填的备注
+	Amount           int64
+	Direction        Direction
+	Status           TxStatus
+	CategoryID       string
+	RawRow           string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }

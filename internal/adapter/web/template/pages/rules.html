@@ -4,7 +4,7 @@
     <div>
       <div class="rules-kicker">RULE WORKBENCH</div>
       <h2>分类规则</h2>
-      <div class="meta">导入账单时优先匹配启用规则；未命中再回退内置规则与 AI 分类</div>
+      <div class="meta">导入账单时按优先级匹配数据库规则；未命中再交给 AI 或人工分类</div>
     </div>
     <a class="btn secondary" href="/imports">导入账单</a>
   </div>
@@ -45,8 +45,8 @@
 
         <label class="full">
           分类
-          <select name="category_id" required>
-            <option value="">— 请选择 —</option>
+          <select name="category_id">
+            <option value="">跳过导入（转账/提现等）</option>
             {{range groupCategories .Categories}}
               <optgroup label="{{.Group.Name}}">
                 {{range .Items}}
@@ -76,8 +76,29 @@
           <div class="panel-label">规则清单</div>
           <h3>自动分类匹配顺序</h3>
         </div>
-        <div class="rules-count">{{len .Rules}} 条</div>
+        <div class="rules-count">{{len .Rules}} / {{.TotalRules}} 条</div>
       </div>
+
+      <form class="rules-filter" method="GET" action="/rules">
+        <label>
+          筛选分类
+          <select name="category_id" onchange="this.form.submit()">
+            <option value="" {{if eq .FilterCategoryID ""}}selected{{end}}>全部规则</option>
+            <option value="__skip__" {{if eq .FilterCategoryID "__skip__"}}selected{{end}}>跳过导入</option>
+            <option value="" disabled>──────────</option>
+            {{range groupCategories .Categories}}
+              <optgroup label="{{.Group.Name}}">
+                {{range .Items}}
+                  <option value="{{.ID}}" {{if eq .ID $.FilterCategoryID}}selected{{end}}>{{.Name}}</option>
+                {{end}}
+              </optgroup>
+            {{end}}
+          </select>
+        </label>
+        {{if .FilterCategoryID}}
+          <a class="btn ghost" href="/rules">清除筛选</a>
+        {{end}}
+      </form>
 
       {{if .Rules}}
         <div class="rule-list">
@@ -131,6 +152,7 @@
                 <label class="rule-category">
                   <span>分类</span>
                   <select name="category_id">
+                    <option value="" {{if eq $rule.CategoryID ""}}selected{{end}}>跳过导入</option>
                     {{range groupCategories $.Categories}}
                       <optgroup label="{{.Group.Name}}">
                         {{range .Items}}
@@ -151,8 +173,13 @@
         </div>
       {{else}}
         <div class="rules-empty">
-          <div class="empty-title">还没有自定义规则</div>
-          <div class="meta">新增后，下一次账单导入会自动使用。</div>
+          {{if .FilterCategoryID}}
+            <div class="empty-title">当前分类下没有规则</div>
+            <div class="meta">可以清除筛选查看全部规则，或在左侧新增规则。</div>
+          {{else}}
+            <div class="empty-title">还没有自定义规则</div>
+            <div class="meta">新增后，下一次账单导入会自动使用。</div>
+          {{end}}
         </div>
       {{end}}
     </div>

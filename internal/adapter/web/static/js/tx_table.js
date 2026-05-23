@@ -222,18 +222,24 @@ function txTable() {
     ruleFieldValues(t, field) {
       if (field === 'counterparty') return [t.counterparty];
       if (field === 'description') return [t.description];
-      if (field === 'platform_category') return [t.raw_row];
-      return [t.counterparty, t.description, t.note, t.raw_row];
+      if (field === 'platform_category') return [t.platform_category];
+      return [t.counterparty, t.description, t.platform_category, t.note, t.raw_row];
+    },
+
+    get ruleApplyTargets() {
+      if (!this.activeRule || !this.activeRule.category_id) return [];
+      const categoryID = this.activeRule.category_id;
+      return this.filtered.filter((t) => !(t.category_id === categoryID && t.status === 'confirmed'));
     },
 
     async applyRule() {
-      if (!this.activeRule || this.filtered.length === 0 || this.applyingRule) return;
+      const targets = [...this.ruleApplyTargets];
+      if (!this.activeRule || targets.length === 0 || this.applyingRule) return;
       this.applyingRule = true;
       const categoryID = this.activeRule.category_id;
       let okCount = 0;
       try {
-        for (const t of [...this.filtered]) {
-          if (t.category_id === categoryID && t.status === 'confirmed') continue;
+        for (const t of targets) {
           const prevCategory = t.category_id;
           const prevStatus = t.status;
           t.category_id = categoryID;
