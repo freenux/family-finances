@@ -38,7 +38,8 @@ type ImportBillInput struct {
 
 // Execute 解析账单 → 本地规则分类 → 批量入库（事务内去重）。
 // 未命中分类的行以 status=pending_review + category_id=NULL 落地，等 LLM 或人工处理。
-// "应跳过"的行（转账/中性交易等）不入库，仅计入 SkippedInvalid。
+// "应跳过"的支出行（转账/中性交易等）以 status=excluded 落地，方便人工恢复。
+// 收入行暂不导入。
 func (uc *ImportBill) Execute(ctx context.Context, in ImportBillInput) (port.ImportResult, error) {
 	if !in.Account.IsStorageAccount() {
 		return port.ImportResult{}, fmt.Errorf("未指定账户归属（husband/wife）")
@@ -67,13 +68,16 @@ func (uc *ImportBill) Execute(ctx context.Context, in ImportBillInput) (port.Imp
 		pendingCat     int
 	)
 	for _, r := range rawRows {
-		catID, skip, _ := ClassifyByCustomRules(r, customRules)
-		if skip {
+		if r.Direction == domain.DirectionIncome {
 			skippedInvalid++
 			continue
 		}
+
+		catID, skip, _ := ClassifyByCustomRules(r, customRules)
 		status := domain.TxStatusConfirmed
-		if catID == "" {
+		if skip {
+			status = domain.TxStatusExcluded
+		} else if catID == "" {
 			status = domain.TxStatusPendingReview
 			pendingCat++
 		}
@@ -124,6 +128,7 @@ func (uc *ImportBill) Execute(ctx context.Context, in ImportBillInput) (port.Imp
 	res.TotalRows = len(rawRows)
 	res.SkippedInvalid = skippedInvalid
 	res.PendingCategory = pendingCat
+	res.EarliestOccurredAt = periodStart
 	if uc.trigger != nil && pendingCat > 0 {
 		uc.trigger()
 	}

@@ -107,17 +107,28 @@
       </template>
 
       <table class="tx-list editable">
+        <colgroup>
+          <col class="tx-col-date">
+          <col class="tx-col-source">
+          <col class="tx-col-account">
+          <col class="tx-col-direction">
+          <col class="tx-col-description">
+          <col class="tx-col-amount">
+          <col class="tx-col-category">
+          <col class="tx-col-note">
+          <col class="tx-col-status">
+        </colgroup>
         <thead>
           <tr>
             <th @click="sortBy('occurred_at')" class="sortable">日期 <span x-text="sortIcon('occurred_at')"></span></th>
             <th @click="sortBy('source')"      class="sortable">来源 <span x-text="sortIcon('source')"></span></th>
-            <th @click="sortBy('account')"     class="sortable" style="width:110px">账户 <span x-text="sortIcon('account')"></span></th>
-            <th @click="sortBy('direction')"   class="sortable" style="width:70px">方向 <span x-text="sortIcon('direction')"></span></th>
+            <th @click="sortBy('account')"     class="sortable">账户 <span x-text="sortIcon('account')"></span></th>
+            <th @click="sortBy('direction')"   class="sortable">方向 <span x-text="sortIcon('direction')"></span></th>
             <th @click="sortBy('counterparty')" class="sortable">对方 / 说明 <span x-text="sortIcon('counterparty')"></span></th>
-            <th @click="sortBy('amount_fen')"  class="sortable" style="width:110px">金额 <span x-text="sortIcon('amount_fen')"></span></th>
-            <th @click="sortBy('category_id')" class="sortable" style="width:200px">分类 <span x-text="sortIcon('category_id')"></span></th>
-            <th style="width:180px">备注</th>
-            <th style="width:90px">状态</th>
+            <th @click="sortBy('amount_fen')"  class="sortable">金额 <span x-text="sortIcon('amount_fen')"></span></th>
+            <th @click="sortBy('category_id')" class="sortable">分类 <span x-text="sortIcon('category_id')"></span></th>
+            <th>备注</th>
+            <th>状态</th>
           </tr>
         </thead>
         <tbody>

@@ -318,6 +318,7 @@ table.ledger .subtotal {
 
 table.tx-list {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 13px;
   background: var(--surface);
@@ -343,6 +344,15 @@ table.tx-list .amount {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }
+table.tx-list .tx-col-date { width: 7.5%; }
+table.tx-list .tx-col-source { width: 5%; }
+table.tx-list .tx-col-account { width: 7%; }
+table.tx-list .tx-col-direction { width: 5%; }
+table.tx-list .tx-col-description { width: 25%; }
+table.tx-list .tx-col-amount { width: 12%; }
+table.tx-list .tx-col-category { width: 16%; }
+table.tx-list .tx-col-note { width: 12%; }
+table.tx-list .tx-col-status { width: 10.5%; }
 
 .empty {
   text-align: center;
@@ -466,10 +476,19 @@ table.tx-list.editable .meta-sm {
   color: var(--muted);
   font-size: 11px;
   margin-top: 2px;
-  max-width: 360px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+table.tx-list.editable td:nth-child(5) > div:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+table.tx-list.editable th:nth-child(9),
+table.tx-list.editable td:nth-child(9) {
+  padding-left: 8px;
+  padding-right: 8px;
 }
 .inline-select,
 .inline-input {

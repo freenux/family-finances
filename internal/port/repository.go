@@ -17,11 +17,12 @@ type TransactionUpdate struct {
 
 // ImportResult 一次账单导入的结果
 type ImportResult struct {
-	TotalRows         int
-	InsertedRows      int
-	SkippedDuplicates int
-	SkippedInvalid    int
-	PendingCategory   int
+	TotalRows          int
+	InsertedRows       int
+	SkippedDuplicates  int
+	SkippedInvalid     int
+	PendingCategory    int
+	EarliestOccurredAt time.Time
 }
 
 // ImportRow 导入时的候选行：Transaction 主体 + 平台交易号（用于去重）

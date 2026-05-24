@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -734,7 +735,21 @@ func (h *Handler) ImportSubmit(w http.ResponseWriter, r *http.Request) {
 	msg := fmt.Sprintf("导入完成（%s）：新增 %d 条，跳过重复 %d 条，忽略转账/无效 %d 条，未分类待处理 %d 条。",
 		acc.Label(), res.InsertedRows, res.SkippedDuplicates, res.SkippedInvalid, res.PendingCategory)
 	h.flash.set(w, msg)
-	http.Redirect(w, r, "/transactions?account="+string(acc), http.StatusSeeOther)
+	http.Redirect(w, r, importRedirectURL(acc, res), http.StatusSeeOther)
+}
+
+func importRedirectURL(acc domain.Account, res port.ImportResult) string {
+	return transactionsRedirectURL(acc, res.EarliestOccurredAt)
+}
+
+func transactionsRedirectURL(acc domain.Account, occurredAt time.Time) string {
+	q := url.Values{}
+	q.Set("account", string(acc))
+	if !occurredAt.IsZero() {
+		q.Set("type", string(domain.PeriodMonthly))
+		q.Set("period", occurredAt.Format("2006-01"))
+	}
+	return "/transactions?" + q.Encode()
 }
 
 func (h *Handler) renderImportError(w http.ResponseWriter, r *http.Request, msg string) {
@@ -802,7 +817,7 @@ func (h *Handler) ManualEntrySubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.flash.set(w, fmt.Sprintf("手工录入成功（%s）：%s ¥%s", acc.Label(), string(dir), amountStr))
-	http.Redirect(w, r, "/transactions?account="+string(acc), http.StatusSeeOther)
+	http.Redirect(w, r, transactionsRedirectURL(acc, occurredAt), http.StatusSeeOther)
 }
 
 func (h *Handler) serverError(w http.ResponseWriter, err error) {
