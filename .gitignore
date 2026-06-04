@@ -1,4 +1,7 @@
 .env
+.env.*
+!.env.example
+!.env.prod.example
 family.db
 family.db.*
 family.db-journal

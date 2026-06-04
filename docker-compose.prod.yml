@@ -1,0 +1,46 @@
+services:
+  family-finances:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: family-finances:latest
+    container_name: family-finances
+    restart: unless-stopped
+    env_file:
+      - .env.prod
+    environment:
+      SERVER_ADDR: :8787
+      DATABASE_PATH: /data/family.db
+      TZ: Asia/Shanghai
+    volumes:
+      - ./data:/data
+    expose:
+      - "8787"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8787/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: family-finances-caddy
+    restart: unless-stopped
+    depends_on:
+      family-finances:
+        condition: service_healthy
+    env_file:
+      - .env.prod
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/tencent-cloud/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,18 @@
+{
+	# Let's Encrypt 用邮箱；也可留空，但建议在 .env.prod 里填真实邮箱
+	email {$ACME_EMAIL}
+}
+
+{$APP_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+	}
+
+	# SQLite/账单导入属于动态应用，不在源站层做缓存。
+	reverse_proxy family-finances:8787
+}

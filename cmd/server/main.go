@@ -72,6 +72,11 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Logger)
 
+	r.Get("/healthz", func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte("ok\n"))
+	})
+
 	r.Get("/", h.Stats)
 	r.Get("/stats", func(w http.ResponseWriter, req *http.Request) {
 		http.Redirect(w, req, "/", http.StatusMovedPermanently)
