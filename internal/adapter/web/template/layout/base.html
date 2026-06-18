@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{.Title}} · 家庭财务</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%235c4b2e'/%3E%3Cpath d='M8 17h16v9H8zM6 16l10-9 10 9h-4l-6-5.4L10 16z' fill='%23fff7df'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/static/css/app.css">
   <script src="/static/js/period_utils.js" defer></script>
   <script src="/static/js/tx_table.js" defer></script>
@@ -15,12 +16,14 @@
 <body>
 <header class="app-header">
   <h1>🏠 家庭财务</h1>
+  {{if ne .Nav "auth"}}
   <nav>
     <a href="/"             class="{{if eq .Nav "stats"}}active{{end}}">仪表盘</a>
     <a href="/transactions" class="{{if eq .Nav "transactions"}}active{{end}}">收支流水</a>
     <a href="/cashflow"     class="{{if eq .Nav "dashboard"}}active{{end}}">现金流表</a>
     <a href="/rules"        class="{{if eq .Nav "rules"}}active{{end}}">分类规则</a>
   </nav>
+  {{end}}
 </header>
 <main>
   {{template "content" .}}

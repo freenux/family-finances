@@ -31,10 +31,16 @@ type Handler struct {
 	ruleRepo   port.CategoryRuleRepo
 	log        *slog.Logger
 	flash      *flashStore
+	auth       *authManager
 }
 
 func New(r *web.Renderer, importBill *usecase.ImportBill, qr *usecase.QueryReport, qs *usecase.QueryStats,
 	txRepo port.TransactionRepo, catRepo port.CategoryRepo, ruleRepo port.CategoryRuleRepo, log *slog.Logger) *Handler {
+	return NewWithAuthKey(r, importBill, qr, qs, txRepo, catRepo, ruleRepo, log, "")
+}
+
+func NewWithAuthKey(r *web.Renderer, importBill *usecase.ImportBill, qr *usecase.QueryReport, qs *usecase.QueryStats,
+	txRepo port.TransactionRepo, catRepo port.CategoryRepo, ruleRepo port.CategoryRuleRepo, log *slog.Logger, authKey string) *Handler {
 	return &Handler{
 		render:     r,
 		importBill: importBill,
@@ -45,6 +51,7 @@ func New(r *web.Renderer, importBill *usecase.ImportBill, qr *usecase.QueryRepor
 		ruleRepo:   ruleRepo,
 		log:        log,
 		flash:      newFlashStore(),
+		auth:       newAuthManager(authKey),
 	}
 }
 

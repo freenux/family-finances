@@ -11,6 +11,7 @@ type Config struct {
 	OpenAIModel   string `env:"OPENAI_MODEL" envDefault:"gpt-4o"`
 	ServerAddr    string `env:"SERVER_ADDR" envDefault:":8787"`
 	DatabasePath  string `env:"DATABASE_PATH" envDefault:"./family.db"`
+	AuthKey       string `env:"AUTH_KEY"`
 }
 
 func Load() (Config, error) {

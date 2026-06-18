@@ -1,0 +1,32 @@
+{{define "content"}}
+<div class="auth-page">
+  <section class="auth-panel" aria-labelledby="auth-title">
+    <div class="auth-intro">
+      <div class="auth-mark">PRIVATE LEDGER</div>
+      <h2 id="auth-title">安全认证</h2>
+      <p>输入访问 key，继续查看家庭收支、现金流与分类规则。</p>
+    </div>
+
+    {{if .Error}}
+      <div class="auth-error" role="alert">{{.Error}}</div>
+    {{end}}
+
+    <form method="POST" action="/auth/login" class="auth-form">
+      <input type="hidden" name="next" value="{{.Next}}">
+      <input type="text" name="username" value="family-finances" autocomplete="username" hidden>
+      <label>
+        <span>认证 key</span>
+        <input type="password" name="auth_key" autocomplete="current-password" required autofocus>
+      </label>
+      <button class="btn" type="submit">进入系统</button>
+    </form>
+
+    <div class="auth-foot">
+      <span>AUTH_KEY</span>
+      <span>HttpOnly 会话</span>
+    </div>
+  </section>
+</div>
+{{end}}
+
+{{define "page"}}{{template "base" .}}{{end}}

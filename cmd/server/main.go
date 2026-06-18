@@ -66,7 +66,7 @@ func main() {
 		log.Error("init renderer", "err", err)
 		os.Exit(1)
 	}
-	h := handler.New(renderer, importBill, queryRep, queryStats, txRepo, catRepo, catRepo, log)
+	h := handler.NewWithAuthKey(renderer, importBill, queryRep, queryStats, txRepo, catRepo, catRepo, log, cfg.AuthKey)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
@@ -77,30 +77,37 @@ func main() {
 		_, _ = w.Write([]byte("ok\n"))
 	})
 
-	r.Get("/", h.Stats)
-	r.Get("/stats", func(w http.ResponseWriter, req *http.Request) {
-		http.Redirect(w, req, "/", http.StatusMovedPermanently)
-	})
-	r.Get("/cashflow", h.Dashboard)
-	r.Get("/rules", h.Rules)
-	r.Post("/rules", h.CreateRule)
-	r.Post("/rules/{id}", h.UpdateRule)
-	r.Post("/rules/{id}/active", h.ToggleRule)
-	r.Post("/rules/{id}/delete", h.DeleteRule)
-	r.Get("/api/stats", h.StatsAPI)
-	r.Get("/api/stats/top", h.StatsTopAPI)
-	r.Get("/transactions", h.ListTransactions)
-	r.Get("/transactions/new", func(w http.ResponseWriter, req *http.Request) {
-		http.Redirect(w, req, "/imports", http.StatusMovedPermanently)
-	})
-	r.Get("/api/transactions", h.ListTransactionsAPI)
-	r.Patch("/api/transactions/{id}", h.UpdateTransaction)
-	r.Get("/imports", h.ImportForm)
-	r.Post("/imports", h.ImportSubmit)
-	r.Post("/imports/manual", h.ManualEntrySubmit)
-	r.Get("/partials/report", h.PartialReport)
+	r.Get("/auth/login", h.LoginForm)
+	r.Post("/auth/login", h.LoginSubmit)
+	r.Get("/auth/logout", h.Logout)
 
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(web.StaticFS()))))
+
+	r.Group(func(r chi.Router) {
+		r.Use(h.RequireAuth)
+		r.Get("/", h.Stats)
+		r.Get("/stats", func(w http.ResponseWriter, req *http.Request) {
+			http.Redirect(w, req, "/", http.StatusMovedPermanently)
+		})
+		r.Get("/cashflow", h.Dashboard)
+		r.Get("/rules", h.Rules)
+		r.Post("/rules", h.CreateRule)
+		r.Post("/rules/{id}", h.UpdateRule)
+		r.Post("/rules/{id}/active", h.ToggleRule)
+		r.Post("/rules/{id}/delete", h.DeleteRule)
+		r.Get("/api/stats", h.StatsAPI)
+		r.Get("/api/stats/top", h.StatsTopAPI)
+		r.Get("/transactions", h.ListTransactions)
+		r.Get("/transactions/new", func(w http.ResponseWriter, req *http.Request) {
+			http.Redirect(w, req, "/imports", http.StatusMovedPermanently)
+		})
+		r.Get("/api/transactions", h.ListTransactionsAPI)
+		r.Patch("/api/transactions/{id}", h.UpdateTransaction)
+		r.Get("/imports", h.ImportForm)
+		r.Post("/imports", h.ImportSubmit)
+		r.Post("/imports/manual", h.ManualEntrySubmit)
+		r.Get("/partials/report", h.PartialReport)
+	})
 
 	log.Info("listening", "addr", cfg.ServerAddr, "db", cfg.DatabasePath, "openai_key", cfg.MaskedAPIKey())
 	server := &http.Server{Addr: cfg.ServerAddr, Handler: r}
