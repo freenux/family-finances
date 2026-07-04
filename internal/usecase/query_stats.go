@@ -48,11 +48,11 @@ type StatsTopTx struct {
 	Account  string `json:"account"`
 }
 
-// 分类颜色：稳定分配，前端用它画饼图 + 分类列表
+// 分类颜色：稳定分配，前端用它画饼图 + 分类列表（Stripe 品牌色系，见 DESIGN.md）
 var statsPalette = []string{
-	"#b45309", "#9a6b3f", "#c08552", "#7d6c54", "#8b6f47",
-	"#a8836b", "#6b8e7f", "#8a9a7b", "#a05a2c", "#6f4e37",
-	"#826644", "#5c4b2e",
+	"#533afd", "#ea2261", "#1c1e54", "#f96bee", "#9b6829",
+	"#665efd", "#64748d", "#4434d4", "#b9b9f9", "#0d253d",
+	"#2e2b8c", "#d9b06a",
 }
 
 type QueryStats struct {
