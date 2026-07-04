@@ -94,7 +94,8 @@ func (c *Client) Complete(ctx context.Context, system, user string) (string, err
 		return "", err
 	}
 	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
+	// 限制响应体大小，防异常上游把内存打爆
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 
 	if resp.StatusCode >= 400 {
 		return "", fmt.Errorf("llm http %d: %s", resp.StatusCode, string(respBody))

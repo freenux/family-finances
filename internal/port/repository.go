@@ -2,10 +2,14 @@ package port
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"family-finances/internal/domain"
 )
+
+// ErrNotFound 目标记录不存在（例如按 id 更新时无匹配行）
+var ErrNotFound = errors.New("record not found")
 
 // TransactionUpdate 流水人工修正内容
 type TransactionUpdate struct {
@@ -61,7 +65,8 @@ type TransactionRepo interface {
 	List(ctx context.Context, p domain.Period, account domain.Account) ([]domain.Transaction, error)
 	ListPendingCategory(ctx context.Context, limit int) ([]domain.Transaction, error)
 	AggregateByCategory(ctx context.Context, p domain.Period, account domain.Account) ([]domain.CategoryAggregation, error)
-	// SumByBuckets 按给定的周期桶返回 [{label, amount}]，方向过滤，状态='confirmed'
+	// SumByBuckets 按给定的周期桶返回 [{label, amount}]，方向过滤，状态='confirmed'。
+	// 桶必须按时间升序且互不重叠（实现依赖此约定做单次扫描归桶）。
 	SumByBuckets(ctx context.Context, buckets []PeriodBucket, direction domain.Direction, account domain.Account) ([]PeriodBucket, error)
 	// TopTransactions 周期内按 |amount| desc 的前 N 条；account=family 合并统计
 	TopTransactions(ctx context.Context, p domain.Period, direction domain.Direction, account domain.Account, limit int) ([]TopTransaction, error)

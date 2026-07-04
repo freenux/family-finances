@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -145,8 +146,14 @@ func (r *TransactionRepo) Update(ctx context.Context, id string, patch port.Tran
 	args = append(args, time.Now())
 	args = append(args, id)
 	q := "UPDATE transactions SET " + join(sets, ", ") + " WHERE id = ?"
-	_, err := r.db.ExecContext(ctx, q, args...)
-	return err
+	res, err := r.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return port.ErrNotFound
+	}
+	return nil
 }
 
 func (r *TransactionRepo) Get(ctx context.Context, id string) (domain.Transaction, error) {
@@ -217,31 +224,45 @@ ORDER BY c.sort_order`
 	return out, rows.Err()
 }
 
-// SumByBuckets 对每个桶发一次 SUM 查询。桶数量一般 ≤10，先简单实现，未来若有性能问题再合成单 SQL。
+// SumByBuckets 单次范围扫描覆盖全部桶（调用方传入的桶按时间升序、互不重叠），
+// 在 Go 侧按桶边界归集，避免每桶一条 SQL（月+季对比一次要 26 个桶）。
 func (r *TransactionRepo) SumByBuckets(ctx context.Context, buckets []port.PeriodBucket, direction domain.Direction, account domain.Account) ([]port.PeriodBucket, error) {
 	out := make([]port.PeriodBucket, len(buckets))
+	for i, b := range buckets {
+		out[i] = port.PeriodBucket{Label: b.Label, Start: b.Start, End: b.End}
+	}
+	if len(buckets) == 0 {
+		return out, nil
+	}
 	q := `
-SELECT COALESCE(SUM(amount), 0)
+SELECT occurred_at, amount
 FROM transactions
 WHERE occurred_at >= ? AND occurred_at < ?
   AND direction = ?
   AND status = 'confirmed'`
-	hasAcc := account.IsStorageAccount()
-	if hasAcc {
+	args := []any{out[0].Start, out[len(out)-1].End, string(direction)}
+	if account.IsStorageAccount() {
 		q += " AND account = ?"
+		args = append(args, string(account))
 	}
-	for i, b := range buckets {
-		args := []any{b.Start, b.End, string(direction)}
-		if hasAcc {
-			args = append(args, string(account))
-		}
-		var sum int64
-		if err := r.db.QueryRowContext(ctx, q, args...).Scan(&sum); err != nil {
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var at time.Time
+		var amount int64
+		if err := rows.Scan(&at, &amount); err != nil {
 			return nil, err
 		}
-		out[i] = port.PeriodBucket{Label: b.Label, Start: b.Start, End: b.End, Amount: sum}
+		// 桶升序 → 二分定位第一个 End > at 的桶
+		i := sort.Search(len(out), func(i int) bool { return at.Before(out[i].End) })
+		if i < len(out) && !at.Before(out[i].Start) {
+			out[i].Amount += amount
+		}
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 func (r *TransactionRepo) TopTransactions(ctx context.Context, p domain.Period, direction domain.Direction, account domain.Account, limit int) ([]port.TopTransaction, error) {

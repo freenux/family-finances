@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"family-finances/internal/adapter/web"
 )
@@ -105,6 +106,90 @@ func TestLoginSubmitRejectsWrongKey(t *testing.T) {
 	}
 }
 
+func TestSessionToken(t *testing.T) {
+	a := newAuthManager("secret-key")
+	now := time.Now()
+
+	valid := a.newToken(now)
+	if !a.validToken(valid, now) {
+		t.Fatal("fresh token should be valid")
+	}
+	if !a.validToken(valid, now.Add(sessionTTL-time.Minute)) {
+		t.Fatal("token should be valid just before TTL")
+	}
+	if a.validToken(valid, now.Add(sessionTTL+time.Minute)) {
+		t.Fatal("token should expire after TTL")
+	}
+	if a.validToken(valid+"x", now) {
+		t.Fatal("tampered signature should be rejected")
+	}
+	_, sig, _ := strings.Cut(valid, ".")
+	if a.validToken("9999999999."+sig, now) {
+		t.Fatal("forged expiry with reused signature should be rejected")
+	}
+	if a.validToken("garbage", now) {
+		t.Fatal("malformed token should be rejected")
+	}
+	other := newAuthManager("other-key")
+	if other.validToken(valid, now) {
+		t.Fatal("token signed with a different key should be rejected")
+	}
+}
+
+func TestLoginLimiter(t *testing.T) {
+	l := newLoginLimiter()
+	now := time.Now()
+	ip := "192.0.2.1"
+
+	for i := 0; i < loginFailLimit; i++ {
+		if !l.allow(ip, now) {
+			t.Fatalf("attempt %d should be allowed", i+1)
+		}
+		l.fail(ip, now)
+	}
+	if l.allow(ip, now) {
+		t.Fatal("should be blocked after reaching fail limit")
+	}
+	if !l.allow("192.0.2.2", now) {
+		t.Fatal("other ip should not be affected")
+	}
+	if !l.allow(ip, now.Add(loginFailWindow+time.Second)) {
+		t.Fatal("should be allowed again after window expires")
+	}
+	l.reset(ip)
+	if !l.allow(ip, now) {
+		t.Fatal("should be allowed after reset")
+	}
+}
+
+func TestLoginSubmitRateLimited(t *testing.T) {
+	renderer, err := web.NewRenderer()
+	if err != nil {
+		t.Fatalf("NewRenderer() error = %v", err)
+	}
+	h := &Handler{render: renderer, auth: newAuthManager("secret-key")}
+
+	post := func(key string) *httptest.ResponseRecorder {
+		form := url.Values{}
+		form.Set("auth_key", key)
+		req := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.RemoteAddr = "192.0.2.9:12345"
+		rec := httptest.NewRecorder()
+		h.LoginSubmit(rec, req)
+		return rec
+	}
+
+	for i := 0; i < loginFailLimit; i++ {
+		if rec := post("wrong"); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: status = %d; want 401", i+1, rec.Code)
+		}
+	}
+	if rec := post("secret-key"); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d; want 429 (blocked even with correct key)", rec.Code)
+	}
+}
+
 func TestSafeNextURL(t *testing.T) {
 	tests := []struct {
 		name string
@@ -115,6 +200,8 @@ func TestSafeNextURL(t *testing.T) {
 		{name: "relative path", in: "/transactions?period=2026-05", want: "/transactions?period=2026-05"},
 		{name: "absolute url", in: "https://example.com", want: "/"},
 		{name: "protocol relative", in: "//example.com", want: "/"},
+		{name: "backslash protocol relative", in: `/\example.com`, want: "/"},
+		{name: "backslash anywhere", in: `/a\b`, want: "/"},
 		{name: "relative without slash", in: "transactions", want: "/"},
 	}
 	for _, tt := range tests {

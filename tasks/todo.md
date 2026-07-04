@@ -1,3 +1,39 @@
+# 服务端加固：性能 / 安全 / 隐藏 bug（2026-07-04）
+
+## 安全
+- [x] 登录无速率限制 → 加内存级失败限流（同 IP 5 次 / 15 分钟，map 有上限防膨胀）
+- [x] 会话 cookie 是永久固定值 → 改为带过期时间的 HMAC 签名 token（`exp.sig`，30 天，v2 前缀使旧 cookie 全部失效）
+- [x] `safeNextURL` 未拦截 `/\evil.com`（浏览器把 `\` 归一化为 `/` → 开放重定向）
+- [x] 上传 / PATCH 请求体无大小上限 → `http.MaxBytesReader`（导入 32MB，PATCH 64KB）
+- [x] `http.Server` 无超时（slowloris）→ ReadHeader 10s / Read+Write 5m / Idle 2m
+- [x] `serverError` 把内部 err 原文回给客户端 → 改为通用文案，细节只进日志
+- [x] PATCH /api/transactions 校验 status 枚举 + category 必须二级科目
+- [x] LLM 返回的 id 校验必须属于本轮 pending 批次（防幻觉/账单内容注入改写任意流水）
+- [x] LLM 响应体 `io.LimitReader` 8MB
+
+## 隐藏 bug
+- [x] 手工录入金额拒绝 `NaN`/`Inf`/超大数（抽出 `parseAmountToFen`，上限 100 亿元）
+- [x] 手工录入 category_id 走 `ensureLeafCategory` 校验
+- [x] `TransactionRepo.Update` RowsAffected=0 → `port.ErrNotFound`，PATCH 回 404
+- [x] LLM 无进展时退避 30 分钟（Trigger 即时解除），不再每 30s 重烧同一批 token
+
+## 性能
+- [x] `SumByBuckets` 26 条 SQL → 单次范围扫描 + Go 侧二分归桶（port 接口注明桶须升序不重叠）
+- [x] gzip：`middleware.Compress(5)` + 页面渲染统一显式设置 Content-Type（否则 chi Compress 在 WriteHeader 时看不到类型、不压缩 HTML）
+- [x] /static 加 `Cache-Control: public, max-age=3600`
+
+## 验收
+- [x] `go build` / `go vet` / `go test ./...` 全绿
+- [x] 新增测试：会话 token 过期/篡改/跨 key、登录限流（单元 + HTTP 层 429）、safeNextURL 反斜杠、parseAmountToFen 表驱动、SumByBuckets 边界归桶（真实 SQLite）、Update 404
+- [x] playwright-cli 冒烟：登录 → 全部 5 个页面渲染无 console 错误；PATCH 非法 status/一级分类回 400、不存在 id 回 404；手工录入 NaN 回 400；HTML gzip + Content-Type 正确
+
+## 回顾（2026-07-04）
+- chi `middleware.Compress` 只压缩 WriteHeader 时已带可识别 Content-Type 的响应；依赖 net/http 嗅探的 HTML 页面永远不会被压缩。已加 `Handler.renderPage/renderPartial` 统一先设 header。
+- `strconv.ParseFloat` 接受 "NaN"/"Inf"，且 `NaN <= 0` 为 false —— 所有"正数校验"都拦不住 NaN，必须 `math.IsNaN/IsInf` 显式判。
+- 登录限流部署在反代后会退化为全局限流（共享反代 IP），对家庭应用可接受，已在代码注释说明。
+
+---
+
 # 账单导入 + 流水编辑 实施计划
 
 ## 决策摘要（已对齐）

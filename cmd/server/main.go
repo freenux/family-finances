@@ -71,6 +71,7 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Logger)
+	r.Use(middleware.Compress(5))
 
 	r.Get("/healthz", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -81,7 +82,12 @@ func main() {
 	r.Post("/auth/login", h.LoginSubmit)
 	r.Get("/auth/logout", h.Logout)
 
-	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(web.StaticFS()))))
+	staticHandler := http.StripPrefix("/static/", http.FileServer(http.FS(web.StaticFS())))
+	r.Handle("/static/*", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// 静态资源嵌在二进制里，只随部署变化；给浏览器 1 小时缓存
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		staticHandler.ServeHTTP(w, req)
+	}))
 
 	r.Group(func(r chi.Router) {
 		r.Use(h.RequireAuth)
@@ -110,7 +116,15 @@ func main() {
 	})
 
 	log.Info("listening", "addr", cfg.ServerAddr, "db", cfg.DatabasePath, "openai_key", cfg.MaskedAPIKey())
-	server := &http.Server{Addr: cfg.ServerAddr, Handler: r}
+	server := &http.Server{
+		Addr:    cfg.ServerAddr,
+		Handler: r,
+		// 防 slowloris：慢速/挂起连接不能无限占用
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       5 * time.Minute, // 账单上传体积可能较大
+		WriteTimeout:      5 * time.Minute,
+		IdleTimeout:       2 * time.Minute,
+	}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

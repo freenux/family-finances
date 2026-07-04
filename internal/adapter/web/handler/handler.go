@@ -3,8 +3,10 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -61,6 +63,26 @@ type pageBase struct {
 	Period  domain.Period
 	Flash   string
 	Account domain.Account
+}
+
+// renderPage 渲染整页 HTML。显式设置 Content-Type（且在 WriteHeader 前），
+// 否则 gzip 中间件在 WriteHeader 时看不到类型、不会压缩 HTML。
+func (h *Handler) renderPage(w http.ResponseWriter, status int, page string, vm any) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if status != http.StatusOK {
+		w.WriteHeader(status)
+	}
+	if err := h.render.RenderPage(w, page, vm); err != nil {
+		h.serverError(w, err)
+	}
+}
+
+// renderPartial 渲染 HTMX 片段，同样先设置 Content-Type
+func (h *Handler) renderPartial(w http.ResponseWriter, name string, vm any) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.render.RenderPartial(w, name, vm); err != nil {
+		h.serverError(w, err)
+	}
 }
 
 func parsePeriodFromQuery(r *http.Request) (domain.Period, error) {
@@ -123,9 +145,7 @@ func (h *Handler) Dashboard(w http.ResponseWriter, r *http.Request) {
 		pageBase: pageBase{Title: "现金流表", Nav: "dashboard", Period: p, Account: acc},
 		Report:   rep,
 	}
-	if err := h.render.RenderPage(w, "dashboard", vm); err != nil {
-		h.serverError(w, err)
-	}
+	h.renderPage(w, http.StatusOK, "dashboard", vm)
 }
 
 func (h *Handler) PartialReport(w http.ResponseWriter, r *http.Request) {
@@ -144,18 +164,14 @@ func (h *Handler) PartialReport(w http.ResponseWriter, r *http.Request) {
 		pageBase: pageBase{Period: p, Account: acc},
 		Report:   rep,
 	}
-	if err := h.render.RenderPartial(w, "report_view", vm); err != nil {
-		h.serverError(w, err)
-	}
+	h.renderPartial(w, "report_view", vm)
 }
 
 // ----- Stats -----
 
 func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
 	vm := pageBase{Title: "仪表盘", Nav: "stats"}
-	if err := h.render.RenderPage(w, "stats", vm); err != nil {
-		h.serverError(w, err)
-	}
+	h.renderPage(w, http.StatusOK, "stats", vm)
 }
 
 // StatsAPI: GET /api/stats?granularity=month|quarter|year&period=2026-05&direction=expense&account=family
@@ -339,9 +355,6 @@ func (h *Handler) renderRulesWithStatus(w http.ResponseWriter, r *http.Request, 
 	if filterCategoryID != "" {
 		rules = filterRulesByCategory(rules, filterCategoryID)
 	}
-	if status != http.StatusOK {
-		w.WriteHeader(status)
-	}
 	vm := rulesVM{
 		pageBase:         pageBase{Title: "分类规则", Nav: "rules", Flash: h.flash.pop(w, r)},
 		Rules:            rules,
@@ -350,9 +363,7 @@ func (h *Handler) renderRulesWithStatus(w http.ResponseWriter, r *http.Request, 
 		TotalRules:       totalRules,
 		Error:            msg,
 	}
-	if err := h.render.RenderPage(w, "rules", vm); err != nil {
-		h.serverError(w, err)
-	}
+	h.renderPage(w, status, "rules", vm)
 }
 
 func filterRulesByCategory(rules []domain.CategoryRule, categoryID string) []domain.CategoryRule {
@@ -583,9 +594,7 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		CategoriesJSON:   string(catBytes),
 		RuleJSON:         string(ruleBytes),
 	}
-	if err := h.render.RenderPage(w, "transactions", vm); err != nil {
-		h.serverError(w, err)
-	}
+	h.renderPage(w, http.StatusOK, "transactions", vm)
 }
 
 // ListTransactionsAPI: GET /api/transactions?type=...&period=...&account=...
@@ -638,6 +647,7 @@ func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing id", http.StatusBadRequest)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	var req updateTxReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
@@ -646,6 +656,12 @@ func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 	patch := port.TransactionUpdate{}
 	if req.CategoryID != nil {
 		v := *req.CategoryID
+		if v != "" {
+			if err := h.ensureLeafCategory(r.Context(), v); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
 		patch.CategoryID = &v
 		// 如果指定了分类，把 pending_review 自动转 confirmed
 		if v != "" {
@@ -659,6 +675,12 @@ func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Status != nil {
 		s := domain.TxStatus(*req.Status)
+		switch s {
+		case domain.TxStatusPendingReview, domain.TxStatusConfirmed, domain.TxStatusExcluded:
+		default:
+			http.Error(w, "invalid status", http.StatusBadRequest)
+			return
+		}
 		patch.Status = &s
 	}
 	if req.Account != nil {
@@ -670,6 +692,10 @@ func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		patch.Account = &a
 	}
 	if err := h.txRepo.Update(r.Context(), id, patch); err != nil {
+		if errors.Is(err, port.ErrNotFound) {
+			http.Error(w, "流水不存在", http.StatusNotFound)
+			return
+		}
 		h.serverError(w, err)
 		return
 	}
@@ -691,14 +717,13 @@ func (h *Handler) ImportForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	vm := importVM{pageBase: pageBase{Title: "导入账单", Nav: "imports"}, Categories: cats}
-	if err := h.render.RenderPage(w, "imports", vm); err != nil {
-		h.serverError(w, err)
-	}
+	h.renderPage(w, http.StatusOK, "imports", vm)
 }
 
 func (h *Handler) ImportSubmit(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 32<<20)
 	if err := r.ParseMultipartForm(16 << 20); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "上传内容无效或超过 32MB 限制", http.StatusBadRequest)
 		return
 	}
 	sourceStr := r.FormValue("source")
@@ -762,10 +787,7 @@ func transactionsRedirectURL(acc domain.Account, occurredAt time.Time) string {
 func (h *Handler) renderImportError(w http.ResponseWriter, r *http.Request, msg string) {
 	cats, _ := h.catRepo.ListAll(r.Context())
 	vm := importVM{pageBase: pageBase{Title: "导入账单", Nav: "imports"}, Error: msg, Categories: cats}
-	w.WriteHeader(http.StatusBadRequest)
-	if err := h.render.RenderPage(w, "imports", vm); err != nil {
-		h.serverError(w, err)
-	}
+	h.renderPage(w, http.StatusBadRequest, "imports", vm)
 }
 
 func (h *Handler) ManualEntrySubmit(w http.ResponseWriter, r *http.Request) {
@@ -794,12 +816,19 @@ func (h *Handler) ManualEntrySubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	amountStr := r.FormValue("amount")
-	amountFloat, parseErr := strconv.ParseFloat(strings.TrimSpace(amountStr), 64)
-	if parseErr != nil || amountFloat <= 0 {
-		h.renderImportError(w, r, "金额必须为正数")
+	amountFen, amountErr := parseAmountToFen(amountStr)
+	if amountErr != nil {
+		h.renderImportError(w, r, amountErr.Error())
 		return
 	}
-	amountFen := int64(amountFloat*100 + 0.5)
+
+	categoryID := r.FormValue("category_id")
+	if categoryID != "" {
+		if err := h.ensureLeafCategory(r.Context(), categoryID); err != nil {
+			h.renderImportError(w, r, err.Error())
+			return
+		}
+	}
 
 	now := time.Now()
 	tx := domain.Transaction{
@@ -813,7 +842,7 @@ func (h *Handler) ManualEntrySubmit(w http.ResponseWriter, r *http.Request) {
 		Amount:       amountFen,
 		Direction:    dir,
 		Status:       domain.TxStatusConfirmed,
-		CategoryID:   r.FormValue("category_id"),
+		CategoryID:   categoryID,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
@@ -827,7 +856,25 @@ func (h *Handler) ManualEntrySubmit(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, transactionsRedirectURL(acc, occurredAt), http.StatusSeeOther)
 }
 
+// parseAmountToFen 把用户输入的元金额转成分。
+// ParseFloat 会接受 "NaN"/"Inf"/超大科学计数法，必须显式拒绝，否则会写入垃圾金额。
+func parseAmountToFen(s string) (int64, error) {
+	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+		return 0, fmt.Errorf("金额格式不正确")
+	}
+	if f <= 0 {
+		return 0, fmt.Errorf("金额必须为正数")
+	}
+	const maxYuan = 1e10 // 单笔上限 100 亿元，防 int64 溢出
+	if f > maxYuan {
+		return 0, fmt.Errorf("金额超出可接受范围")
+	}
+	return int64(math.Round(f * 100)), nil
+}
+
 func (h *Handler) serverError(w http.ResponseWriter, err error) {
+	// 细节只进日志，避免把 SQL / 文件路径等内部信息回给客户端
 	h.log.Error("server error", "err", err)
-	http.Error(w, "服务器错误: "+err.Error(), http.StatusInternalServerError)
+	http.Error(w, "服务器内部错误，请稍后重试", http.StatusInternalServerError)
 }

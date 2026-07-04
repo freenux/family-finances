@@ -52,30 +52,45 @@ func (uc *ClassifyPending) Run(ctx context.Context, interval time.Duration, batc
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	uc.log.Info("llm classifier started", "interval", interval, "batch", batch)
+	// 无进展退避：LLM 对剩余行始终给不出答案时，别每个 tick 都重发同一批（空烧 token）。
+	// Trigger（新导入）会立刻解除退避。
+	const idleBackoff = 30 * time.Minute
+	var idleUntil time.Time
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			if time.Now().Before(idleUntil) {
+				continue
+			}
 		case <-uc.trigger:
+			idleUntil = time.Time{}
 		}
-		if err := uc.runOnce(ctx, batch); err != nil {
+		pending, assigned, err := uc.runOnce(ctx, batch)
+		if err != nil {
 			uc.log.Warn("classify round", "err", err)
+			continue
+		}
+		if pending > 0 && assigned == 0 {
+			idleUntil = time.Now().Add(idleBackoff)
+			uc.log.Info("llm classifier idle backoff", "pending", pending, "until", idleUntil.Format(time.RFC3339))
 		}
 	}
 }
 
-func (uc *ClassifyPending) runOnce(ctx context.Context, batch int) error {
+// runOnce 跑一轮分类，返回（本轮 pending 行数, 实际写回的分类数, err）
+func (uc *ClassifyPending) runOnce(ctx context.Context, batch int) (pending, assigned int, err error) {
 	rows, err := uc.txRepo.ListPendingCategory(ctx, batch)
 	if err != nil {
-		return err
+		return 0, 0, err
 	}
 	if len(rows) == 0 {
-		return nil
+		return 0, 0, nil
 	}
 	cats, err := uc.catRepo.ListAll(ctx)
 	if err != nil {
-		return err
+		return len(rows), 0, err
 	}
 	// 只保留二级科目作为 LLM 的可选项
 	var options []domain.Category
@@ -89,19 +104,33 @@ func (uc *ClassifyPending) runOnce(ctx context.Context, batch int) error {
 		validIDs[c.ID] = true
 	}
 
+	// 只允许写回本轮送给 LLM 的行，防止模型幻觉/账单内容注入指令去改写其它流水
+	batchIDs := make(map[string]bool, len(rows))
+	for _, r := range rows {
+		batchIDs[r.ID] = true
+	}
+
 	system := buildSystemPrompt(options)
 	user := buildUserPrompt(rows)
 
 	reply, err := uc.llm.Complete(ctx, system, user)
 	if err != nil {
-		return err
+		return len(rows), 0, err
 	}
 	assignments, err := parseLLMReply(reply)
 	if err != nil {
-		return fmt.Errorf("parse llm reply: %w (reply=%s)", err, reply)
+		return len(rows), 0, fmt.Errorf("parse llm reply: %w (reply=%s)", err, reply)
 	}
 
 	for _, a := range assignments {
+		if a.CategoryID == "" {
+			// 模型明确表示无法判断，留给人工
+			continue
+		}
+		if !batchIDs[a.ID] {
+			uc.log.Warn("llm returned id outside batch", "id", a.ID)
+			continue
+		}
 		if !validIDs[a.CategoryID] {
 			uc.log.Warn("llm returned invalid category_id", "id", a.ID, "cat", a.CategoryID)
 			continue
@@ -113,10 +142,12 @@ func (uc *ClassifyPending) runOnce(ctx context.Context, batch int) error {
 			Status:     &status,
 		}); err != nil {
 			uc.log.Warn("persist llm classification", "id", a.ID, "err", err)
+			continue
 		}
+		assigned++
 	}
-	uc.log.Info("llm classified", "rows", len(rows), "assigned", len(assignments))
-	return nil
+	uc.log.Info("llm classified", "rows", len(rows), "assigned", assigned)
+	return len(rows), assigned, nil
 }
 
 func buildSystemPrompt(options []domain.Category) string {

@@ -33,3 +33,42 @@ func TestTransactionsRedirectURLUsesOccurredMonth(t *testing.T) {
 		t.Fatalf("transactionsRedirectURL() = %q; want %q", got, want)
 	}
 }
+
+func TestParseAmountToFen(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      string
+		want    int64
+		wantErr bool
+	}{
+		{name: "normal", in: "12.34", want: 1234},
+		{name: "integer", in: "100", want: 10000},
+		{name: "with spaces", in: " 5.5 ", want: 550},
+		{name: "rounding", in: "19.999", want: 2000},
+		{name: "zero", in: "0", wantErr: true},
+		{name: "negative", in: "-3", wantErr: true},
+		{name: "nan", in: "NaN", wantErr: true},
+		{name: "inf", in: "Inf", wantErr: true},
+		{name: "negative inf", in: "-Inf", wantErr: true},
+		{name: "overflow", in: "1e30", wantErr: true},
+		{name: "not a number", in: "abc", wantErr: true},
+		{name: "empty", in: "", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseAmountToFen(tt.in)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("parseAmountToFen(%q) = %d; want error", tt.in, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseAmountToFen(%q) error = %v", tt.in, err)
+			}
+			if got != tt.want {
+				t.Fatalf("parseAmountToFen(%q) = %d; want %d", tt.in, got, tt.want)
+			}
+		})
+	}
+}
