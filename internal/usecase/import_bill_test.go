@@ -119,6 +119,14 @@ func (r *captureTransactionRepo) TopTransactions(context.Context, domain.Period,
 	return nil, nil
 }
 
+func (r *captureTransactionRepo) ListAll(context.Context) ([]domain.Transaction, error) {
+	return nil, nil
+}
+
+func (r *captureTransactionRepo) ListAllImportBatches(context.Context) ([]domain.ImportBatch, error) {
+	return nil, nil
+}
+
 type stubRuleRepo struct {
 	rules []domain.CategoryRule
 }

@@ -303,6 +303,50 @@ LIMIT ?`
 	return out, rows.Err()
 }
 
+// ListAll 全量流水，按 occurred_at 升序；供 /export 使用
+func (r *TransactionRepo) ListAll(ctx context.Context) ([]domain.Transaction, error) {
+	rows, err := r.db.QueryContext(ctx, selectTxSQL+`
+ORDER BY occurred_at ASC, id ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTxs(rows)
+}
+
+// ListAllImportBatches 全量导入批次，按 created_at 升序；供 /export 使用
+func (r *TransactionRepo) ListAllImportBatches(ctx context.Context) ([]domain.ImportBatch, error) {
+	rows, err := r.db.QueryContext(ctx, `
+SELECT id, source, account, COALESCE(filename,''), period_start, period_end,
+       total_rows, imported_rows, skipped_rows, pending_rows, created_at
+FROM import_batches
+ORDER BY created_at ASC, id ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.ImportBatch
+	for rows.Next() {
+		var b domain.ImportBatch
+		var src, acc string
+		var periodStart, periodEnd sql.NullTime
+		if err := rows.Scan(&b.ID, &src, &acc, &b.Filename, &periodStart, &periodEnd,
+			&b.TotalRows, &b.ImportedRows, &b.SkippedRows, &b.PendingRows, &b.CreatedAt); err != nil {
+			return nil, err
+		}
+		b.Source = domain.Source(src)
+		b.Account = domain.Account(acc)
+		if periodStart.Valid {
+			b.PeriodStart = periodStart.Time
+		}
+		if periodEnd.Valid {
+			b.PeriodEnd = periodEnd.Time
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
 const selectTxSQL = `
 SELECT id, source, account, COALESCE(import_batch_id,''), occurred_at, COALESCE(counterparty,''),
        COALESCE(description,''), COALESCE(platform_category,''), COALESCE(note,''), amount, direction, status, COALESCE(category_id,''),

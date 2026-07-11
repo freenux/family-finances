@@ -1,0 +1,202 @@
+package usecase
+
+import (
+	"context"
+
+	"family-finances/internal/domain"
+	"family-finances/internal/port"
+)
+
+// ---- fakeCategoryRepo ----
+
+type fakeCategoryRepo struct {
+	cats []domain.Category
+}
+
+func (f *fakeCategoryRepo) ListAll(context.Context) ([]domain.Category, error) { return f.cats, nil }
+
+func (f *fakeCategoryRepo) ListByType(_ context.Context, t domain.CategoryType) ([]domain.Category, error) {
+	var out []domain.Category
+	for _, c := range f.cats {
+		if c.Type == t {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
+// testCategories 一套最小的收支科目树，income.salary/expense.discretion/expense.fixed 各一个二级科目
+func testCategories() []domain.Category {
+	return []domain.Category{
+		{ID: "income.salary", Level: 1, Name: "工资收入", Type: domain.CategoryTypeIncome},
+		{ID: "income.salary.husband", ParentID: "income.salary", Level: 2, Name: "男主工资", Type: domain.CategoryTypeIncome},
+		{ID: "expense.discretion", Level: 1, Name: "自由裁量支出", Type: domain.CategoryTypeExpense},
+		{ID: "expense.discretion.shopping", ParentID: "expense.discretion", Level: 2, Name: "购物消费", Type: domain.CategoryTypeExpense},
+		{ID: "expense.fixed", Level: 1, Name: "固定刚性支出", Type: domain.CategoryTypeExpense},
+		{ID: "expense.fixed.housing", ParentID: "expense.fixed", Level: 2, Name: "居住成本", Type: domain.CategoryTypeExpense},
+	}
+}
+
+// ---- fakeTransactionRepo ----
+
+type fakeTransactionRepo struct {
+	periodAgg  map[string][]domain.CategoryAggregation
+	bucketAmts map[string]int64 // bucket label -> amount，供 SumByBuckets 用
+	allTxs     []domain.Transaction
+	allBatches []domain.ImportBatch
+}
+
+func (f *fakeTransactionRepo) Insert(context.Context, domain.Transaction) error { return nil }
+
+func (f *fakeTransactionRepo) InsertBatch(context.Context, domain.ImportBatch, []port.ImportRow) (port.ImportResult, error) {
+	return port.ImportResult{}, nil
+}
+
+func (f *fakeTransactionRepo) Update(context.Context, string, port.TransactionUpdate) error {
+	return nil
+}
+
+func (f *fakeTransactionRepo) Get(context.Context, string) (domain.Transaction, error) {
+	return domain.Transaction{}, nil
+}
+
+func (f *fakeTransactionRepo) List(context.Context, domain.Period, domain.Account) ([]domain.Transaction, error) {
+	return nil, nil
+}
+
+func (f *fakeTransactionRepo) ListPendingCategory(context.Context, int) ([]domain.Transaction, error) {
+	return nil, nil
+}
+
+func (f *fakeTransactionRepo) AggregateByCategory(_ context.Context, p domain.Period, _ domain.Account) ([]domain.CategoryAggregation, error) {
+	return f.periodAgg[p.Label], nil
+}
+
+func (f *fakeTransactionRepo) SumByBuckets(_ context.Context, buckets []port.PeriodBucket, _ domain.Direction, _ domain.Account) ([]port.PeriodBucket, error) {
+	out := make([]port.PeriodBucket, len(buckets))
+	copy(out, buckets)
+	for i := range out {
+		out[i].Amount = f.bucketAmts[out[i].Label]
+	}
+	return out, nil
+}
+
+func (f *fakeTransactionRepo) TopTransactions(context.Context, domain.Period, domain.Direction, domain.Account, int) ([]port.TopTransaction, error) {
+	return nil, nil
+}
+
+func (f *fakeTransactionRepo) ListAll(context.Context) ([]domain.Transaction, error) {
+	return f.allTxs, nil
+}
+
+func (f *fakeTransactionRepo) ListAllImportBatches(context.Context) ([]domain.ImportBatch, error) {
+	return f.allBatches, nil
+}
+
+// ---- fakeAssetSnapshotRepo ----
+
+type fakeAssetSnapshotRepo struct {
+	byPeriod map[string]domain.AssetSnapshot
+}
+
+func (f *fakeAssetSnapshotRepo) Upsert(_ context.Context, snap *domain.AssetSnapshot) error {
+	if f.byPeriod == nil {
+		f.byPeriod = map[string]domain.AssetSnapshot{}
+	}
+	f.byPeriod[snap.Period] = *snap
+	return nil
+}
+
+func (f *fakeAssetSnapshotRepo) GetByPeriod(_ context.Context, period string) (*domain.AssetSnapshot, error) {
+	s, ok := f.byPeriod[period]
+	if !ok {
+		return nil, port.ErrNotFound
+	}
+	cp := s
+	return &cp, nil
+}
+
+func (f *fakeAssetSnapshotRepo) ListByPeriodAsc(_ context.Context, limit int) ([]domain.AssetSnapshot, error) {
+	var out []domain.AssetSnapshot
+	for _, s := range f.byPeriod {
+		out = append(out, s)
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (f *fakeAssetSnapshotRepo) ListAll(_ context.Context) ([]domain.AssetSnapshot, error) {
+	var out []domain.AssetSnapshot
+	for _, s := range f.byPeriod {
+		out = append(out, s)
+	}
+	return out, nil
+}
+
+// ---- fakeReportRepo ----
+
+type fakeReportRepo struct {
+	saved []domain.AIReport
+}
+
+func (f *fakeReportRepo) Upsert(_ context.Context, r *domain.AIReport) error {
+	f.saved = append(f.saved, *r)
+	return nil
+}
+
+func (f *fakeReportRepo) GetByPeriod(_ context.Context, period string, pt domain.PeriodType) (*domain.AIReport, error) {
+	for i := len(f.saved) - 1; i >= 0; i-- {
+		if f.saved[i].Period == period && f.saved[i].PeriodType == pt {
+			r := f.saved[i]
+			return &r, nil
+		}
+	}
+	return nil, port.ErrNotFound
+}
+
+func (f *fakeReportRepo) ListAll(context.Context) ([]domain.AIReport, error) { return f.saved, nil }
+
+// ---- fakeCategoryRuleRepo ----
+
+type fakeCategoryRuleRepo struct {
+	rules []domain.CategoryRule
+}
+
+func (f *fakeCategoryRuleRepo) ListRules(context.Context) ([]domain.CategoryRule, error) {
+	return f.rules, nil
+}
+func (f *fakeCategoryRuleRepo) ListActiveRules(context.Context) ([]domain.CategoryRule, error) {
+	return f.rules, nil
+}
+func (f *fakeCategoryRuleRepo) GetRule(context.Context, string) (domain.CategoryRule, error) {
+	return domain.CategoryRule{}, port.ErrNotFound
+}
+func (f *fakeCategoryRuleRepo) InsertRule(context.Context, domain.CategoryRule) error { return nil }
+func (f *fakeCategoryRuleRepo) UpdateRule(context.Context, domain.CategoryRule) error { return nil }
+func (f *fakeCategoryRuleRepo) SetRuleActive(context.Context, string, bool) error     { return nil }
+func (f *fakeCategoryRuleRepo) DeleteRule(context.Context, string) error              { return nil }
+
+// ---- fakeLLM ----
+
+type fakeLLM struct {
+	enabled bool
+	reply   string
+	err     error
+}
+
+func (f *fakeLLM) Enabled() bool { return f.enabled }
+
+func (f *fakeLLM) Complete(context.Context, string, string) (string, error) {
+	return f.reply, f.err
+}
+
+var (
+	_ port.CategoryRepo      = (*fakeCategoryRepo)(nil)
+	_ port.TransactionRepo   = (*fakeTransactionRepo)(nil)
+	_ port.AssetSnapshotRepo = (*fakeAssetSnapshotRepo)(nil)
+	_ port.ReportRepo        = (*fakeReportRepo)(nil)
+	_ port.CategoryRuleRepo  = (*fakeCategoryRuleRepo)(nil)
+	_ ReportLLM              = (*fakeLLM)(nil)
+)

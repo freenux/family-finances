@@ -70,6 +70,10 @@ type TransactionRepo interface {
 	SumByBuckets(ctx context.Context, buckets []PeriodBucket, direction domain.Direction, account domain.Account) ([]PeriodBucket, error)
 	// TopTransactions 周期内按 |amount| desc 的前 N 条；account=family 合并统计
 	TopTransactions(ctx context.Context, p domain.Period, direction domain.Direction, account domain.Account, limit int) ([]TopTransaction, error)
+	// ListAll 全量流水，按 occurred_at 升序；供 /export 使用
+	ListAll(ctx context.Context) ([]domain.Transaction, error)
+	// ListAllImportBatches 全量导入批次；供 /export 使用
+	ListAllImportBatches(ctx context.Context) ([]domain.ImportBatch, error)
 }
 
 type CategoryRepo interface {
@@ -85,4 +89,26 @@ type CategoryRuleRepo interface {
 	UpdateRule(ctx context.Context, rule domain.CategoryRule) error
 	SetRuleActive(ctx context.Context, id string, active bool) error
 	DeleteRule(ctx context.Context, id string) error
+}
+
+// AssetSnapshotRepo 资产快照（asset_snapshots 表）
+type AssetSnapshotRepo interface {
+	// Upsert 按 period 唯一键覆盖写入
+	Upsert(ctx context.Context, snap *domain.AssetSnapshot) error
+	// GetByPeriod 未找到时返回 ErrNotFound
+	GetByPeriod(ctx context.Context, period string) (*domain.AssetSnapshot, error)
+	// ListByPeriodAsc 返回最近 limit 个快照，按 period 升序排列（供曲线绘制）
+	ListByPeriodAsc(ctx context.Context, limit int) ([]domain.AssetSnapshot, error)
+	// ListAll 全量快照，按 period 升序；供 /export 使用
+	ListAll(ctx context.Context) ([]domain.AssetSnapshot, error)
+}
+
+// ReportRepo AI 季/年财报（reports 表）
+type ReportRepo interface {
+	// Upsert 按 (period, period_type) 唯一键覆盖写入
+	Upsert(ctx context.Context, report *domain.AIReport) error
+	// GetByPeriod 未找到时返回 ErrNotFound
+	GetByPeriod(ctx context.Context, period string, periodType domain.PeriodType) (*domain.AIReport, error)
+	// ListAll 全量历史财报，按 generated_at desc
+	ListAll(ctx context.Context) ([]domain.AIReport, error)
 }
