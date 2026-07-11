@@ -28,29 +28,41 @@ type Handler struct {
 	importBill *usecase.ImportBill
 	queryRep   *usecase.QueryReport
 	queryStats *usecase.QueryStats
+	assetSvc   *usecase.AssetSnapshotService
+	genReport  *usecase.GenerateReport
+	exportUC   *usecase.Export
 	txRepo     port.TransactionRepo
 	catRepo    port.CategoryRepo
 	ruleRepo   port.CategoryRuleRepo
+	reportRepo port.ReportRepo
 	log        *slog.Logger
 	flash      *flashStore
 	auth       *authManager
 }
 
 func New(r *web.Renderer, importBill *usecase.ImportBill, qr *usecase.QueryReport, qs *usecase.QueryStats,
-	txRepo port.TransactionRepo, catRepo port.CategoryRepo, ruleRepo port.CategoryRuleRepo, log *slog.Logger) *Handler {
-	return NewWithAuthKey(r, importBill, qr, qs, txRepo, catRepo, ruleRepo, log, "")
+	assetSvc *usecase.AssetSnapshotService, genReport *usecase.GenerateReport, exportUC *usecase.Export,
+	txRepo port.TransactionRepo, catRepo port.CategoryRepo, ruleRepo port.CategoryRuleRepo, reportRepo port.ReportRepo,
+	log *slog.Logger) *Handler {
+	return NewWithAuthKey(r, importBill, qr, qs, assetSvc, genReport, exportUC, txRepo, catRepo, ruleRepo, reportRepo, log, "")
 }
 
 func NewWithAuthKey(r *web.Renderer, importBill *usecase.ImportBill, qr *usecase.QueryReport, qs *usecase.QueryStats,
-	txRepo port.TransactionRepo, catRepo port.CategoryRepo, ruleRepo port.CategoryRuleRepo, log *slog.Logger, authKey string) *Handler {
+	assetSvc *usecase.AssetSnapshotService, genReport *usecase.GenerateReport, exportUC *usecase.Export,
+	txRepo port.TransactionRepo, catRepo port.CategoryRepo, ruleRepo port.CategoryRuleRepo, reportRepo port.ReportRepo,
+	log *slog.Logger, authKey string) *Handler {
 	return &Handler{
 		render:     r,
 		importBill: importBill,
 		queryRep:   qr,
 		queryStats: qs,
+		assetSvc:   assetSvc,
+		genReport:  genReport,
+		exportUC:   exportUC,
 		txRepo:     txRepo,
 		catRepo:    catRepo,
 		ruleRepo:   ruleRepo,
+		reportRepo: reportRepo,
 		log:        log,
 		flash:      newFlashStore(),
 		auth:       newAuthManager(authKey),

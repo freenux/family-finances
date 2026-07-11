@@ -1,0 +1,131 @@
+{{define "content"}}
+<div class="stats-head">
+  <div>
+    <h2 class="title-zh">AI 季/年财报</h2>
+    <div class="subtitle">组装财务上下文包 → LLM 输出结构化 JSON → 校验后落库；页面渲染的是存库结果，可回看</div>
+  </div>
+</div>
+
+{{if .Flash}}
+  <div class="section" style="padding:10px 14px;margin-bottom:14px;background:var(--accent-soft);color:var(--accent)">
+    ✅ {{.Flash}}
+  </div>
+{{end}}
+
+<form class="toolbar" method="post" action="/reports/generate">
+  <label>期间
+    <select name="period" id="rep-period">
+      {{$sel := .SelectedPeriod}}
+      {{range .PeriodOptions}}
+        <option value="{{.}}" {{if eq . $sel}}selected{{end}}>{{.}}</option>
+      {{end}}
+    </select>
+  </label>
+  <button class="btn" type="submit" id="rep-gen" {{if not .LLMEnabled}}disabled{{end}}>✦ 生成财报</button>
+  <span class="spacer"></span>
+  {{if .LLMEnabled}}
+    <span class="hint">同步生成（约 10–30 秒）· 输出 json_object · 服务端校验后写入 reports 表</span>
+  {{else}}
+    <span class="hint" style="color:var(--warning)">未配置 OPENAI_API_KEY，生成功能不可用；历史财报仍可回看</span>
+  {{end}}
+</form>
+
+<div class="two-col" style="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)">
+  <div id="rep-slot">
+    {{if .Selected}}
+      {{$vm := .Selected}}
+      <div class="report-card">
+        <div class="rc-head">
+          <h3>{{if eq (printf "%s" $vm.Report.PeriodType) "annual"}}{{$vm.Report.Period}} 家庭年度财报{{else}}{{$vm.Report.Period}} 家庭季度财报{{end}}</h3>
+          <span class="meta">生成于 {{$vm.Report.GeneratedAt.Format "2006-01-02 15:04"}} · {{$vm.Report.AIModel}} · 存档回看，不再调用 LLM</span>
+        </div>
+        <div class="rc-body">
+          <div class="stat-chips">
+            <span class="chip">收入 <b>¥{{yuan $vm.Income.TotalFen}}</b></span>
+            <span class="chip">支出 <b>¥{{yuan $vm.Expense.TotalFen}}</b></span>
+            <span class="chip">结余率 <b>{{pct $vm.KPI.SavingsRate}}</b></span>
+            <span class="chip">自由裁量占比 <b>{{pct $vm.KPI.DiscretionRatio}}</b></span>
+            {{if $vm.Snapshot}}<span class="chip">净资产 <b>¥{{yuan $vm.Snapshot.NetWorthFen}}</b></span>{{end}}
+          </div>
+
+          <h4><span class="dot" style="background:#2a78d6"></span>摘要</h4>
+          <p>{{$vm.Content.Summary}}</p>
+
+          {{if $vm.Content.Highlights}}
+          <h4><span class="dot" style="background:#0e7a41"></span>亮点</h4>
+          <ul>
+            {{range $vm.Content.Highlights}}
+            <li>{{.Text}}
+              <span class="ref-notes">{{range .Refs}}{{with index $vm.FindingText .}}<span class="ref-note">依据：{{.}}</span>{{end}}{{end}}</span>
+            </li>
+            {{end}}
+          </ul>
+          {{end}}
+
+          {{if $vm.Content.Risks}}
+          <h4><span class="dot" style="background:#d31b5e"></span>风险</h4>
+          <ul>
+            {{range $vm.Content.Risks}}
+            <li>{{.Text}}
+              <span class="ref-notes">{{range .Refs}}{{with index $vm.FindingText .}}<span class="ref-note">依据：{{.}}</span>{{end}}{{end}}</span>
+            </li>
+            {{end}}
+          </ul>
+          {{end}}
+
+          {{if $vm.Content.Advice}}
+          <h4><span class="dot" style="background:#533afd"></span>建议</h4>
+          <ul>
+            {{range $vm.Content.Advice}}
+            <li>{{.Text}}
+              <span class="ref-notes">{{range .Refs}}{{with index $vm.FindingText .}}<span class="ref-note">依据：{{.}}</span>{{end}}{{end}}</span>
+            </li>
+            {{end}}
+          </ul>
+          {{end}}
+
+          {{if $vm.Findings}}
+          <h4><span class="dot" style="background:#64748d"></span>确定性诊断（系统计算）</h4>
+          <ul>
+            {{range $vm.Findings}}<li>{{.Text}} <span class="ref-note">{{.Key}}</span></li>{{end}}
+          </ul>
+          {{end}}
+
+          <div class="disclaimer">本报告由大模型基于家庭聚合数据生成，仅作教育与参考用途，不构成投资建议。</div>
+        </div>
+      </div>
+    {{else}}
+      <div class="report-card">
+        <div class="rc-body" style="text-align:center;padding:52px 20px;color:var(--muted);font-size:13px">
+          {{.SelectedPeriod}} 尚无已存档的财报。{{if .LLMEnabled}}点击上方「生成财报」创建一份。{{else}}配置 OPENAI_API_KEY 后可生成。{{end}}
+        </div>
+      </div>
+    {{end}}
+  </div>
+
+  <div>
+    <div class="section">
+      <div class="section-title"><span>历史财报</span><span class="hint">点击回看，不再调 LLM</span></div>
+      {{if .History}}
+        {{range .History}}
+        <a class="hist-item" href="/reports?period={{.Period}}">
+          <div>
+            <div class="hn">{{.Label}}</div>
+            <div class="hm">生成于 {{.GeneratedAt.Format "2006-01-02 15:04"}}</div>
+          </div>
+          <span class="badge">已存档</span>
+        </a>
+        {{end}}
+      {{else}}
+        <div class="empty" style="padding:26px 16px">还没有任何财报存档。</div>
+      {{end}}
+    </div>
+    <div class="note-strip">
+      <b>隐私边界</b> · 上下文包只含聚合数与快照科目余额，不发交易对手方与单笔明细。<br>
+      <b>可信边界</b> · 金额、比例、环比均由系统确定性计算；AI 只做解释，且每条结论标注了数据依据。
+    </div>
+  </div>
+</div>
+{{end}}
+
+{{define "page"}}{{template "base" .}}{{end}}

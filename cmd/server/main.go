@@ -44,6 +44,8 @@ func main() {
 
 	txRepo := sqlite.NewTransactionRepo(db)
 	catRepo := sqlite.NewCategoryRepo(db)
+	assetRepo := sqlite.NewAssetSnapshotRepo(db)
+	reportRepo := sqlite.NewReportRepo(db)
 
 	llmClient := llm.NewClient(llm.Config{
 		APIKey:  cfg.OpenAIAPIKey,
@@ -55,6 +57,10 @@ func main() {
 	importBill := usecase.NewImportBill(txRepo, catRepo).WithTrigger(classifyPending.Trigger)
 	queryRep := usecase.NewQueryReport(txRepo, catRepo)
 	queryStats := usecase.NewQueryStats(txRepo, catRepo)
+	assetSvc := usecase.NewAssetSnapshotService(assetRepo)
+	contextPackBuilder := usecase.NewContextPackBuilder(queryRep, assetRepo, txRepo)
+	genReport := usecase.NewGenerateReport(contextPackBuilder, reportRepo, llmClient, cfg.OpenAIModel)
+	exportUC := usecase.NewExport(txRepo, catRepo, catRepo, assetRepo, reportRepo)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -66,7 +72,8 @@ func main() {
 		log.Error("init renderer", "err", err)
 		os.Exit(1)
 	}
-	h := handler.NewWithAuthKey(renderer, importBill, queryRep, queryStats, txRepo, catRepo, catRepo, log, cfg.AuthKey)
+	h := handler.NewWithAuthKey(renderer, importBill, queryRep, queryStats, assetSvc, genReport, exportUC,
+		txRepo, catRepo, catRepo, reportRepo, log, cfg.AuthKey)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
@@ -113,6 +120,17 @@ func main() {
 		r.Post("/imports", h.ImportSubmit)
 		r.Post("/imports/manual", h.ManualEntrySubmit)
 		r.Get("/partials/report", h.PartialReport)
+
+		r.Get("/assets", h.Assets)
+		r.Put("/api/assets/{period}", h.SaveAssetSnapshot)
+		r.Get("/api/assets/{period}/prev", h.PrevAssetSnapshot)
+
+		r.Get("/reports", h.Reports)
+		r.Post("/reports/generate", h.GenerateReportSubmit)
+
+		r.Get("/export", h.ExportPage)
+		r.Get("/export/transactions.csv", h.ExportTransactionsCSV)
+		r.Get("/export/full.json", h.ExportFullJSON)
 	})
 
 	log.Info("listening", "addr", cfg.ServerAddr, "db", cfg.DatabasePath, "openai_key", cfg.MaskedAPIKey())

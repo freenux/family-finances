@@ -1,0 +1,130 @@
+{{define "content"}}
+<script id="data-asset-data" type="application/json">{{rawJSON .CurrentDataJSON}}</script>
+<script id="data-asset-curve" type="application/json">{{rawJSON .CurveJSON}}</script>
+
+<div x-data="assetsPage()"
+     data-period="{{.CurrentPeriod}}"
+     data-prev-period="{{.PrevPeriodLabel}}"
+     data-has-prev="{{if .HasPrevSnapshot}}1{{end}}"
+     data-prev-net-worth="{{.PrevNetWorth}}"
+     x-cloak>
+  <div class="stats-head">
+    <div>
+      <h2 class="title-zh">{{.CurrentPeriod}} 资产快照</h2>
+      <div class="subtitle">每季度手填各账户余额（科目沿用点分命名空间 asset.* / liability.*），净值 = 资产 − 负债</div>
+    </div>
+    <div class="flex-row" style="gap:12px;align-items:center">
+      <div class="period-nav">
+        <a href="/assets?period={{.PrevPeriodLabel}}" title="上一季">◀</a>
+        <span class="cur">{{.CurrentPeriod}}</span>
+        <a href="/assets?period={{.NextPeriodLabel}}" title="下一季">▶</a>
+      </div>
+      <button type="button" class="btn ghost" @click="copyPrev()"
+              {{if not .HasPrevSnapshot}}disabled title="上一季度暂无快照"{{end}}>从上季复制</button>
+      <button type="button" class="btn" id="save-snapshot" @click="save()"
+              :disabled="saving" x-text="saving ? '保存中…' : '保存快照'">保存快照</button>
+    </div>
+  </div>
+
+  {{if .Flash}}
+    <div class="section" style="padding:10px 14px;margin-bottom:14px;background:var(--accent-soft);color:var(--accent)">
+      ✅ {{.Flash}}
+    </div>
+  {{end}}
+  <template x-if="msg">
+    <div class="section" style="padding:10px 14px;margin-bottom:14px;background:var(--accent-soft);color:var(--accent)">
+      ✅ <span x-text="msg"></span>
+    </div>
+  </template>
+  <template x-if="errorMsg">
+    <div class="section" style="padding:10px 14px;margin-bottom:14px;color:var(--negative)">
+      保存失败：<span x-text="errorMsg"></span>
+    </div>
+  </template>
+
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="label">总资产</div>
+      <div class="value" x-text="'¥' + fmtYuan(totalAssets)">—</div>
+      <div class="sub">{{len .Catalog}} 个科目中的资产项</div>
+    </div>
+    <div class="kpi-card">
+      <div class="label">总负债</div>
+      <div class="value negative" x-text="'¥' + fmtYuan(totalLiab)">—</div>
+      <div class="sub">房贷 + 消费信贷</div>
+    </div>
+    <div class="kpi-card">
+      <div class="label">净资产</div>
+      <div class="value positive" x-text="'¥' + fmtYuan(netWorth)">—</div>
+      <div class="sub">{{.CurrentPeriod}} 快照{{if not .HasCurrent}}（尚未保存）{{end}}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="label">环比上季</div>
+      <div class="value" :class="qoqPct === null ? '' : (qoqPct >= 0 ? 'positive' : 'negative')"
+           x-text="qoqPct === null ? '—' : ((qoqPct >= 0 ? '+' : '') + (qoqPct * 100).toFixed(1) + '%')">—</div>
+      <div class="sub">净资产变动</div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="section">
+      <div class="section-title">
+        <span>季度快照（金额可就地编辑，单位：元）</span>
+        <span class="hint">修改后点击右上角「保存快照」</span>
+      </div>
+      <table class="ledger" id="snap-table">
+        <thead>
+          <tr><th>科目</th><th style="text-align:right;width:170px">余额（元）</th></tr>
+        </thead>
+        <tbody>
+          <tr class="group"><td colspan="2">资产 asset.*</td></tr>
+          {{range .Catalog}}{{if eq .Group "asset"}}
+          <tr class="item">
+            <td class="name">{{.Name}}<span class="code">{{.Code}}</span></td>
+            <td class="amount">
+              <input class="cell-input" data-code="{{.Code}}" inputmode="decimal"
+                     @input="onInput('{{.Code}}', $event.target.value)"
+                     @blur="reformat($event.target, '{{.Code}}')">
+            </td>
+          </tr>
+          {{end}}{{end}}
+          <tr class="subtotal"><td>资产合计</td><td class="amount positive" x-text="'¥' + fmtYuan(totalAssets)"></td></tr>
+          <tr class="group"><td colspan="2">负债 liability.*</td></tr>
+          {{range .Catalog}}{{if eq .Group "liability"}}
+          <tr class="item">
+            <td class="name">{{.Name}}<span class="code">{{.Code}}</span></td>
+            <td class="amount">
+              <input class="cell-input" data-code="{{.Code}}" inputmode="decimal"
+                     @input="onInput('{{.Code}}', $event.target.value)"
+                     @blur="reformat($event.target, '{{.Code}}')">
+            </td>
+          </tr>
+          {{end}}{{end}}
+          <tr class="subtotal"><td>负债合计</td><td class="amount negative" x-text="'−¥' + fmtYuan(totalLiab)"></td></tr>
+          <tr class="total"><td>净资产（资产 − 负债）</td><td class="amount positive" x-text="'¥' + fmtYuan(netWorth)"></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div>
+      <div class="section">
+        <div class="section-title"><span>净值曲线（季度）</span><span class="hint">悬停查看明细</span></div>
+        <div class="chart-wrap" id="nw-chart-wrap">
+          <template x-if="curve.length === 0">
+            <div class="empty" style="padding:40px 16px">暂无快照数据，保存第一份季度快照后这里会出现净值曲线。</div>
+          </template>
+          <svg id="nw-chart" viewBox="0 0 520 230" role="img" aria-label="家庭净资产季度曲线"
+               x-show="curve.length > 0"></svg>
+          <div class="tip" id="nw-tip"></div>
+        </div>
+        <div class="legend-row"><span class="li"><span class="sw" style="background:#2a78d6"></span>净资产（资产 − 负债）</span></div>
+      </div>
+      <div class="note-strip">
+        <b>说明</b> · 快照按季手填；「从上季复制」把上季余额带入再微调，降低录入成本。此页数据是 AI 财报中净资产环比与活钱覆盖月数的来源。
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}
+
+{{define "page"}}{{template "base" .}}{{end}}

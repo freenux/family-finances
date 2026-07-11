@@ -1,0 +1,43 @@
+{{define "content"}}
+<div class="stats-head">
+  <div>
+    <h2 class="title-zh">数据导出</h2>
+    <div class="subtitle">你的数据完全属于你：全量流水、科目、规则、快照与财报，一键带走</div>
+  </div>
+</div>
+
+<div class="export-grid">
+  <div class="section export-card">
+    <div class="section-title"><span>流水 CSV</span></div>
+    <div class="export-body">
+      <p>全量收支流水，UTF-8 带 BOM，Excel / Numbers / WPS 直接双击打开不乱码。</p>
+      <p class="meta">列：id、日期、来源、账户、方向、金额（分/元）、分类、说明、对方、备注、状态</p>
+      <a class="btn" href="/export/transactions.csv" download>⬇ 下载 transactions.csv</a>
+    </div>
+  </div>
+
+  <div class="section export-card">
+    <div class="section-title"><span>全量 JSON</span></div>
+    <div class="export-body">
+      <p>机器可读的完整备份：流水、科目树、分类规则、资产快照、AI 财报、导入批次。</p>
+      <p class="meta">适合迁移到其它工具、写脚本二次分析，或做定期离线备份。</p>
+      <a class="btn" href="/export/full.json" download>⬇ 下载 full-export.json</a>
+    </div>
+  </div>
+
+  <div class="section export-card">
+    <div class="section-title"><span>Beancount（规划中）</span></div>
+    <div class="export-body">
+      <p>导出为 Beancount 复式记账格式，接入 Fava 等开源生态。</p>
+      <p class="meta">列入后续里程碑，本版本暂未提供。</p>
+      <a class="btn ghost" style="pointer-events:none;opacity:.55" aria-disabled="true">敬请期待</a>
+    </div>
+  </div>
+</div>
+
+<div class="note-strip" style="margin-top:16px">
+  <b>说明</b> · 导出内容为数据库全量数据（不含登录口令等运行配置）；金额字段以「分」为整数存储，CSV 中同时给出元的换算列。
+</div>
+{{end}}
+
+{{define "page"}}{{template "base" .}}{{end}}
