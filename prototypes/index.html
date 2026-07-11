@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>产品原型总览 — 家庭财务 P0–P3</title>
+<style>
+:root{
+  color-scheme: light;
+  --bg:#ffffff; --bg-soft:#f6f9fc; --cream:#f5e9d4; --surface:#ffffff;
+  --border:#e3e8ee; --text:#0d253d; --text-secondary:#273951; --muted:#64748d;
+  --accent:#533afd; --accent-deep:#4434d4; --accent-soft:#f4f2ff;
+  --positive:#0e7a41; --warning:#9b6829;
+  --radius:12px; --pill:9999px;
+  --sans:"SF Pro Display",-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Segoe UI",sans-serif;
+  --shadow-1:rgba(0,55,112,.08) 0 1px 3px;
+  --shadow-2:rgba(0,55,112,.08) 0 8px 24px, rgba(0,55,112,.04) 0 2px 6px;
+}
+*{box-sizing:border-box}
+html{overflow-x:clip;background:var(--bg)}
+html,body{margin:0;padding:0;color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5}
+body{position:relative;overflow-x:clip}
+body::before{content:"";position:absolute;top:-140px;left:-10%;right:-10%;height:480px;z-index:-1;pointer-events:none;
+  transform:skewY(-6deg);transform-origin:top left;filter:blur(28px) saturate(140%);
+  background:radial-gradient(50% 72% at 4% 42%,rgba(245,226,188,1),transparent 64%),
+    radial-gradient(44% 66% at 24% 16%,rgba(255,187,122,.92),transparent 62%),
+    radial-gradient(50% 74% at 50% 36%,rgba(167,167,250,1),transparent 64%),
+    radial-gradient(40% 62% at 72% 14%,rgba(102,94,253,.72),transparent 62%),
+    radial-gradient(38% 60% at 92% 40%,rgba(249,107,238,.78),transparent 62%);
+  mask-image:linear-gradient(180deg,#000 52%,transparent 97%);
+  -webkit-mask-image:linear-gradient(180deg,#000 52%,transparent 97%)}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+main{animation:rise .4s ease-out both;max-width:980px;margin:0 auto;padding:56px 28px 72px}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important}}
+.mark{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:9px;
+  background:linear-gradient(135deg,var(--accent),var(--accent-deep));color:#fff;font-size:17px;font-weight:600;box-shadow:var(--shadow-1)}
+h1{font-size:34px;font-weight:300;letter-spacing:-.6px;margin:16px 0 8px;text-wrap:balance}
+.sub{color:var(--muted);font-size:14px;max-width:62ch;line-height:1.8;margin:0 0 8px}
+.sub b{color:var(--text-secondary)}
+.howto{margin:20px 0 32px;padding:14px 18px;border:1px solid var(--border);border-radius:var(--radius);
+  background:var(--surface);box-shadow:var(--shadow-1);font-size:13px;color:var(--text-secondary);line-height:1.85}
+.howto b{color:var(--accent)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}}
+a.card{display:block;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:22px;box-shadow:var(--shadow-1);text-decoration:none;color:var(--text);
+  transition:box-shadow .2s ease,transform .2s ease}
+a.card:hover{box-shadow:var(--shadow-2);transform:translateY(-2px)}
+.ptag{display:inline-block;padding:3px 12px;border-radius:var(--pill);color:#fff;font-size:12px;font-weight:600;margin-bottom:12px}
+a.card h2{margin:0 0 6px;font-size:19px;font-weight:500;letter-spacing:-.19px}
+a.card p{margin:0 0 12px;color:var(--muted);font-size:13px;line-height:1.7}
+a.card ul{margin:0;padding-left:18px;color:var(--text-secondary);font-size:12.5px;line-height:1.9}
+a.card .go{display:inline-block;margin-top:14px;color:var(--accent);font-size:13px;font-weight:500}
+footer{max-width:980px;margin:0 auto;padding:0 28px 48px;color:var(--muted);font-size:12px;line-height:1.8}
+</style>
+</head>
+<body>
+<main>
+  <span class="mark">家</span>
+  <h1>家庭财务系统 · P0–P3 产品原型</h1>
+  <p class="sub">对照 <b>docs/product-research.md §四「产品方案:四个阶段」</b>,把 13 个功能点分别做成可点的高保真原型;视觉沿用现有系统的设计语言,所有数字为同一个 mock 家庭(双职工 + 一娃,2026Q2,净资产 286 万)。</p>
+  <div class="howto">
+    <b>怎么评审</b> · ① 每个功能屏右上角有「✓ 保留 / ? 待定 / ✕ 砍掉」,点了会记住(存在浏览器本地),筛完把结论截图或口述给我即可;② 带下划线提示的控件都能操作——改快照金额、切风险偏好、拖再平衡阈值、点预设问题,反应式交互正是评审重点;③ 每屏左上角的小字标注了它对应调研文档的缺口编号与竞品对标。
+  </div>
+  <div class="grid">
+    <a class="card" href="p0.html">
+      <span class="ptag" style="background:#0d253d">P0</span>
+      <h2>补齐「数据依据」— 资产端地基</h2>
+      <p>AI 建议质量取决于喂给它的数据;先把"存量资产"这条腿补上。</p>
+      <ul>
+        <li>① 资产快照页 /assets:季度手填 + 从上季复制 + 净值曲线</li>
+        <li>② AI 季/年财报 /reports:上下文包 → LLM → 存库可回看</li>
+      </ul>
+      <span class="go">打开 P0 原型 →</span>
+    </a>
+    <a class="card" href="p1.html">
+      <span class="ptag" style="background:#533afd">P1</span>
+      <h2>AI 理财建议核心 — 差异化</h2>
+      <p>四个圈的交集:自托管 × 中国账单 × 家庭视角 × LLM 配置建议。</p>
+      <ul>
+        <li>③ 家庭风险画像问卷(实时重算)</li>
+        <li>④ 四笔钱诊断:当前占比 vs 画像建议区间</li>
+        <li>⑤ AI 个性化配置方案(规则校验,不给产品代码)</li>
+        <li>⑥ 再平衡提醒(阈值可调)</li>
+      </ul>
+      <span class="go">打开 P1 原型 →</span>
+    </a>
+    <a class="card" href="p2.html">
+      <span class="ptag" style="background:#0e7a41">P2</span>
+      <h2>完整家庭财务闭环</h2>
+      <p>目标、保障、预算三件套,全部挂在已建好的表上。</p>
+      <ul>
+        <li>⑦ 财务目标:目标额/日期 → 每月应存,快照自动更新进度</li>
+        <li>⑧ 保单登记 + AI 保障缺口检查(双十原则)</li>
+        <li>⑨ 分类预算 + 周期交易识别 + 90 天现金流</li>
+      </ul>
+      <span class="go">打开 P2 原型 →</span>
+    </a>
+    <a class="card" href="p3.html">
+      <span class="ptag" style="background:#9b6829">P3</span>
+      <h2>体验与开源生态</h2>
+      <p>把系统从"工具"变成"陪伴",并给开源用户留好进出口。</p>
+      <ul>
+        <li>⑩ AI 对话问数(只读,基于上下文包)</li>
+        <li>⑪ 周报/季报推送(Monarch Weekly Recap 式)</li>
+        <li>⑫ 通用 CSV 导入映射器 + CSV/JSON/Beancount 导出</li>
+        <li>⑬ 多成员合并视图 + 只读 MCP server</li>
+      </ul>
+      <span class="go">打开 P3 原型 →</span>
+    </a>
+  </div>
+</main>
+<footer>原型均为单文件静态 HTML,mock 数据,零依赖;本地直接双击打开即可。评审通过的功能点将按 CLAUDE.md 的整洁架构落到 Go 后端(asset_snapshots / reports / financial_goals / insurance_policies 等表已预建)。</footer>
+</body>
+</html>

@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P3 · 体验与开源生态 — 产品原型</title>
+<style>
+:root{
+  color-scheme: light;
+  --bg:#ffffff; --bg-soft:#f6f9fc; --cream:#f5e9d4; --surface:#ffffff;
+  --border:#e3e8ee; --border-strong:#a8c3de; --zebra:#fbfcfe;
+  --text:#0d253d; --text-secondary:#273951; --muted:#64748d;
+  --accent:#533afd; --accent-deep:#4434d4; --accent-subdued:#b9b9f9; --accent-soft:#f4f2ff;
+  --positive:#0e7a41; --negative:#d31b5e; --warning:#9b6829;
+  --c1:#2a78d6; --c2:#1baf7a; --c3:#4a3aa7; --c4:#eda100;
+  --radius:12px; --radius-sm:6px; --pill:9999px;
+  --sans:"SF Pro Display",-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Segoe UI",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --shadow-1:rgba(0,55,112,.08) 0 1px 3px;
+  --shadow-2:rgba(0,55,112,.08) 0 8px 24px, rgba(0,55,112,.04) 0 2px 6px;
+  --ring:0 0 0 4px rgba(83,58,253,.16);
+}
+*{box-sizing:border-box}
+html{overflow-x:clip;background:var(--bg)}
+html,body{margin:0;padding:0;color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5}
+body{position:relative;overflow-x:clip}
+body::before{content:"";position:absolute;top:-140px;left:-10%;right:-10%;height:440px;z-index:-1;pointer-events:none;
+  transform:skewY(-6deg);transform-origin:top left;filter:blur(28px) saturate(140%);
+  background:radial-gradient(50% 72% at 4% 42%,rgba(245,226,188,1),transparent 64%),
+    radial-gradient(44% 66% at 24% 16%,rgba(255,187,122,.92),transparent 62%),
+    radial-gradient(50% 74% at 50% 36%,rgba(167,167,250,1),transparent 64%),
+    radial-gradient(40% 62% at 72% 14%,rgba(102,94,253,.72),transparent 62%),
+    radial-gradient(38% 60% at 92% 40%,rgba(249,107,238,.78),transparent 62%);
+  mask-image:linear-gradient(180deg,#000 52%,transparent 97%);
+  -webkit-mask-image:linear-gradient(180deg,#000 52%,transparent 97%)}
+::selection{background:rgba(83,58,253,.18)}
+:focus-visible{outline:none;box-shadow:var(--ring);border-radius:4px}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+main{animation:rise .4s ease-out both}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+header.app-header{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.82);
+  -webkit-backdrop-filter:blur(14px) saturate(140%);backdrop-filter:blur(14px) saturate(140%);
+  border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;justify-content:space-between}
+header.app-header h1{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:500;margin:0}
+.brand-seal{display:grid;place-items:center;width:26px;height:26px;border-radius:7px;
+  background:linear-gradient(135deg,var(--accent),var(--accent-deep));color:#fff;font-size:14px;font-weight:600;box-shadow:var(--shadow-1)}
+header.app-header nav{display:flex;gap:24px}
+header.app-header nav a{color:var(--muted);text-decoration:none;font-size:14px;cursor:default}
+header.app-header nav a.active{color:var(--accent);font-weight:500}
+header.app-header nav a .nb{display:inline-block;margin-left:4px;padding:0 6px;border-radius:var(--pill);
+  background:var(--accent);color:#fff;font-size:10px;font-weight:600;vertical-align:2px}
+.phase-strip{max-width:1100px;margin:18px auto 0;padding:0 28px;display:flex;flex-wrap:wrap;align-items:baseline;gap:10px}
+.phase-tag{padding:3px 12px;border-radius:var(--pill);background:#9b6829;color:#fff;font-size:12px;font-weight:600;letter-spacing:.04em}
+.phase-strip .t{font-size:15px;font-weight:500}
+.phase-strip .m{color:var(--muted);font-size:12px}
+main{max-width:1100px;margin:0 auto;padding:18px 28px 72px}
+.tabbar{display:inline-flex;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:var(--pill);
+  padding:3px;gap:2px;box-shadow:var(--shadow-1);margin-bottom:22px}
+.tabbar button{border:0;background:transparent;cursor:pointer;padding:6px 16px;font-size:13px;color:var(--muted);
+  font-family:inherit;border-radius:var(--pill);transition:color .15s,background .15s}
+.tabbar button:hover{background:var(--bg-soft);color:var(--text)}
+.tabbar button.active{background:var(--accent);color:#fff;font-weight:500}
+.proto-head{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:16px}
+.kicker{color:var(--accent);font-size:10px;font-weight:500;letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px}
+.proto-head h2{font-size:26px;font-weight:300;letter-spacing:-.26px;margin:0 0 6px}
+.proto-head h2 code{font-size:14px;color:var(--muted);background:var(--bg-soft);border:1px solid var(--border);
+  border-radius:var(--radius-sm);padding:2px 8px;vertical-align:3px;margin-left:8px;font-family:var(--mono)}
+.proto-head .desc{color:var(--muted);font-size:13px;margin:0;max-width:560px}
+.verdict{display:inline-flex;gap:6px;flex-shrink:0;background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--pill);padding:4px;box-shadow:var(--shadow-1)}
+.verdict .vlabel{align-self:center;padding:0 6px 0 10px;font-size:11px;color:var(--muted)}
+.verdict button{border:0;background:transparent;cursor:pointer;font-family:inherit;font-size:12px;color:var(--muted);
+  padding:5px 12px;border-radius:var(--pill);transition:all .15s}
+.verdict button:hover{background:var(--bg-soft);color:var(--text)}
+.verdict button.on[data-v="keep"]{background:#e8f6ee;color:var(--positive);font-weight:600}
+.verdict button.on[data-v="hold"]{background:var(--cream);color:var(--warning);font-weight:600}
+.verdict button.on[data-v="drop"]{background:#fdf2f6;color:var(--negative);font-weight:600}
+.section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow-1)}
+.section .section-title{padding:11px 16px;border-bottom:1px solid var(--border);font-weight:500;font-size:13px;
+  background:var(--bg-soft);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.section .section-title .hint{font-weight:400;color:var(--muted);font-size:12px}
+.btn{display:inline-block;background:var(--accent);color:#fff;padding:8px 16px;border-radius:var(--pill);
+  font-size:14px;line-height:1.2;border:0;cursor:pointer;font-family:inherit;transition:background .15s}
+.btn:hover{background:var(--accent-deep)}
+.btn.ghost{background:var(--surface);color:var(--text);border:1px solid var(--border)}
+.btn.ghost:hover{background:var(--bg-soft)}
+.badge{display:inline-block;padding:2px 8px;border-radius:var(--pill);font-size:11px;font-weight:500;
+  background:var(--accent-subdued);color:var(--accent-deep)}
+.badge.ok{background:#e8f6ee;color:var(--positive)}
+.badge.warn{background:var(--cream);color:var(--warning)}
+.two-col{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:18px;align-items:start}
+@media(max-width:900px){.two-col{grid-template-columns:1fr}}
+.note-strip{margin-top:14px;padding:10px 14px;border-radius:var(--radius-sm);background:var(--bg-soft);
+  border:1px solid var(--border);color:var(--muted);font-size:12px;line-height:1.7}
+.note-strip b{color:var(--text-secondary)}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(20px);background:var(--text);color:#fff;
+  padding:10px 18px;border-radius:var(--pill);font-size:13px;box-shadow:var(--shadow-2);opacity:0;transition:all .25s;z-index:99}
+.toast.show{opacity:1;transform:translateX(-50%)}
+footer.proto-foot{max-width:1100px;margin:0 auto;padding:0 28px 40px;color:var(--muted);font-size:12px}
+/* 对话 */
+.chat-panel{display:flex;flex-direction:column;height:520px}
+.chat-log{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:12px}
+.msg{max-width:82%;padding:10px 14px;border-radius:14px;font-size:13.5px;line-height:1.7}
+.msg.user{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px}
+.msg.ai{align-self:flex-start;background:var(--bg-soft);border:1px solid var(--border);border-bottom-left-radius:4px;color:var(--text-secondary)}
+.msg.ai .src{display:block;margin-top:8px;padding-top:7px;border-top:1px dashed var(--border-strong);font-size:11px;color:var(--muted)}
+.msg.ai b{color:var(--text);font-variant-numeric:tabular-nums}
+.chip-row{display:flex;gap:8px;flex-wrap:wrap;padding:0 18px 10px}
+.chip-row button{border:1px solid var(--accent-subdued);background:var(--accent-soft);color:var(--accent-deep);
+  border-radius:var(--pill);padding:5px 13px;font-size:12px;cursor:pointer;font-family:inherit;transition:all .15s}
+.chip-row button:hover{background:var(--accent);color:#fff}
+.chat-input{display:flex;gap:10px;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg-soft)}
+.chat-input input{flex:1;padding:9px 14px;border:1px solid var(--border-strong);border-radius:var(--pill);
+  font-family:inherit;font-size:13px;background:#fff;color:var(--text)}
+.chat-input input:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
+.typing{align-self:flex-start;color:var(--muted);font-size:12px;padding:4px 14px}
+/* 周报 */
+.form-grid{display:grid;gap:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:22px;box-shadow:var(--shadow-1)}
+.form-grid label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted)}
+.form-grid input[type="text"],.form-grid input[type="time"],.form-grid select{font-family:inherit;font-size:14px;padding:8px 12px;
+  border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:#fff;color:var(--text)}
+.check-row{display:flex;gap:18px;font-size:13px;color:var(--text)}
+.check-row label{flex-direction:row;align-items:center;gap:6px;color:var(--text)}
+input[type="checkbox"]{accent-color:var(--accent)}
+.seg{display:inline-flex;background:var(--surface);border:1px solid var(--border);border-radius:var(--pill);
+  overflow:hidden;padding:3px;gap:2px;box-shadow:var(--shadow-1)}
+.seg .seg-label{padding:5px 12px;font-size:11px;color:var(--muted);display:flex;align-items:center}
+.seg button{border:0;background:transparent;cursor:pointer;padding:5px 14px;font-size:13px;color:var(--muted);
+  font-family:inherit;border-radius:var(--pill);transition:color .15s,background .15s}
+.seg button.active{background:var(--accent);color:#fff;font-weight:500}
+.mail-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-2);overflow:hidden}
+.mail-head{padding:14px 18px;border-bottom:1px solid var(--border);background:var(--bg-soft);font-size:12px;color:var(--muted)}
+.mail-head b{display:block;color:var(--text);font-size:14px;margin-bottom:2px}
+.mail-body{padding:18px}
+.mail-body h3{margin:0 0 4px;font-size:20px;font-weight:300;letter-spacing:-.2px}
+.mail-body .wk{color:var(--muted);font-size:12px;margin-bottom:14px}
+.mail-stat{display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
+.mail-stat .v{font-size:28px;font-weight:300;font-variant-numeric:tabular-nums}
+.mail-stat .d{font-size:13px;color:var(--positive);font-weight:500}
+.mail-body table{width:100%;border-collapse:collapse;font-size:13px;margin:12px 0}
+.mail-body td{padding:6px 0;border-bottom:1px dashed var(--border)}
+.mail-body td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+.ai-note{margin-top:12px;padding:10px 14px;background:var(--accent-soft);border:1px solid #e4e0fe;border-radius:var(--radius-sm);
+  font-size:12.5px;color:var(--accent-deep);line-height:1.7}
+/* 导入映射 */
+table.ledger{width:100%;border-collapse:collapse;font-size:12.5px}
+table.ledger th,table.ledger td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--border)}
+table.ledger thead th{font-weight:400;font-size:12px;color:var(--muted);background:var(--bg-soft)}
+table.ledger .amount{text-align:right;font-variant-numeric:tabular-nums}
+table.ledger tr:last-child td{border-bottom:0}
+.map-row{display:grid;grid-template-columns:110px 24px 1fr;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px dashed var(--border);font-size:13px}
+.map-row:last-of-type{border-bottom:0}
+.map-row .arrow{color:var(--muted);text-align:center}
+.map-row select{padding:5px 10px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);
+  font-family:inherit;font-size:12.5px;background:#fff;color:var(--text)}
+pre.code{margin:0;padding:14px 16px;background:#0d253d;color:#cfe3f5;border-radius:var(--radius-sm);
+  font-family:var(--mono);font-size:12px;line-height:1.7;overflow-x:auto}
+pre.code .cm{color:#7d97b0}
+/* KPI(多成员) */
+.kpi-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px}
+@media(max-width:900px){.kpi-grid{grid-template-columns:1fr}}
+.kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow-1)}
+.kpi-card .label{color:var(--muted);font-size:12px;margin-bottom:8px}
+.kpi-card .value{font-size:26px;font-weight:300;font-variant-numeric:tabular-nums}
+.kpi-card .value.positive{color:var(--positive)}
+.kpi-card .sub{color:var(--muted);font-size:12px;margin-top:4px}
+.member-pill{display:inline-flex;align-items:center;gap:5px;padding:1px 9px;border-radius:var(--pill);font-size:11px;font-weight:500}
+.member-pill.m1{background:#e7f0fb;color:#1c5cab}
+.member-pill.m2{background:#fdeef5;color:#b0134c}
+@media(max-width:700px){
+  header.app-header{flex-wrap:wrap;gap:10px;padding:10px 16px}
+  header.app-header nav{max-width:100%;overflow-x:auto;gap:16px}
+  header.app-header nav a{white-space:nowrap}
+  main,.phase-strip,footer.proto-foot{padding-left:16px;padding-right:16px}
+  .proto-head{flex-direction:column}
+  .chat-panel{height:460px}
+}
+</style>
+</head>
+<body>
+<header class="app-header">
+  <h1><span class="brand-seal">家</span>家庭财务</h1>
+  <nav>
+    <a>仪表盘</a><a>流水</a><a>资产</a><a>四笔钱</a><a>目标</a>
+    <a class="active">问一问<span class="nb">新</span></a>
+    <a class="active">设置<span class="nb">新</span></a>
+  </nav>
+</header>
+
+<div class="phase-strip">
+  <span class="phase-tag">P3</span>
+  <span class="t">体验与开源生态</span>
+  <span class="m">产品原型 · 数据为 mock · 对照 docs/product-research.md §四 P3(缺口 #9–#12)</span>
+</div>
+
+<main>
+  <div class="tabbar">
+    <button class="active" data-view="chat">⑩ AI 对话问数</button>
+    <button data-view="digest">⑪ 周报/季报推送</button>
+    <button data-view="io">⑫ 导入映射与导出</button>
+    <button data-view="members">⑬ 多成员与 MCP</button>
+  </div>
+
+  <!-- ========== ⑩ AI 对话 ========== -->
+  <section class="view" id="view-chat">
+    <div class="proto-head">
+      <div>
+        <div class="kicker">缺口 #9 · 对标 Maybe AI Chat / Firefly MCP · 复用财报的上下文包,只读</div>
+        <h2>AI 对话问数<code>/ask</code></h2>
+        <p class="desc">自然语言问自己的财务数据。<b>点下面的预设问题</b>或输入包含「餐饮 / 应急金 / 存钱」的问题试试。答案永远附数据来源;对话是只读的,不会改任何数据。</p>
+      </div>
+      <div class="verdict" data-key="p3-chat">
+        <span class="vlabel">你的判断</span>
+        <button data-v="keep">✓ 保留</button><button data-v="hold">? 待定</button><button data-v="drop">✕ 砍掉</button>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="section chat-panel">
+        <div class="chat-log" id="chat-log">
+          <div class="msg ai">你好,我可以回答关于这个家庭 2024Q3 以来收支、资产、目标的问题。数据只读,回答仅供参考。</div>
+        </div>
+        <div class="chip-row" id="chat-chips">
+          <button>上季度餐饮为什么涨了?</button>
+          <button>我们的应急金够吗?</button>
+          <button>今年能存下多少钱?</button>
+        </div>
+        <div class="chat-input">
+          <input id="chat-in" placeholder="问点什么,如:上季度餐饮为什么涨了?" autocomplete="off">
+          <button class="btn" id="chat-send">发送</button>
+        </div>
+      </div>
+      <div>
+        <div class="note-strip" style="margin-top:0">
+          <b>技术边界(评审要点)</b><br>
+          · 输入 = 已有的「财务上下文包」(期间聚合 + 快照 + 画像 + 目标),不开放 SQL,不发交易对手方明细;<br>
+          · 答不了的问题明确说答不了,不编数;<br>
+          · 与财报/配置方案共用一套上下文组装代码,边际成本低——这是把它排在 P3 而不是砍掉的理由。
+        </div>
+        <div class="note-strip">
+          <b>竞品参考</b> · Maybe Finance 关停前最受欢迎的功能就是 AI Chat(自带 key 问自己的数据);Firefly III 靠社区 MCP server 实现同类能力。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== ⑪ 周报推送 ========== -->
+  <section class="view" id="view-digest" hidden>
+    <div class="proto-head">
+      <div>
+        <div class="kicker">缺口 #2 延伸 · 对标 Monarch Weekly Recap · 邮件或 webhook</div>
+        <h2>周报 / 季报推送<code>/settings/digest</code></h2>
+        <p class="desc">把「打开网页看报表」变成「报表主动来找你」。左边是设置,右边是收到的邮件长什么样。</p>
+      </div>
+      <div class="verdict" data-key="p3-digest">
+        <span class="vlabel">你的判断</span>
+        <button data-v="keep">✓ 保留</button><button data-v="hold">? 待定</button><button data-v="drop">✕ 砍掉</button>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div>
+        <div class="form-grid">
+          <label>推送频率
+            <span class="seg" style="margin-top:2px"><button class="active">每周一早 8:00</button><button>每季度初</button><button>两者都要</button></span>
+          </label>
+          <label>推送渠道
+            <span class="check-row">
+              <label><input type="checkbox" checked> 邮件</label>
+              <label><input type="checkbox"> Webhook(企业微信/飞书/Telegram Bot)</label>
+            </span>
+          </label>
+          <label>收件人
+            <input type="text" value="azhe@example.com, xiaoyu@example.com">
+          </label>
+          <label>内容模块
+            <span class="check-row" style="flex-wrap:wrap">
+              <label><input type="checkbox" checked> 本周收支</label>
+              <label><input type="checkbox" checked> Top 分类</label>
+              <label><input type="checkbox" checked> 待确认流水</label>
+              <label><input type="checkbox" checked> AI 一句话观察</label>
+              <label><input type="checkbox"> 目标进度</label>
+            </span>
+          </label>
+          <div><button class="btn" id="digest-save">保存设置</button>
+            <button class="btn ghost" id="digest-test">发送测试邮件</button></div>
+        </div>
+        <div class="note-strip">
+          <b>产品逻辑说明</b> · 自托管场景里"忘了打开"是留存第一杀手,尤其是不常开电脑的配偶。周报是把家庭另一半拉进系统的钩子:待确认流水直接列在邮件里,点链接进来处理。
+        </div>
+      </div>
+
+      <div class="mail-card">
+        <div class="mail-head"><b>📬 家庭财务周报 · 7月6日–7月12日</b>发件人 家庭财务系统 &lt;digest@self-hosted&gt; · 每周一 08:00</div>
+        <div class="mail-body">
+          <div class="mail-stat"><span class="v">¥4,820</span><span class="d">↓ 比上周少花 14%</span></div>
+          <div class="wk">本周支出 · 收入 ¥0(工资下周五到账)</div>
+          <svg viewBox="0 0 300 46" style="width:100%;max-width:300px" role="img" aria-label="近7天每日支出">
+            <g fill="#2a78d6">
+              <rect x="0"   y="26" width="36" height="20" rx="3"/><rect x="43"  y="18" width="36" height="28" rx="3"/>
+              <rect x="86"  y="34" width="36" height="12" rx="3"/><rect x="129" y="30" width="36" height="16" rx="3"/>
+              <rect x="172" y="8"  width="36" height="38" rx="3"/><rect x="215" y="22" width="36" height="24" rx="3"/>
+              <rect x="258" y="38" width="36" height="8"  rx="3"/>
+            </g>
+          </svg>
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);max-width:300px"><span>周一</span><span>周五(超市大采购)</span><span>周日</span></div>
+          <table>
+            <tr><td>🍜 餐饮</td><td>¥1,240</td></tr>
+            <tr><td>🛒 日用百货</td><td>¥1,105</td></tr>
+            <tr><td>🎠 亲子娱乐</td><td>¥680</td></tr>
+          </table>
+          <div style="font-size:13px">⏳ 有 <b>3 笔</b>流水等待确认分类 → <a style="color:var(--accent)">去处理</a></div>
+          <div class="ai-note">💡 AI 观察:周五超市单笔 ¥986 是近三个月最大单笔日用支出,像是囤货;若是月度采购,下周日用支出应明显回落,无需在意。</div>
+          <div style="margin-top:12px;font-size:11px;color:var(--muted)">仅供参考,非投资建议 · 自托管实例发出,数据未离开你的服务器</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== ⑫ 导入导出 ========== -->
+  <section class="view" id="view-io" hidden>
+    <div class="proto-head">
+      <div>
+        <div class="kicker">缺口 #10、#12 · 对标 Beancount 生态 · Parser 接口已留好 · 开源用户刚需</div>
+        <h2>通用 CSV 导入映射 & 数据导出<code>/imports/csv · /export</code></h2>
+        <p class="desc">任意银行流水 CSV:上传后<b>把左边的目标字段映射到右边的原始列</b>,预览实时更新,存成模板下次直达。导出提供 CSV/JSON/Beancount 三种出口,数据不锁死。</p>
+      </div>
+      <div class="verdict" data-key="p3-io">
+        <span class="vlabel">你的判断</span>
+        <button data-v="keep">✓ 保留</button><button data-v="hold">? 待定</button><button data-v="drop">✕ 砍掉</button>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div>
+        <div class="section">
+          <div class="section-title"><span>列映射 · bank_202606.csv(招商银行)</span><span class="hint">改映射,下方预览实时变</span></div>
+          <div class="map-row"><span>交易时间 *</span><span class="arrow">←</span>
+            <select class="map-sel" data-f="time"><option>交易日期</option><option>记账日期</option></select></div>
+          <div class="map-row"><span>金额 *</span><span class="arrow">←</span>
+            <select class="map-sel" data-f="amount"><option>借贷合并(收入为正)</option><option>借方金额 / 贷方金额 两列</option></select></div>
+          <div class="map-row"><span>描述</span><span class="arrow">←</span>
+            <select class="map-sel" data-f="desc"><option>摘要</option><option>对方户名</option><option>摘要 + 对方户名</option></select></div>
+          <div class="map-row"><span>交易对手</span><span class="arrow">←</span>
+            <select class="map-sel" data-f="cp"><option>对方户名</option><option>(不映射)</option></select></div>
+          <div class="form-inline" style="display:flex;gap:10px;padding:12px 16px;border-top:1px solid var(--border);background:var(--bg-soft)">
+            <button class="btn" id="map-save">保存为模板「招行储蓄卡」</button>
+            <button class="btn ghost" id="map-import">导入 128 行</button>
+          </div>
+        </div>
+        <div class="section" style="margin-top:14px">
+          <div class="section-title"><span>解析预览(前 3 行)</span></div>
+          <table class="ledger" id="map-preview">
+            <thead><tr><th>交易时间</th><th>描述</th><th>交易对手</th><th class="amount">金额</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div>
+        <div class="section">
+          <div class="section-title"><span>全量数据导出</span><span class="hint">缺口 #12 · 开源用户刚需</span></div>
+          <div style="padding:14px 16px;display:flex;gap:10px;flex-wrap:wrap">
+            <button class="btn ghost io-exp">⬇ CSV(全量流水)</button>
+            <button class="btn ghost io-exp">⬇ JSON(含快照/目标/保单)</button>
+            <button class="btn ghost io-exp">⬇ Beancount</button>
+          </div>
+          <div style="padding:0 16px 16px">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Beancount 导出预览(与 double-entry-generator 生态互通):</div>
+<pre class="code"><span class="cm">; 由 family-finances 导出 · 2026-07-11</span>
+2026-06-14 * "山姆会员商店" "日用采购"
+  Expenses:Discretion:Shopping   986.00 CNY
+  Assets:WeChat                 -986.00 CNY
+
+2026-06-18 * "房贷扣款"
+  Liabilities:Mortgage          9800.00 CNY
+  Assets:Bank:CMB              -9800.00 CNY</pre>
+          </div>
+        </div>
+        <div class="note-strip">
+          <b>产品逻辑说明</b> · 微信/支付宝解析器覆盖日常,银行卡流水(房贷、工资、大额转账)是缺的一角;通用映射器 + 模板让任何银行的 CSV 都能进来,不用为每家银行写解析器。出口比入口更重要:能随时带数据走,开源用户才敢把十年数据放进来。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== ⑬ 多成员与 MCP ========== -->
+  <section class="view" id="view-members" hidden>
+    <div class="proto-head">
+      <div>
+        <div class="kicker">缺口 #11、#13 · 对标 Monarch 夫妻协作 / Firefly MCP · source 字段可扩展</div>
+        <h2>多成员合并视图 & MCP 生态<code>成员维度 · 只读 MCP</code></h2>
+        <p class="desc">夫妻各自导入微信/支付宝账单,合并成家庭视图,也能按成员切开看。<b>点下面的成员切换</b>。(开源向)MCP server 暴露只读查询,让 Claude/任意 Agent 能问这套数据。</p>
+      </div>
+      <div class="verdict" data-key="p3-members">
+        <span class="vlabel">你的判断</span>
+        <button data-v="keep">✓ 保留</button><button data-v="hold">? 待定</button><button data-v="drop">✕ 砍掉</button>
+      </div>
+    </div>
+
+    <div style="margin-bottom:16px">
+      <span class="seg" id="mb-seg">
+        <span class="seg-label">视图</span>
+        <button data-m="all" class="active">全家</button><button data-m="m1">阿哲</button><button data-m="m2">小雨</button>
+      </span>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="label">2026Q2 收入</div><div class="value" id="mb-in">—</div><div class="sub" id="mb-in-sub"></div></div>
+      <div class="kpi-card"><div class="label">2026Q2 支出</div><div class="value" id="mb-out">—</div><div class="sub" id="mb-out-sub"></div></div>
+      <div class="kpi-card"><div class="label">结余</div><div class="value positive" id="mb-net">—</div><div class="sub" id="mb-net-sub"></div></div>
+    </div>
+
+    <div class="two-col">
+      <div class="section">
+        <div class="section-title"><span>流水(成员维度)</span><span class="hint">成员 = 导入批次归属,source 字段扩展</span></div>
+        <table class="ledger" id="mb-tx">
+          <thead><tr><th>日期</th><th>成员</th><th>描述</th><th class="amount">金额</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div>
+        <div class="section">
+          <div class="section-title"><span>MCP Server(只读)</span><span class="hint">开源生态出口</span></div>
+          <div style="padding:14px 16px">
+            <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin-bottom:10px">
+              暴露 <b>只读</b> 查询工具:<code style="font-family:var(--mono);font-size:12px">query_report</code>、<code style="font-family:var(--mono);font-size:12px">list_transactions</code>、<code style="font-family:var(--mono);font-size:12px">get_net_worth</code>——在 Claude Desktop 里直接问自己的家庭账本,数据仍在自己服务器上。
+            </div>
+<pre class="code"><span class="cm">// claude_desktop_config.json</span>
+{
+  "mcpServers": {
+    "family-finances": {
+      "url": "https://ff.home.lan/mcp",
+      "headers": { "Authorization": "Bearer &lt;只读token&gt;" }
+    }
+  }
+}</pre>
+          </div>
+        </div>
+        <div class="note-strip">
+          <b>评审要点</b> · 多成员做「账单归属 + 视图切分」这一层就够(Monarch 的协作是多账号权限体系,对自托管家庭过重);MCP 只读是差异化的开源卖点,Firefly 靠社区做了同款,我们内置。
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="proto-foot">原型仅供产品评审 · 所有数字为 mock · p0.html → p1.html → p2.html → <b>P3</b></footer>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $=s=>document.querySelector(s);
+const fy=n=>'¥'+Math.round(n).toLocaleString('zh-CN');
+const tabs=[...document.querySelectorAll('.tabbar button')];
+tabs.forEach(t=>t.addEventListener('click',()=>{
+  tabs.forEach(x=>x.classList.toggle('active',x===t));
+  document.querySelectorAll('main > section.view').forEach(s=>s.hidden=s.id!=='view-'+t.dataset.view);
+}));
+document.querySelectorAll('.verdict').forEach(v=>{
+  const key='ffproto-'+v.dataset.key,bs=v.querySelectorAll('button');
+  const paint=val=>bs.forEach(b=>b.classList.toggle('on',b.dataset.v===val));
+  paint(localStorage.getItem(key));
+  bs.forEach(b=>b.addEventListener('click',()=>{const nv=b.classList.contains('on')?null:b.dataset.v;
+    nv?localStorage.setItem(key,nv):localStorage.removeItem(key);paint(nv);}));
+});
+const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2400);};
+
+/* ========== ⑩ 对话 ========== */
+const ANSWERS=[
+ {kw:['餐饮'],a:`2026Q2 餐饮支出 <b>¥11,350</b>,环比 2026Q1 <b>+18%</b>。拆开看:5 月外出就餐 6 笔共 <b>¥2,340</b>(集中在五一假期),外卖笔数与单价基本持平。剔除假期因素后与上季差异不大,不是趋势性上涨。<span class="src">来源:transactions 聚合 · expense.living.dining · 2026Q1 vs 2026Q2</span>`},
+ {kw:['应急金','应急'],a:`够。活钱(现金活期 + 货币基金)<b>¥150,000</b>,月均支出 <b>¥21,300</b>,可覆盖 <b>7.1 个月</b>,高于画像目标 6 个月。注意:其中 ¥30,000 在 9 月要交保费和物业费,实际冗余约 5.6 个月,仍然达标。<span class="src">来源:asset_snapshots 2026Q2 · family_profile · 周期交易表</span>`},
+ {kw:['存','结余','储蓄'],a:`按当前节奏,今年预计能存下约 <b>¥136,000</b>。上半年已结余 <b>¥67,900</b>(储蓄率 35%);下半年有年缴保费 ¥6,900 和百万医疗续保,已计入。风险项:购物类连续两季超预算,若持续,全年结余会少 ¥8,000 左右。<span class="src">来源:2026H1 流水聚合 · budgets · 周期交易外推</span>`},
+];
+const FALLBACK=`这个问题我在现有上下文包(期间聚合、资产快照、画像、目标)里找不到可靠依据,不猜测。你可以换个和收支、资产、目标相关的问法,或先在对应页面补充数据。<span class="src">只读模式 · 不执行任意查询</span>`;
+function ask(q){
+  const log=$('#chat-log');
+  log.insertAdjacentHTML('beforeend',`<div class="msg user">${q.replace(/</g,'&lt;')}</div>`);
+  const ty=document.createElement('div');ty.className='typing';ty.textContent='正在查上下文包…';log.appendChild(ty);
+  log.scrollTop=log.scrollHeight;
+  const hit=ANSWERS.find(o=>o.kw.some(k=>q.includes(k)));
+  setTimeout(()=>{ ty.remove();
+    log.insertAdjacentHTML('beforeend',`<div class="msg ai">${hit?hit.a:FALLBACK}</div>`);
+    log.scrollTop=log.scrollHeight;
+  },900);
+}
+document.querySelectorAll('#chat-chips button').forEach(b=>b.addEventListener('click',()=>ask(b.textContent)));
+const send=()=>{const v=$('#chat-in').value.trim(); if(!v)return; $('#chat-in').value=''; ask(v);};
+$('#chat-send').addEventListener('click',send);
+$('#chat-in').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
+
+/* ========== ⑪ 周报 ========== */
+$('#digest-save').addEventListener('click',()=>toast('推送设置已保存'));
+$('#digest-test').addEventListener('click',()=>toast('测试邮件已发送到 2 个收件人(原型演示)'));
+
+/* ========== ⑫ 导入映射 ========== */
+const RAW=[
+  {date:'2026-06-14',summary:'消费',name:'山姆会员商店',debit:986.00,credit:0},
+  {date:'2026-06-18',summary:'贷款扣款',name:'招商银行房贷中心',debit:9800.00,credit:0},
+  {date:'2026-06-25',summary:'代发工资',name:'某某科技有限公司',debit:0,credit:16400.00},
+];
+function renderPreview(){
+  const descMode=document.querySelector('[data-f="desc"]').selectedIndex;
+  const cpOn=document.querySelector('[data-f="cp"]').selectedIndex===0;
+  const tb=document.querySelector('#map-preview tbody'); tb.innerHTML='';
+  RAW.forEach(r=>{
+    const amt=r.credit-r.debit;
+    const desc=descMode===0?r.summary:descMode===1?r.name:r.summary+' · '+r.name;
+    tb.insertAdjacentHTML('beforeend',`<tr>
+      <td>${r.date}</td><td>${desc}</td><td>${cpOn?r.name:'<span style="color:var(--muted)">—</span>'}</td>
+      <td class="amount" style="color:${amt>=0?'var(--positive)':'var(--negative)'}">${amt>=0?'+':''}${amt.toFixed(2)}</td></tr>`);
+  });
+}
+document.querySelectorAll('.map-sel').forEach(s=>s.addEventListener('change',renderPreview));
+renderPreview();
+$('#map-save').addEventListener('click',()=>toast('模板已保存:下次上传招行 CSV 自动套用'));
+$('#map-import').addEventListener('click',()=>toast('原型演示:128 行将走与微信/支付宝相同的去重 + 分类流程'));
+document.querySelectorAll('.io-exp').forEach(b=>b.addEventListener('click',()=>toast('原型演示:真实实现为服务端流式导出')));
+
+/* ========== ⑬ 多成员 ========== */
+const MEMBERS={
+  all:{in:98400,out:63800,insub:'阿哲 61,600 + 小雨 36,800',outsub:'含共同支出 38,200',netsub:'家庭合并'},
+  m1: {in:61600,out:14300,insub:'工资 + 公积金',outsub:'个人支出(不含共同)',netsub:'仅阿哲名下账单'},
+  m2: {in:36800,out:11300,insub:'工资',outsub:'个人支出(不含共同)',netsub:'仅小雨名下账单'},
+};
+const TX=[
+  {d:'06-28',m:'m1',desc:'加油站 · 中石化',a:-380},
+  {d:'06-27',m:'m2',desc:'山姆会员商店(共同)',a:-986},
+  {d:'06-25',m:'m1',desc:'工资 · 某某科技',a:16400},
+  {d:'06-25',m:'m2',desc:'工资 · 某某教育',a:12100},
+  {d:'06-22',m:'m2',desc:'重疾险保费年缴',a:-5200},
+  {d:'06-21',m:'m1',desc:'外卖 · 美团',a:-46},
+];
+function renderMembers(key){
+  const d=MEMBERS[key];
+  $('#mb-in').textContent=fy(d.in); $('#mb-out').textContent=fy(d.out); $('#mb-net').textContent=fy(d.in-d.out);
+  $('#mb-in-sub').textContent=d.insub; $('#mb-out-sub').textContent=d.outsub; $('#mb-net-sub').textContent=d.netsub;
+  const tb=document.querySelector('#mb-tx tbody'); tb.innerHTML='';
+  TX.filter(t=>key==='all'||t.m===key).forEach(t=>{
+    tb.insertAdjacentHTML('beforeend',`<tr>
+      <td>${t.d}</td>
+      <td><span class="member-pill ${t.m}">${t.m==='m1'?'阿哲 · 微信':'小雨 · 支付宝'}</span></td>
+      <td>${t.desc}</td>
+      <td class="amount" style="color:${t.a>=0?'var(--positive)':'var(--negative)'}">${t.a>=0?'+':''}${t.a.toLocaleString('zh-CN')}</td></tr>`);
+  });
+}
+document.querySelectorAll('#mb-seg button').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('#mb-seg button').forEach(x=>x.classList.toggle('active',x===b));
+  renderMembers(b.dataset.m);
+}));
+renderMembers('all');
+</script>
+</body>
+</html>

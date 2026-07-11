@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P1 · AI 理财建议核心 — 产品原型</title>
+<style>
+:root{
+  color-scheme: light;
+  --bg:#ffffff; --bg-soft:#f6f9fc; --cream:#f5e9d4; --surface:#ffffff;
+  --border:#e3e8ee; --border-strong:#a8c3de; --zebra:#fbfcfe;
+  --text:#0d253d; --text-secondary:#273951; --muted:#64748d;
+  --accent:#533afd; --accent-deep:#4434d4; --accent-subdued:#b9b9f9; --accent-soft:#f4f2ff;
+  --positive:#0e7a41; --negative:#d31b5e; --warning:#9b6829;
+  --c-live:#2a78d6; --c-steady:#1baf7a; --c-long:#4a3aa7; --c-cover:#eda100;
+  --radius:12px; --radius-sm:6px; --pill:9999px;
+  --sans:"SF Pro Display",-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Segoe UI",sans-serif;
+  --shadow-1:rgba(0,55,112,.08) 0 1px 3px;
+  --shadow-2:rgba(0,55,112,.08) 0 8px 24px, rgba(0,55,112,.04) 0 2px 6px;
+  --ring:0 0 0 4px rgba(83,58,253,.16);
+}
+*{box-sizing:border-box}
+html{overflow-x:clip;background:var(--bg)}
+html,body{margin:0;padding:0;color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5}
+body{position:relative;overflow-x:clip}
+body::before{content:"";position:absolute;top:-140px;left:-10%;right:-10%;height:440px;z-index:-1;pointer-events:none;
+  transform:skewY(-6deg);transform-origin:top left;filter:blur(28px) saturate(140%);
+  background:radial-gradient(50% 72% at 4% 42%,rgba(245,226,188,1),transparent 64%),
+    radial-gradient(44% 66% at 24% 16%,rgba(255,187,122,.92),transparent 62%),
+    radial-gradient(50% 74% at 50% 36%,rgba(167,167,250,1),transparent 64%),
+    radial-gradient(40% 62% at 72% 14%,rgba(102,94,253,.72),transparent 62%),
+    radial-gradient(38% 60% at 92% 40%,rgba(249,107,238,.78),transparent 62%);
+  mask-image:linear-gradient(180deg,#000 52%,transparent 97%);
+  -webkit-mask-image:linear-gradient(180deg,#000 52%,transparent 97%)}
+::selection{background:rgba(83,58,253,.18)}
+:focus-visible{outline:none;box-shadow:var(--ring);border-radius:4px}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+main{animation:rise .4s ease-out both}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+header.app-header{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.82);
+  -webkit-backdrop-filter:blur(14px) saturate(140%);backdrop-filter:blur(14px) saturate(140%);
+  border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;justify-content:space-between}
+header.app-header h1{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:500;margin:0}
+.brand-seal{display:grid;place-items:center;width:26px;height:26px;border-radius:7px;
+  background:linear-gradient(135deg,var(--accent),var(--accent-deep));color:#fff;font-size:14px;font-weight:600;box-shadow:var(--shadow-1)}
+header.app-header nav{display:flex;gap:24px}
+header.app-header nav a{color:var(--muted);text-decoration:none;font-size:14px;cursor:default}
+header.app-header nav a.active{color:var(--accent);font-weight:500}
+header.app-header nav a .nb{display:inline-block;margin-left:4px;padding:0 6px;border-radius:var(--pill);
+  background:var(--accent);color:#fff;font-size:10px;font-weight:600;vertical-align:2px}
+.phase-strip{max-width:1100px;margin:18px auto 0;padding:0 28px;display:flex;flex-wrap:wrap;align-items:baseline;gap:10px}
+.phase-tag{padding:3px 12px;border-radius:var(--pill);background:var(--accent);color:#fff;font-size:12px;font-weight:600;letter-spacing:.04em}
+.phase-strip .t{font-size:15px;font-weight:500}
+.phase-strip .m{color:var(--muted);font-size:12px}
+main{max-width:1100px;margin:0 auto;padding:18px 28px 72px}
+.tabbar{display:inline-flex;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:var(--pill);
+  padding:3px;gap:2px;box-shadow:var(--shadow-1);margin-bottom:22px}
+.tabbar button{border:0;background:transparent;cursor:pointer;padding:6px 16px;font-size:13px;color:var(--muted);
+  font-family:inherit;border-radius:var(--pill);transition:color .15s,background .15s}
+.tabbar button:hover{background:var(--bg-soft);color:var(--text)}
+.tabbar button.active{background:var(--accent);color:#fff;font-weight:500}
+.proto-head{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:16px}
+.kicker{color:var(--accent);font-size:10px;font-weight:500;letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px}
+.proto-head h2{font-size:26px;font-weight:300;letter-spacing:-.26px;margin:0 0 6px}
+.proto-head h2 code{font-size:14px;color:var(--muted);background:var(--bg-soft);border:1px solid var(--border);
+  border-radius:var(--radius-sm);padding:2px 8px;vertical-align:3px;margin-left:8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.proto-head .desc{color:var(--muted);font-size:13px;margin:0;max-width:560px}
+.verdict{display:inline-flex;gap:6px;flex-shrink:0;background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--pill);padding:4px;box-shadow:var(--shadow-1)}
+.verdict .vlabel{align-self:center;padding:0 6px 0 10px;font-size:11px;color:var(--muted)}
+.verdict button{border:0;background:transparent;cursor:pointer;font-family:inherit;font-size:12px;color:var(--muted);
+  padding:5px 12px;border-radius:var(--pill);transition:all .15s}
+.verdict button:hover{background:var(--bg-soft);color:var(--text)}
+.verdict button.on[data-v="keep"]{background:#e8f6ee;color:var(--positive);font-weight:600}
+.verdict button.on[data-v="hold"]{background:var(--cream);color:var(--warning);font-weight:600}
+.verdict button.on[data-v="drop"]{background:#fdf2f6;color:var(--negative);font-weight:600}
+.section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow-1)}
+.section .section-title{padding:11px 16px;border-bottom:1px solid var(--border);font-weight:500;font-size:13px;
+  background:var(--bg-soft);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.section .section-title .hint{font-weight:400;color:var(--muted);font-size:12px}
+.btn{display:inline-block;background:var(--accent);color:#fff;padding:8px 16px;border-radius:var(--pill);
+  font-size:14px;line-height:1.2;border:0;cursor:pointer;font-family:inherit;transition:background .15s}
+.btn:hover{background:var(--accent-deep)}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.btn.ghost{background:var(--surface);color:var(--text);border:1px solid var(--border)}
+.btn.ghost:hover{background:var(--bg-soft)}
+.badge{display:inline-block;padding:2px 8px;border-radius:var(--pill);font-size:11px;font-weight:500;
+  background:var(--accent-subdued);color:var(--accent-deep)}
+.badge.ok{background:#e8f6ee;color:var(--positive)}
+.badge.warn{background:var(--cream);color:var(--warning)}
+.badge.danger{background:#fdf2f6;color:var(--negative)}
+.two-col{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:18px;align-items:start}
+@media(max-width:900px){.two-col{grid-template-columns:1fr}}
+.seg{display:inline-flex;background:var(--surface);border:1px solid var(--border);border-radius:var(--pill);
+  overflow:hidden;padding:3px;gap:2px;box-shadow:var(--shadow-1)}
+.seg .seg-label{padding:5px 12px;font-size:11px;color:var(--muted);display:flex;align-items:center}
+.seg button{border:0;background:transparent;cursor:pointer;padding:5px 14px;font-size:13px;color:var(--muted);
+  font-family:inherit;border-radius:var(--pill);transition:color .15s,background .15s}
+.seg button:hover{background:var(--bg-soft);color:var(--text)}
+.seg button.active{background:var(--accent);color:#fff;font-weight:500}
+/* 问卷 */
+.form-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px 18px;background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--radius);padding:24px;box-shadow:var(--shadow-1)}
+.form-grid label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted)}
+.form-grid label.full{grid-column:1/-1}
+.form-grid input,.form-grid select{font-family:inherit;font-size:14px;padding:8px 12px;border:1px solid var(--border-strong);
+  border-radius:var(--radius-sm);background:var(--surface);color:var(--text)}
+.form-grid input:focus,.form-grid select:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
+.form-grid .auto-badge{font-size:10px;color:var(--positive)}
+.form-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:10px}
+.profile-card{background:linear-gradient(160deg,#fff, #f7f5ff);border:1px solid var(--accent-subdued);
+  border-radius:var(--radius);padding:20px;box-shadow:var(--shadow-1)}
+.profile-card .pl{color:var(--muted);font-size:12px}
+.profile-card .grade{font-size:34px;font-weight:300;letter-spacing:-.5px;margin:4px 0 2px}
+.profile-card .grade b{font-weight:600;color:var(--accent)}
+.pf-rows{margin-top:14px;display:grid;gap:9px}
+.pf-rows .r{display:flex;justify-content:space-between;font-size:13px;border-bottom:1px dashed var(--border);padding-bottom:8px}
+.pf-rows .r:last-child{border-bottom:0}
+.pf-rows .r b{font-variant-numeric:tabular-nums}
+/* 四笔钱 */
+.bucket{padding:16px;border-bottom:1px solid var(--border)}
+.bucket:last-child{border-bottom:0}
+.bucket .b-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.bucket .b-head .nm{font-weight:600;font-size:14px;display:inline-flex;align-items:center;gap:7px}
+.bucket .b-head .sw{width:11px;height:11px;border-radius:3px}
+.bucket .b-head .amt{font-variant-numeric:tabular-nums;color:var(--text-secondary);font-size:13px}
+.bucket .b-head .spread{flex:1}
+.bucket .b-sub{color:var(--muted);font-size:12px;margin-top:7px;line-height:1.6}
+.track{position:relative;height:26px;background:var(--bg-soft);border-radius:7px;overflow:hidden}
+.track .band{position:absolute;top:0;bottom:0;background:rgba(13,37,61,.08);border-left:1px dashed #a8c3de;border-right:1px dashed #a8c3de}
+.track .band::after{content:"建议区间";position:absolute;right:6px;top:4px;font-size:10px;color:var(--muted)}
+.track .fill{position:absolute;top:7px;height:12px;left:0;border-radius:0 4px 4px 0;transition:width .35s ease}
+.track .fill-label{position:absolute;top:5px;font-size:11px;font-weight:600;color:var(--text);transition:left .35s ease;white-space:nowrap}
+.axis-row{display:flex;justify-content:space-between;color:var(--muted);font-size:10px;padding:3px 2px 0}
+/* 迷你保障指标 */
+.meter{margin-top:8px}
+.meter .m-line{display:flex;justify-content:space-between;font-size:12px;color:var(--text-secondary);margin-bottom:4px}
+.meter .m-line b{font-variant-numeric:tabular-nums}
+.meter .m-track{position:relative;height:8px;border-radius:4px;background:var(--bg-soft);overflow:hidden}
+.meter .m-band{position:absolute;top:0;bottom:0;background:rgba(14,122,65,.15)}
+.meter .m-fill{position:absolute;top:0;bottom:0;left:0;border-radius:4px}
+/* 方案 */
+.plan-table{width:100%;border-collapse:collapse;font-size:13px}
+.plan-table th,.plan-table td{padding:9px 14px;border-bottom:1px solid var(--border);text-align:left}
+.plan-table thead th{font-weight:400;font-size:12px;color:var(--muted);background:var(--bg-soft)}
+.plan-table .num{text-align:right;font-variant-numeric:tabular-nums}
+.plan-table tr.sum{font-weight:600;background:var(--accent-soft)}
+.report-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-1);overflow:hidden}
+.report-card .rc-head{padding:14px 20px;border-bottom:1px solid var(--border);background:var(--bg-soft);
+  display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px}
+.report-card .rc-head h3{margin:0;font-size:17px;font-weight:400}
+.report-card .rc-head .meta{color:var(--muted);font-size:12px}
+.report-card .rc-body{padding:18px 20px}
+.report-card h4{margin:18px 0 8px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px}
+.report-card h4:first-child{margin-top:0}
+.report-card h4 .dot{width:8px;height:8px;border-radius:3px}
+.report-card p{margin:0 0 6px;color:var(--text-secondary);font-size:13.5px;line-height:1.75;max-width:65ch}
+.report-card ol,.report-card ul{margin:0;padding-left:20px;color:var(--text-secondary);font-size:13.5px;line-height:1.8}
+.stat-chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+.stat-chips .chip{padding:5px 12px;border:1px solid var(--border);border-radius:var(--pill);background:var(--bg-soft);
+  font-size:12px;color:var(--text-secondary);font-variant-numeric:tabular-nums}
+.stat-chips .chip b{font-weight:600;color:var(--text)}
+.disclaimer{margin-top:18px;padding:10px 14px;border:1px dashed var(--border-strong);border-radius:var(--radius-sm);
+  color:var(--muted);font-size:12px;background:var(--bg-soft)}
+.skeleton{padding:20px}
+.skeleton .bar{height:13px;border-radius:6px;background:linear-gradient(90deg,#eef2f7 25%,#f8fafc 50%,#eef2f7 75%);
+  background-size:200% 100%;animation:shine 1.1s linear infinite;margin-bottom:12px}
+@keyframes shine{to{background-position:-200% 0}}
+/* 再平衡 dashboard 卡片 */
+.dash-card{border:1px solid rgba(155,104,41,.4);background:linear-gradient(180deg,#fff,#fdfaf3);
+  border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow-1);margin-bottom:12px}
+.dash-card .dc-t{font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px;color:var(--warning)}
+.dash-card p{margin:6px 0 8px;font-size:13px;color:var(--text-secondary);line-height:1.65}
+.dash-card .dc-a{font-size:12px}
+.note-strip{margin-top:14px;padding:10px 14px;border-radius:var(--radius-sm);background:var(--bg-soft);
+  border:1px solid var(--border);color:var(--muted);font-size:12px;line-height:1.7}
+.note-strip b{color:var(--text-secondary)}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(20px);background:var(--text);color:#fff;
+  padding:10px 18px;border-radius:var(--pill);font-size:13px;box-shadow:var(--shadow-2);opacity:0;transition:all .25s;z-index:99}
+.toast.show{opacity:1;transform:translateX(-50%)}
+footer.proto-foot{max-width:1100px;margin:0 auto;padding:0 28px 40px;color:var(--muted);font-size:12px}
+details.map-details{margin-top:14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface)}
+details.map-details summary{padding:10px 14px;font-size:12px;color:var(--muted);cursor:pointer}
+details.map-details table{width:100%;border-collapse:collapse;font-size:12px}
+details.map-details td,details.map-details th{padding:6px 14px;border-top:1px solid var(--border);text-align:left;color:var(--text-secondary)}
+details.map-details code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--muted)}
+@media(max-width:700px){
+  header.app-header{flex-wrap:wrap;gap:10px;padding:10px 16px}
+  header.app-header nav{max-width:100%;overflow-x:auto;gap:16px}
+  header.app-header nav a{white-space:nowrap}
+  main,.phase-strip,footer.proto-foot{padding-left:16px;padding-right:16px}
+  .proto-head{flex-direction:column}
+  .form-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<header class="app-header">
+  <h1><span class="brand-seal">家</span>家庭财务</h1>
+  <nav>
+    <a>仪表盘</a><a>流水</a><a>统计</a><a>资产</a><a>AI 财报</a>
+    <a class="active">四笔钱<span class="nb">新</span></a>
+    <a class="active">配置建议<span class="nb">新</span></a>
+  </nav>
+</header>
+
+<div class="phase-strip">
+  <span class="phase-tag">P1</span>
+  <span class="t">AI 理财建议核心 — 本产品的差异化</span>
+  <span class="m">产品原型 · 数据为 mock · 对照 docs/product-research.md §四 P1(缺口 #3、#4)· 且慢「四笔钱」框架</span>
+</div>
+
+<main>
+  <div class="tabbar">
+    <button class="active" data-view="profile">③ 风险画像问卷</button>
+    <button data-view="buckets">④ 四笔钱诊断</button>
+    <button data-view="plan">⑤ AI 个性化配置方案</button>
+    <button data-view="rebalance">⑥ 再平衡提醒</button>
+  </div>
+
+  <!-- ========== ③ 风险画像 ========== -->
+  <section class="view" id="view-profile">
+    <div class="proto-head">
+      <div>
+        <div class="kicker">缺口 #4 · 对标所有投顾类产品的 KYC · 落点新表 family_profile</div>
+        <h2>家庭风险画像<code>/profile</code></h2>
+        <p class="desc">一页问卷,存档随时可改,是所有 AI 建议的输入。左边改任何一项,右边的画像摘要<b>实时重算</b>——试试把风险偏好改成「进取」或把年龄改到 55。</p>
+      </div>
+      <div class="verdict" data-key="p1-profile">
+        <span class="vlabel">你的判断</span>
+        <button data-v="keep">✓ 保留</button><button data-v="hold">? 待定</button><button data-v="drop">✕ 砍掉</button>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <form class="form-grid" id="pf-form" onsubmit="return false">
+        <label>家庭结构
+          <select id="pf-family"><option>夫妻二人</option><option selected>夫妻 + 子女</option><option>单身</option><option>三代同堂</option></select>
+        </label>
+        <label>主要收入人年龄
+          <input id="pf-age" type="number" value="35" min="20" max="70">
+        </label>
+        <label>收入稳定性
+          <select id="pf-stable"><option value="2">非常稳定(体制内/双职工)</option><option value="1" selected>较稳定</option><option value="0">波动较大(经营/佣金)</option></select>
+        </label>
+        <label>家庭税后年收入(元)
+          <input id="pf-income" type="number" value="394000" step="1000">
+        </label>
+        <label>房贷月供(元)
+          <input id="pf-mortgage" type="number" value="9800" step="100">
+        </label>
+        <label>月均支出 <span class="auto-badge">✓ 由流水自动计算,可覆盖</span>
+          <input id="pf-expense" type="number" value="21300" step="100">
+        </label>
+        <label>应急金目标(月数):<b id="pf-months-v">6</b> 个月
+          <input id="pf-months" type="range" min="3" max="12" value="6">
+        </label>
+        <label>投资年限
+          <select id="pf-horizon"><option value="0">3 年以内</option><option value="1">3–10 年</option><option value="2" selected>10 年以上</option></select>
+        </label>
+        <label class="full">风险偏好(亏损 20% 时你会?)
+          <select id="pf-risk"><option value="0">卖出止损,睡不着觉(保守)</option><option value="3" selected>不动,但会焦虑(平衡)</option><option value="6">加仓,机会来了(进取)</option></select>
+        </label>
+        <div class="form-actions">
+          <button class="btn ghost" type="reset" id="pf-reset">重置</button>
+          <button class="btn" id="pf-save">保存画像</button>
+        </div>
+      </form>
+
+      <div>
+        <div class="profile-card">
+          <div class="pl">画像摘要(实时重算 · AI 建议的输入)</div>
+          <div class="grade" id="pf-grade">平衡型 · <b>C3</b></div>
+          <div class="pf-rows">
+            <div class="r"><span>建议权益类资产上限</span><b id="pf-eq-cap">45%</b></div>
+            <div class="r"><span>应急金目标(月数 × 月均支出)</span><b id="pf-em-target">¥127,800</b></div>
+            <div class="r"><span>房贷月供 / 月收入</span><b id="pf-dti">29.9%</b></div>
+            <div class="r"><span>年结余能力(估算)</span><b id="pf-surplus">¥138,400 / 年</b></div>
+          </div>
+        </div>
+        <div class="note-strip">
+          <b>产品逻辑说明</b> · 画像不做成"测评考试",就是一页可随时改的表单;等级 C1–C5 由偏好、年限、收入稳定性、年龄加权得出。它决定四笔钱的建议区间与 AI 方案里的权益上限,是「千人千面」的唯一来源。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== ④ 四笔钱诊断 ========== -->
+  <section class="view" id="view-buckets" hidden>
+    <div class="proto-head">
+      <div>
+        <div class="kicker">缺口 #3 · 对标且慢「四笔钱」/ 支小宝持仓诊断 · 数据来源 = P0 资产快照 × 画像</div>
+        <h2>四笔钱诊断<code>/buckets</code></h2>
+        <p class="desc">把资产快照科目映射到 活钱 / 稳健 / 长期 / 保障 四桶,展示当前占比 vs 按画像计算的建议区间。<b>切换下面的风险偏好</b>,区间和缺口结论会实时变化。</p>
+      </div>
+      <div class="verdict" data-key="p1-buckets">
+        <span class="vlabel">你的判断</span>
+        <button data-v="keep">✓ 保留</button><button data-v="hold">? 待定</button><button data-v="drop">✕ 砍掉</button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
+      <span class="seg" id="bk-seg">
+        <span class="seg-label">画像</span>
+        <button data-p="cons">保守</button><button data-p="bal" class="active">平衡(当前画像 C3)</button><button data-p="agg">进取</button>
+      </span>
+      <span style="color:var(--muted);font-size:12px">可投资资产 <b style="color:var(--text)">¥1,046,000</b>(不含自住房产与公积金,快照 2026Q2)</span>
+    </div>
+
+    <div class="two-col" style="grid-template-columns:minmax(0,1.5fr) minmax(0,1fr)">
+      <div class="section">
+        <div class="section-title"><span>四笔钱 · 当前 vs 建议区间</span><span class="hint" id="bk-hint">平衡型区间</span></div>
+        <div id="bk-list"><!-- JS 渲染前三桶 --></div>
+        <div class="bucket">
+          <div class="b-head">
+            <span class="nm"><span class="sw" style="background:var(--c-cover)"></span>保障(保险)</span>
+            <span class="amt">年保费 ¥13,900 · 4 张保单</span>
+            <span class="spread"></span>
+            <span class="badge danger" id="bk-cover-badge">保额缺口</span>
+          </div>
+          <div class="meter">
+            <div class="m-line"><span>保费 / 年收入(建议 5%–10%)</span><b>3.5%</b></div>
+            <div class="m-track"><div class="m-band" style="left:5%;width:5%"></div><div class="m-fill" style="width:3.5%;background:var(--c-cover)"></div></div>
+          </div>
+          <div class="meter">
+            <div class="m-line"><span>定期寿险保额 / 年收入(建议 ≥ 10 倍)</span><b style="color:var(--negative)">2.5 倍</b></div>
+            <div class="m-track"><div class="m-band" style="left:50%;width:50%"></div><div class="m-fill" style="width:12.7%;background:var(--negative)"></div></div>
+          </div>
+          <div class="b-sub">保障桶不按余额占比诊断,按「双十原则」检查;明细与缺口清单见 P2 保单页。</div>
+        </div>
+      </div>
+
+      <div>
+        <div class="section">
+          <div class="section-title"><span>诊断结论</span></div>
+          <div style="padding:14px 16px">
+            <ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.9;color:var(--text-secondary)" id="bk-conclusion"></ul>
+          </div>
+        </div>
+        <details class="map-details">
+          <summary>科目 → 四笔钱 映射关系(点击展开)</summary>
+          <table>
+            <tr><th>快照科目</th><th>归入</th></tr>
+            <tr><td><code>asset.cash</code> 现金活期 / <code>asset.mmf</code> 货币基金</td><td>活钱</td></tr>
+            <tr><td><code>asset.deposit</code> 定存 / <code>asset.wealth</code> 理财债基</td><td>稳健</td></tr>
+            <tr><td><code>asset.equity</code> 股票及偏股基金</td><td>长期</td></tr>
+            <tr><td><code>insurance_policies</code> 保单</td><td>保障</td></tr>
+            <tr><td><code>asset.house</code> 自住房 / <code>asset.pension</code> 公积金养老</td><td>不计入(非可投资资产)</td></tr>
+          </table>
+        </details>
+        <div class="note-strip">
+          <b>为什么用四笔钱</b> · 且慢首创、国内家庭资产配置最普及的心智模型,非技术配偶也能看懂;比直接给「股债比」更能承载"应急金优先、保障兜底"的顺序。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== ⑤ AI 配置方案 ========== -->
+  <section class="view" id="view-plan" hidden>
+    <div class="proto-head">
+      <div>
+        <div class="kicker">缺口 #3 · 对标支小宝 2.0 / PortfolioPilot / Ghostfolio 再平衡 · 输入 = 画像 + 四笔钱 + 收支结构</div>
+        <h2>AI 个性化配置方案<code>/advice</code></h2>
+        <p class="desc">LLM 输出目标大类配置 + 每桶调整动作 + 理由 + 风险提示;服务端规则层校验(合计 100%、单类上限、应急金优先)。<b>只到大类和指数型工具描述层,不给具体产品代码</b>——这是开源分发的合规边界。</p>
+      </div>
+      <div class="verdict" data-key="p1-plan">
+        <span class="vlabel">你的判断</span>
+        <button data-v="keep">✓ 保留</button><button data-v="hold">? 待定</button><button data-v="drop">✕ 砍掉</button>
+      </div>
+    </div>
+
+    <div class="stat-chips">
+      <span class="chip">输入 · 画像 <b>平衡型 C3</b></span>
+      <span class="chip">输入 · 可投资资产 <b>¥1,046,000</b></span>
+      <span class="chip">输入 · 月结余 <b>≈ ¥11,500</b></span>
+      <span class="chip">输入 · 稳健桶超配 <b>+8.3pp</b></span>
+      <button class="btn" id="plan-gen" style="margin-left:6px">✦ 生成配置方案</button>
+    </div>
+
+    <div id="plan-slot">
+      <div class="report-card"><div class="rc-body" style="text-align:center;padding:48px 20px;color:var(--muted);font-size:13px">
+        点击「生成配置方案」查看 LLM 输出(原型为预置结果)。
+      </div></div>
+    </div>
+  </section>
+
+  <!-- ========== ⑥ 再平衡提醒 ========== -->
+  <section class="view" id="view-rebalance" hidden>
+    <div class="proto-head">
+      <div>
+        <div class="kicker">缺口 #3 · 对标 Ghostfolio 再平衡工具 · 触发点 = 每次录入新资产快照</div>
+        <h2>再平衡提醒<code>仪表盘卡片</code></h2>
+        <p class="desc">录入新快照后自动对比目标配置,偏离超过阈值就在仪表盘出卡片。<b>拖一下阈值</b>看提醒数量的变化——阈值太敏感会造成"提醒疲劳",这正是需要你评审的产品参数。</p>
+      </div>
+      <div class="verdict" data-key="p1-rebalance">
+        <span class="vlabel">你的判断</span>
+        <button data-v="keep">✓ 保留</button><button data-v="hold">? 待定</button><button data-v="drop">✕ 砍掉</button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
+      <span class="seg" id="rb-seg">
+        <span class="seg-label">偏离阈值</span>
+        <button data-th="3">±3pp</button><button data-th="5" class="active">±5pp</button><button data-th="8">±8pp</button>
+      </span>
+      <span style="color:var(--muted);font-size:12px">对比基准:2026-07 生成的目标配置 vs 2026Q2 快照</span>
+    </div>
+
+    <div class="two-col">
+      <div class="section">
+        <div class="section-title"><span>目标 vs 当前(全部大类)</span></div>
+        <table class="plan-table" id="rb-table">
+          <thead><tr><th>大类</th><th class="num">目标</th><th class="num">当前</th><th class="num">偏离</th><th>状态</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">↓ 仪表盘上实际出现的卡片(预览)</div>
+        <div id="rb-cards"></div>
+        <div class="note-strip">
+          <b>产品逻辑说明</b> · 提醒是被动的:只在录入快照后计算,不做实时行情盯盘(自托管、无行情源)。卡片给出的动作与 AI 方案一致,点进去回到配置建议页。
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="proto-foot">原型仅供产品评审 · 所有数字为 mock · p0.html ← <b>P1</b> → p2.html → p3.html</footer>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $=s=>document.querySelector(s);
+const fy=n=>'¥'+Math.round(n).toLocaleString('zh-CN');
+const tabs=[...document.querySelectorAll('.tabbar button')];
+tabs.forEach(t=>t.addEventListener('click',()=>{
+  tabs.forEach(x=>x.classList.toggle('active',x===t));
+  document.querySelectorAll('main > section.view').forEach(s=>s.hidden=s.id!=='view-'+t.dataset.view);
+}));
+document.querySelectorAll('.verdict').forEach(v=>{
+  const key='ffproto-'+v.dataset.key,bs=v.querySelectorAll('button');
+  const paint=val=>bs.forEach(b=>b.classList.toggle('on',b.dataset.v===val));
+  paint(localStorage.getItem(key));
+  bs.forEach(b=>b.addEventListener('click',()=>{const nv=b.classList.contains('on')?null:b.dataset.v;
+    nv?localStorage.setItem(key,nv):localStorage.removeItem(key);paint(nv);}));
+});
+const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2400);};
+
+/* ========== ③ 画像:实时重算 ========== */
+const GRADES=[['保守型','C1',20],['稳健型','C2',30],['平衡型','C3',45],['积极型','C4',60],['进取型','C5',70]];
+function calcProfile(){
+  const risk=+$('#pf-risk').value, horizon=+$('#pf-horizon').value, stable=+$('#pf-stable').value;
+  const age=+$('#pf-age').value||35;
+  const agePenalty=age>=55?2:age>=45?1:0;
+  const score=risk+horizon+stable-agePenalty;
+  const gi=score<=2?0:score<=4?1:score<=7?2:score<=10?3:4;
+  const [name,code,cap]=GRADES[gi];
+  $('#pf-grade').innerHTML=`${name} · <b>${code}</b>`;
+  $('#pf-eq-cap').textContent=cap+'%';
+  const months=+$('#pf-months').value, exp=+$('#pf-expense').value||0;
+  $('#pf-months-v').textContent=months;
+  $('#pf-em-target').textContent=fy(months*exp);
+  const income=+$('#pf-income').value||0, mort=+$('#pf-mortgage').value||0;
+  $('#pf-dti').textContent=income?(mort/(income/12)*100).toFixed(1)+'%':'—';
+  $('#pf-surplus').textContent=fy(Math.max(0,income-exp*12))+' / 年';
+}
+['pf-risk','pf-horizon','pf-stable','pf-age','pf-months','pf-expense','pf-income','pf-mortgage','pf-family']
+  .forEach(id=>document.getElementById(id).addEventListener('input',calcProfile));
+$('#pf-reset').addEventListener('click',()=>setTimeout(calcProfile,0));
+$('#pf-save').addEventListener('click',()=>toast('画像已保存(family_profile)· 四笔钱与配置建议将使用新画像'));
+calcProfile();
+
+/* ========== ④ 四笔钱 ========== */
+const INVESTABLE=1046000;
+const BUCKETS=[
+  {k:'live',  n:'活钱(应急与日常)', color:'var(--c-live)',  amt:150000, items:'现金活期 5.8万 + 货基 9.2万'},
+  {k:'steady',n:'稳健(3年内要用)',  color:'var(--c-steady)',amt:610000, items:'定存 26万 + 理财债基 35万'},
+  {k:'long',  n:'长期(10年不动)',   color:'var(--c-long)',  amt:286000, items:'股票及偏股基金 28.6万'},
+];
+const RANGES={
+  cons:{live:[12,20],steady:[50,65],long:[15,30],label:'保守型区间',em:'活钱应覆盖 ≥ 9 个月支出'},
+  bal: {live:[10,18],steady:[35,50],long:[35,50],label:'平衡型区间',em:'活钱应覆盖 ≥ 6 个月支出'},
+  agg: {live:[6,12], steady:[25,40],long:[45,60],label:'进取型区间',em:'活钱应覆盖 ≥ 3 个月支出'},
+};
+let bkProfile='bal';
+const SCALE=70; // 横轴 0–70%
+function renderBuckets(){
+  const R=RANGES[bkProfile];
+  $('#bk-hint').textContent=R.label;
+  const list=$('#bk-list'); list.innerHTML='';
+  const concl=[];
+  BUCKETS.forEach(b=>{
+    const pct=b.amt/INVESTABLE*100, [lo,hi]=R[b.k];
+    let badge,cls;
+    if(pct>hi){badge=`超配 +${(pct-hi).toFixed(1)}pp`;cls='warn';}
+    else if(pct<lo){badge=`低配 −${(lo-pct).toFixed(1)}pp`;cls='warn';}
+    else {badge='在区间内';cls='ok';}
+    if(b.k==='live'){
+      const months=b.amt/21300;
+      const needM=bkProfile==='cons'?9:bkProfile==='bal'?6:3;
+      const okEm=months>=needM;
+      concl.push(`活钱可覆盖 <b>${months.toFixed(1)} 个月</b>支出,${okEm?'满足':'不足'}画像目标 ${needM} 个月${okEm?' ✓':' ✕'}`);
+      if(okEm&&cls==='warn'&&pct>hi){badge='覆盖达标(占比略高)';cls='ok';}
+    }
+    if(b.k==='steady'&&pct>hi) concl.push(`稳健桶超配 <b>+${(pct-hi).toFixed(1)}pp</b>(约 ¥${Math.round((pct-hi)/100*INVESTABLE/10000)} 万),长期收益被稀释`);
+    if(b.k==='steady'&&pct<lo) concl.push(`稳健桶低配 <b>−${(lo-pct).toFixed(1)}pp</b>,短期要用的钱暴露在波动里`);
+    if(b.k==='long'&&pct<lo)  concl.push(`长期桶低配 <b>−${(lo-pct).toFixed(1)}pp</b>,与 10 年以上投资期限不匹配`);
+    if(b.k==='long'&&pct>hi)  concl.push(`长期桶超配 <b>+${(pct-hi).toFixed(1)}pp</b>,回撤时可能影响生活质量`);
+    const div=document.createElement('div');
+    div.className='bucket';
+    div.innerHTML=`
+      <div class="b-head">
+        <span class="nm"><span class="sw" style="background:${b.color}"></span>${b.n}</span>
+        <span class="amt">${fy(b.amt)} · ${pct.toFixed(1)}%</span>
+        <span class="spread"></span><span class="badge ${cls}">${badge}</span>
+      </div>
+      <div class="track">
+        <div class="band" style="left:${lo/SCALE*100}%;width:${(hi-lo)/SCALE*100}%"></div>
+        <div class="fill" style="width:${pct/SCALE*100}%;background:${b.color}"></div>
+        <div class="fill-label" style="left:calc(${pct/SCALE*100}% + 6px)">${pct.toFixed(1)}%</div>
+      </div>
+      <div class="axis-row"><span>0%</span><span>区间 ${lo}–${hi}%</span><span>${SCALE}%</span></div>
+      <div class="b-sub">${b.items}</div>`;
+    list.appendChild(div);
+  });
+  concl.push('保障桶:太太与孩子保障空白,寿险保额仅 2.5 倍年收入(建议 ≥10 倍)——<b>与占比无关,优先级最高</b>');
+  $('#bk-conclusion').innerHTML=concl.map(c=>`<li>${c}</li>`).join('');
+}
+document.querySelectorAll('#bk-seg button').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('#bk-seg button').forEach(x=>x.classList.toggle('active',x===b));
+  bkProfile=b.dataset.p; renderBuckets();
+}));
+renderBuckets();
+
+/* ========== ⑤ AI 方案 ========== */
+const PLAN_HTML=`
+<div class="report-card">
+  <div class="rc-head"><h3>2026-07 家庭资产配置方案</h3>
+    <span class="meta">生成于 2026-07-11 · 已通过规则校验 · 存档可回看</span></div>
+  <div class="rc-body">
+    <div class="stat-chips">
+      <span class="chip"><b style="color:var(--positive)">✓ 规则校验通过</b> 合计 = 100% · 单类 ≤ 60% · 应急金优先</span>
+    </div>
+    <h4><span class="dot" style="background:#533afd"></span>目标大类配置(占可投资资产)</h4>
+    <table class="plan-table">
+      <thead><tr><th>大类</th><th class="num">目标</th><th class="num">当前</th><th class="num">调整</th><th>工具描述(不给代码)</th></tr></thead>
+      <tbody>
+        <tr><td>现金类</td><td class="num">12%</td><td class="num">14.3%</td><td class="num" style="color:var(--negative)">−2.3pp</td><td>货币基金、活期</td></tr>
+        <tr><td>固收类</td><td class="num">45%</td><td class="num">58.3%</td><td class="num" style="color:var(--negative)">−13.3pp</td><td>定存、利率债基金、同业存单指数</td></tr>
+        <tr><td>境内权益</td><td class="num">28%</td><td class="num">27.3%</td><td class="num" style="color:var(--positive)">+0.7pp</td><td>宽基指数(沪深300/中证500 类)</td></tr>
+        <tr><td>海外权益</td><td class="num">10%</td><td class="num">0%</td><td class="num" style="color:var(--positive)">+10.0pp</td><td>QDII 宽基指数(标普/全球类)</td></tr>
+        <tr><td>黄金及另类</td><td class="num">5%</td><td class="num">0%</td><td class="num" style="color:var(--positive)">+5.0pp</td><td>黄金 ETF 联接</td></tr>
+        <tr class="sum"><td>合计</td><td class="num">100%</td><td class="num">100%</td><td class="num">—</td><td></td></tr>
+      </tbody>
+    </table>
+    <h4><span class="dot" style="background:#1baf7a"></span>每桶调整动作(按优先级)</h4>
+    <ol>
+      <li><b>先补保障</b>:为太太投保定期寿险(建议保额约 10 倍其年收入)、为孩子配置重疾——预算约 ¥4,000/年,保费收入比升至 4.5%,仍在合理区间;</li>
+      <li>9 月到期的 ¥130,000 定存<b>不再续存</b>,分 6 个月定投转入长期桶(境内宽基 + 海外宽基按 2:1);</li>
+      <li>每月结余中拿 ¥6,000 定投长期桶,一年后长期占比约达 38%,进入目标区间;</li>
+      <li>以 ¥50,000(约 5%)配置黄金 ETF 联接,一次性建仓即可;</li>
+      <li>活钱保持 ≥ 6 个月支出(¥128,000),超出部分自动归入稳健桶。</li>
+    </ol>
+    <h4><span class="dot" style="background:#2a78d6"></span>理由</h4>
+    <p>画像为平衡型 C3、投资年限 10 年以上、双收入较稳定,当前 58% 的固收占比过于保守;但家庭保障存在明确缺口,按"应急金 → 保障 → 长期"的顺序,先用最小成本补齐保障,再做资产腾挪。海外与黄金用于分散单一市场风险,合计控制在 15%。</p>
+    <h4><span class="dot" style="background:#d31b5e"></span>风险提示</h4>
+    <ul>
+      <li>权益类调整后组合最大回撤可能达 15%–20%,对应约 ¥16–21 万浮亏,确认心理承受力后再执行;</li>
+      <li>QDII 存在额度与汇率波动风险;</li>
+      <li>方案基于 2026Q2 快照,录入新快照后请重新生成。</li>
+    </ul>
+    <div class="disclaimer">本方案由大模型基于家庭画像与聚合数据生成,仅作教育与参考用途,不构成投资建议;不推荐任何具体产品代码。规则层已校验:比例合计 100%、单类不超上限、应急金优先。</div>
+  </div>
+</div>`;
+$('#plan-gen').addEventListener('click',()=>{
+  const btn=$('#plan-gen'); btn.disabled=true; btn.textContent='生成中…';
+  $('#plan-slot').innerHTML=`<div class="report-card"><div class="skeleton">
+    <div class="bar" style="width:35%"></div><div class="bar" style="width:90%"></div><div class="bar" style="width:84%"></div>
+    <div class="bar" style="width:28%;margin-top:18px"></div><div class="bar" style="width:88%"></div>
+    <div style="color:var(--muted);font-size:12px;margin-top:14px">上下文包(画像 + 四笔钱 + 收支)→ LLM → 规则校验 …(原型模拟 1.6s)</div></div></div>`;
+  setTimeout(()=>{ $('#plan-slot').innerHTML=PLAN_HTML; btn.disabled=false; btn.textContent='✦ 生成配置方案';
+    toast('方案已生成并存档;再平衡提醒将以此为基准'); },1600);
+});
+
+/* ========== ⑥ 再平衡 ========== */
+const DEV=[
+  {n:'现金类',   target:12, cur:14.3},
+  {n:'固收类',   target:45, cur:58.3},
+  {n:'境内权益', target:28, cur:27.3},
+  {n:'海外权益', target:10, cur:0},
+  {n:'黄金及另类',target:5, cur:0},
+];
+let rbTh=5;
+function renderRb(){
+  const tb=document.querySelector('#rb-table tbody'); tb.innerHTML='';
+  const trig=[];
+  DEV.forEach(d=>{
+    const dev=d.cur-d.target, hit=Math.abs(dev)>rbTh;
+    if(hit) trig.push({...d,dev});
+    tb.insertAdjacentHTML('beforeend',`<tr>
+      <td>${d.n}</td><td class="num">${d.target}%</td><td class="num">${d.cur}%</td>
+      <td class="num" style="color:${dev>0?'var(--negative)':dev<0?'var(--positive)':'var(--muted)'}">${dev>0?'+':''}${dev.toFixed(1)}pp</td>
+      <td>${hit?'<span class="badge warn">超阈值</span>':'<span class="badge ok">正常</span>'}</td></tr>`);
+  });
+  const cards=$('#rb-cards');
+  if(!trig.length){ cards.innerHTML='<div class="note-strip" style="margin-top:0">当前阈值下没有需要提醒的偏离——仪表盘保持安静。</div>'; }
+  else cards.innerHTML=trig.map(t=>`
+    <div class="dash-card">
+      <div class="dc-t">⚖ 配置偏离提醒 · ${t.n}</div>
+      <p>${t.n}当前 ${t.cur}%,偏离目标 ${t.target}% 达 <b>${t.dev>0?'+':''}${t.dev.toFixed(1)}pp</b>(阈值 ±${rbTh}pp)。${t.dev>0?'建议按方案逐步减配。':'建议按方案分批补足,避免一次性建仓。'}</p>
+      <a class="dc-a" style="color:var(--accent)">查看配置方案 →</a>
+    </div>`).join('');
+}
+document.querySelectorAll('#rb-seg button').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('#rb-seg button').forEach(x=>x.classList.toggle('active',x===b));
+  rbTh=+b.dataset.th; renderRb();
+}));
+renderRb();
+</script>
+</body>
+</html>

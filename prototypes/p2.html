@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P2 · 完整家庭财务闭环 — 产品原型</title>
+<style>
+:root{
+  color-scheme: light;
+  --bg:#ffffff; --bg-soft:#f6f9fc; --cream:#f5e9d4; --surface:#ffffff;
+  --border:#e3e8ee; --border-strong:#a8c3de; --zebra:#fbfcfe;
+  --text:#0d253d; --text-secondary:#273951; --muted:#64748d;
+  --accent:#533afd; --accent-deep:#4434d4; --accent-subdued:#b9b9f9; --accent-soft:#f4f2ff;
+  --positive:#0e7a41; --negative:#d31b5e; --warning:#9b6829;
+  --c1:#2a78d6; --c2:#1baf7a; --c3:#4a3aa7; --c4:#eda100;
+  --radius:12px; --radius-sm:6px; --pill:9999px;
+  --sans:"SF Pro Display",-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Segoe UI",sans-serif;
+  --shadow-1:rgba(0,55,112,.08) 0 1px 3px;
+  --shadow-2:rgba(0,55,112,.08) 0 8px 24px, rgba(0,55,112,.04) 0 2px 6px;
+  --ring:0 0 0 4px rgba(83,58,253,.16);
+}
+*{box-sizing:border-box}
+html{overflow-x:clip;background:var(--bg)}
+html,body{margin:0;padding:0;color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5}
+body{position:relative;overflow-x:clip}
+body::before{content:"";position:absolute;top:-140px;left:-10%;right:-10%;height:440px;z-index:-1;pointer-events:none;
+  transform:skewY(-6deg);transform-origin:top left;filter:blur(28px) saturate(140%);
+  background:radial-gradient(50% 72% at 4% 42%,rgba(245,226,188,1),transparent 64%),
+    radial-gradient(44% 66% at 24% 16%,rgba(255,187,122,.92),transparent 62%),
+    radial-gradient(50% 74% at 50% 36%,rgba(167,167,250,1),transparent 64%),
+    radial-gradient(40% 62% at 72% 14%,rgba(102,94,253,.72),transparent 62%),
+    radial-gradient(38% 60% at 92% 40%,rgba(249,107,238,.78),transparent 62%);
+  mask-image:linear-gradient(180deg,#000 52%,transparent 97%);
+  -webkit-mask-image:linear-gradient(180deg,#000 52%,transparent 97%)}
+::selection{background:rgba(83,58,253,.18)}
+:focus-visible{outline:none;box-shadow:var(--ring);border-radius:4px}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+main{animation:rise .4s ease-out both}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+header.app-header{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.82);
+  -webkit-backdrop-filter:blur(14px) saturate(140%);backdrop-filter:blur(14px) saturate(140%);
+  border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;justify-content:space-between}
+header.app-header h1{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:500;margin:0}
+.brand-seal{display:grid;place-items:center;width:26px;height:26px;border-radius:7px;
+  background:linear-gradient(135deg,var(--accent),var(--accent-deep));color:#fff;font-size:14px;font-weight:600;box-shadow:var(--shadow-1)}
+header.app-header nav{display:flex;gap:24px}
+header.app-header nav a{color:var(--muted);text-decoration:none;font-size:14px;cursor:default}
+header.app-header nav a.active{color:var(--accent);font-weight:500}
+header.app-header nav a .nb{display:inline-block;margin-left:4px;padding:0 6px;border-radius:var(--pill);
+  background:var(--accent);color:#fff;font-size:10px;font-weight:600;vertical-align:2px}
+.phase-strip{max-width:1100px;margin:18px auto 0;padding:0 28px;display:flex;flex-wrap:wrap;align-items:baseline;gap:10px}
+.phase-tag{padding:3px 12px;border-radius:var(--pill);background:#0e7a41;color:#fff;font-size:12px;font-weight:600;letter-spacing:.04em}
+.phase-strip .t{font-size:15px;font-weight:500}
+.phase-strip .m{color:var(--muted);font-size:12px}
+main{max-width:1100px;margin:0 auto;padding:18px 28px 72px}
+.tabbar{display:inline-flex;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:var(--pill);
+  padding:3px;gap:2px;box-shadow:var(--shadow-1);margin-bottom:22px}
+.tabbar button{border:0;background:transparent;cursor:pointer;padding:6px 16px;font-size:13px;color:var(--muted);
+  font-family:inherit;border-radius:var(--pill);transition:color .15s,background .15s}
+.tabbar button:hover{background:var(--bg-soft);color:var(--text)}
+.tabbar button.active{background:var(--accent);color:#fff;font-weight:500}
+.proto-head{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:16px}
+.kicker{color:var(--accent);font-size:10px;font-weight:500;letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px}
+.proto-head h2{font-size:26px;font-weight:300;letter-spacing:-.26px;margin:0 0 6px}
+.proto-head h2 code{font-size:14px;color:var(--muted);background:var(--bg-soft);border:1px solid var(--border);
+  border-radius:var(--radius-sm);padding:2px 8px;vertical-align:3px;margin-left:8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.proto-head .desc{color:var(--muted);font-size:13px;margin:0;max-width:560px}
+.verdict{display:inline-flex;gap:6px;flex-shrink:0;background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--pill);padding:4px;box-shadow:var(--shadow-1)}
+.verdict .vlabel{align-self:center;padding:0 6px 0 10px;font-size:11px;color:var(--muted)}
+.verdict button{border:0;background:transparent;cursor:pointer;font-family:inherit;font-size:12px;color:var(--muted);
+  padding:5px 12px;border-radius:var(--pill);transition:all .15s}
+.verdict button:hover{background:var(--bg-soft);color:var(--text)}
+.verdict button.on[data-v="keep"]{background:#e8f6ee;color:var(--positive);font-weight:600}
+.verdict button.on[data-v="hold"]{background:var(--cream);color:var(--warning);font-weight:600}
+.verdict button.on[data-v="drop"]{background:#fdf2f6;color:var(--negative);font-weight:600}
+.section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow-1)}
+.section .section-title{padding:11px 16px;border-bottom:1px solid var(--border);font-weight:500;font-size:13px;
+  background:var(--bg-soft);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.section .section-title .hint{font-weight:400;color:var(--muted);font-size:12px}
+.btn{display:inline-block;background:var(--accent);color:#fff;padding:8px 16px;border-radius:var(--pill);
+  font-size:14px;line-height:1.2;border:0;cursor:pointer;font-family:inherit;transition:background .15s}
+.btn:hover{background:var(--accent-deep)}
+.btn.ghost{background:var(--surface);color:var(--text);border:1px solid var(--border)}
+.btn.ghost:hover{background:var(--bg-soft)}
+.badge{display:inline-block;padding:2px 8px;border-radius:var(--pill);font-size:11px;font-weight:500;
+  background:var(--accent-subdued);color:var(--accent-deep)}
+.badge.ok{background:#e8f6ee;color:var(--positive)}
+.badge.warn{background:var(--cream);color:var(--warning)}
+.badge.danger{background:#fdf2f6;color:var(--negative)}
+.two-col{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:18px;align-items:start}
+@media(max-width:900px){.two-col{grid-template-columns:1fr}}
+.note-strip{margin-top:14px;padding:10px 14px;border-radius:var(--radius-sm);background:var(--bg-soft);
+  border:1px solid var(--border);color:var(--muted);font-size:12px;line-height:1.7}
+.note-strip b{color:var(--text-secondary)}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(20px);background:var(--text);color:#fff;
+  padding:10px 18px;border-radius:var(--pill);font-size:13px;box-shadow:var(--shadow-2);opacity:0;transition:all .25s;z-index:99}
+.toast.show{opacity:1;transform:translateX(-50%)}
+footer.proto-foot{max-width:1100px;margin:0 auto;padding:0 28px 40px;color:var(--muted);font-size:12px}
+/* 目标卡片 */
+.goal-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px}
+@media(max-width:900px){.goal-grid{grid-template-columns:1fr}}
+.goal-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow-1)}
+.goal-card .g-icon{font-size:20px}
+.goal-card h3{margin:8px 0 2px;font-size:16px;font-weight:500}
+.goal-card .g-meta{color:var(--muted);font-size:12px;margin-bottom:12px}
+.goal-card .g-meta input{width:110px;padding:2px 6px;border:1px solid transparent;border-radius:4px;font:inherit;
+  color:inherit;font-variant-numeric:tabular-nums;background:transparent}
+.goal-card .g-meta input:hover{border-color:var(--border-strong);background:#fff}
+.goal-card .g-meta input:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring);background:#fff}
+.pbar{height:10px;border-radius:5px;background:var(--bg-soft);overflow:hidden;margin:6px 0 8px}
+.pbar > div{height:100%;border-radius:5px;transition:width .35s ease}
+.goal-card .g-nums{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+.goal-card .g-nums b{color:var(--text);font-variant-numeric:tabular-nums}
+.goal-card .g-monthly{margin-top:12px;padding-top:10px;border-top:1px dashed var(--border);font-size:12px;color:var(--muted)}
+.goal-card .g-monthly b{font-size:16px;color:var(--accent);font-variant-numeric:tabular-nums}
+/* 表格 */
+table.ledger{width:100%;border-collapse:collapse;font-size:13px}
+table.ledger th,table.ledger td{padding:9px 14px;text-align:left;border-bottom:1px solid var(--border)}
+table.ledger thead th{font-weight:400;font-size:12px;color:var(--muted);background:var(--bg-soft)}
+table.ledger .amount{text-align:right;font-variant-numeric:tabular-nums}
+table.ledger tr:last-child td{border-bottom:0}
+/* 预算 */
+.budget-row{padding:12px 16px;border-bottom:1px solid var(--border)}
+.budget-row:last-child{border-bottom:0}
+.budget-row .b-line{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;margin-bottom:5px}
+.budget-row .b-line b{font-variant-numeric:tabular-nums}
+.budget-row .b-line .muted{color:var(--muted);font-size:12px}
+/* 现金流 */
+.cf-chart{padding:16px}
+.cf-month{margin-bottom:14px}
+.cf-month .cf-label{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px}
+.cf-month .cf-label b{color:var(--text);font-variant-numeric:tabular-nums}
+.cf-bars{display:grid;gap:3px}
+.cf-bar{height:14px;border-radius:0 4px 4px 0;position:relative}
+.cf-bar span{position:absolute;left:calc(100% + 6px);top:-1px;font-size:11px;font-weight:600;color:var(--text);white-space:nowrap}
+.timeline{padding:6px 0}
+.tl-item{display:flex;gap:12px;padding:8px 16px;font-size:13px;border-bottom:1px dashed var(--border);align-items:baseline}
+.tl-item:last-child{border-bottom:0}
+.tl-item .tl-d{color:var(--muted);font-size:12px;min-width:52px;font-variant-numeric:tabular-nums}
+.tl-item .tl-a{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--negative)}
+.report-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-1);overflow:hidden}
+.report-card .rc-body{padding:16px 18px}
+.report-card h4{margin:14px 0 8px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px}
+.report-card h4:first-child{margin-top:0}
+.report-card h4 .dot{width:8px;height:8px;border-radius:3px}
+.report-card ul{margin:0;padding-left:20px;color:var(--text-secondary);font-size:13px;line-height:1.8}
+.meter{margin:10px 0}
+.meter .m-line{display:flex;justify-content:space-between;font-size:12px;color:var(--text-secondary);margin-bottom:4px}
+.meter .m-line b{font-variant-numeric:tabular-nums}
+.meter .m-track{position:relative;height:8px;border-radius:4px;background:var(--bg-soft);overflow:hidden}
+.meter .m-band{position:absolute;top:0;bottom:0;background:rgba(14,122,65,.15)}
+.meter .m-fill{position:absolute;top:0;bottom:0;left:0;border-radius:4px}
+.form-inline{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;padding:14px 16px;border-top:1px solid var(--border);background:var(--bg-soft)}
+.form-inline label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted)}
+.form-inline input,.form-inline select{padding:6px 10px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);
+  font-family:inherit;font-size:13px;background:#fff;color:var(--text)}
+@media(max-width:700px){
+  header.app-header{flex-wrap:wrap;gap:10px;padding:10px 16px}
+  header.app-header nav{max-width:100%;overflow-x:auto;gap:16px}
+  header.app-header nav a{white-space:nowrap}
+  main,.phase-strip,footer.proto-foot{padding-left:16px;padding-right:16px}
+  .proto-head{flex-direction:column}
+}
+</style>
+</head>
+<body>
+<header class="app-header">
+  <h1><span class="brand-seal">家</span>家庭财务</h1>
+  <nav>
+    <a>仪表盘</a><a>流水</a><a>资产</a><a>四笔钱</a>
+    <a class="active">目标<span class="nb">新</span></a>
+    <a class="active">保单<span class="nb">新</span></a>
+    <a class="active">预算<span class="nb">新</span></a>
+  </nav>
+</header>
+
+<div class="phase-strip">
+  <span class="phase-tag">P2</span>
+  <span class="t">完整家庭财务闭环</span>
+  <span class="m">产品原型 · 数据为 mock · 对照 docs/product-research.md §四 P2(缺口 #5、#6、#7、#8)</span>
+</div>
+
+<main>
+  <div class="tabbar">
+    <button class="active" data-view="goals">⑦ 财务目标</button>
+    <button data-view="insurance">⑧ 保单与保障缺口</button>
+    <button data-view="budget">⑨ 预算与现金流</button>
+  </div>
+
+  <!-- ========== ⑦ 财务目标 ========== -->
+  <section class="view" id="view-goals">
+    <div class="proto-head">
+      <div>
+        <div class="kicker">缺口 #5 · 对标 Monarch Goals / 且慢 · 落点 financial_goals 表(已建)</div>
+        <h2>财务目标<code>/goals</code></h2>
+        <p class="desc">目标金额 / 日期 → 自动算出每月应存;进度由资产快照自动更新,AI 财报会引用。<b>目标金额和日期可以直接改</b>,每月应存实时重算。</p>
+      </div>
+      <div class="verdict" data-key="p2-goals">
+        <span class="vlabel">你的判断</span>
+        <button data-v="keep">✓ 保留</button><button data-v="hold">? 待定</button><button data-v="drop">✕ 砍掉</button>
+      </div>
+    </div>
+
+    <div class="goal-grid" id="goal-grid"></div>
+
+    <div class="section" style="max-width:720px">
+      <div class="section-title"><span>新建目标</span></div>
+      <div class="form-inline">
+        <label>名称<input placeholder="如:装修基金" style="width:140px"></label>
+        <label>目标金额(元)<input type="number" placeholder="200000" style="width:120px"></label>
+        <label>目标日期<input type="month" value="2030-06"></label>
+        <label>关联科目<select><option>手动划拨</option><option>asset.deposit</option><option>asset.wealth</option><option>asset.equity</option></select></label>
+        <button class="btn" id="goal-add">添加</button>
+      </div>
+    </div>
+
+    <div class="note-strip" style="max-width:720px">
+      <b>产品逻辑说明</b> · 进度不需要手动更新:目标可关联某个快照科目(如教育金 = 某笔定存 + 某只基金),每季录快照时进度自动前进;月结余(¥11,500)与三个目标的月供合计(¥10,600)对比,超了会在 AI 财报里提示「目标过载」。
+    </div>
+  </section>
+
+  <!-- ========== ⑧ 保单 ========== -->
+  <section class="view" id="view-insurance" hidden>
+    <div class="proto-head">
+      <div>
+        <div class="kicker">缺口 #6 · 对标且慢保险保障 · 落点 insurance_policies 表(已建)· 四笔钱的「保障」桶</div>
+        <h2>保单与保障缺口<code>/insurance</code></h2>
+        <p class="desc">登记家庭保单,AI 按「双十原则」检查保额/年收入倍数与保费/收入占比,输出缺口清单——这是 P1 四笔钱诊断里保障桶的明细页。</p>
+      </div>
+      <div class="verdict" data-key="p2-insurance">
+        <span class="vlabel">你的判断</span>
+        <button data-v="keep">✓ 保留</button><button data-v="hold">? 待定</button><button data-v="drop">✕ 砍掉</button>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="section">
+        <div class="section-title"><span>家庭保单登记</span><button class="btn ghost" style="font-size:12px;padding:5px 12px" id="ins-add">+ 登记保单</button></div>
+        <table class="ledger">
+          <thead><tr><th>险种</th><th>被保险人</th><th class="amount">保额</th><th class="amount">年保费</th><th>缴费日</th></tr></thead>
+          <tbody>
+            <tr><td>定期寿险(30 年)</td><td>阿哲</td><td class="amount">¥1,000,000</td><td class="amount">¥1,800</td><td>03-15</td></tr>
+            <tr><td>重疾险(终身)</td><td>阿哲</td><td class="amount">¥500,000</td><td class="amount">¥5,400</td><td>09-10</td></tr>
+            <tr><td>重疾险(终身)</td><td>小雨</td><td class="amount">¥500,000</td><td class="amount">¥5,200</td><td>06-22</td></tr>
+            <tr><td>百万医疗(全家)</td><td>全家 3 人</td><td class="amount">¥3,000,000</td><td class="amount">¥1,500</td><td>09-01</td></tr>
+            <tr style="background:var(--accent-soft);font-weight:600"><td>合计</td><td></td><td class="amount">—</td><td class="amount">¥13,900</td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div>
+        <div class="report-card">
+          <div class="rc-body">
+            <h4><span class="dot" style="background:#eda100"></span>AI 保障缺口检查(2026-07)</h4>
+            <div class="meter">
+              <div class="m-line"><span>保费 / 家庭年收入(建议 5%–10%)</span><b>3.5% · 偏低</b></div>
+              <div class="m-track"><div class="m-band" style="left:5%;width:5%"></div><div class="m-fill" style="width:3.5%;background:#eda100"></div></div>
+            </div>
+            <div class="meter">
+              <div class="m-line"><span>阿哲寿险保额 / 其年收入(建议 ≥10 倍)</span><b style="color:var(--warning)">4.1 倍</b></div>
+              <div class="m-track"><div class="m-band" style="left:60%;width:40%"></div><div class="m-fill" style="width:24.6%;background:#9b6829"></div></div>
+            </div>
+            <div class="meter">
+              <div class="m-line"><span>小雨寿险保额 / 其年收入(建议 ≥10 倍)</span><b style="color:var(--negative)">0 倍 · 空白</b></div>
+              <div class="m-track"><div class="m-band" style="left:60%;width:40%"></div><div class="m-fill" style="width:1%;background:var(--negative)"></div></div>
+            </div>
+            <h4><span class="dot" style="background:#d31b5e"></span>缺口清单(按优先级)</h4>
+            <ul>
+              <li><b>小雨无定期寿险</b>——她承担约 40% 家庭收入与共同房贷,建议保额 ≈ 150 万(10 倍年收入),30 年定期,预算约 ¥1,600/年;</li>
+              <li>阿哲寿险保额 100 万,距 10 倍年收入(244 万)缺口约 144 万,可用定期寿加保补足;</li>
+              <li>孩子无重疾险,少儿重疾保费低(约 ¥800/年 起),建议补齐;</li>
+              <li>百万医疗 <b>09-01 到期</b>,已加入现金流提醒。</li>
+            </ul>
+            <div style="margin-top:14px;padding:10px 14px;border:1px dashed var(--border-strong);border-radius:6px;color:var(--muted);font-size:12px;background:var(--bg-soft)">缺口检查按「双十原则」等通行规则计算,不推荐任何具体保险产品;补齐后保费收入比约 4.6%,仍在合理区间。</div>
+          </div>
+        </div>
+        <div class="note-strip">
+          <b>与其他模块的联动</b> · 保障是四笔钱之一:此页数据回填 P1 诊断的保障桶;缺口进入 AI 财报「风险」段;缴费日进入周期交易与 90 天现金流。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== ⑨ 预算与现金流 ========== -->
+  <section class="view" id="view-budget" hidden>
+    <div class="proto-head">
+      <div>
+        <div class="kicker">缺口 #7、#8 · 对标 Actual/YNAB 信封预算 + Rocket Money 订阅追踪 · 落点新表 budgets</div>
+        <h2>预算与现金流<code>/budget</code></h2>
+        <p class="desc">分类季度预算 vs 实际(超支自动进 AI 财报);从流水自动识别周期交易(房贷/保费/订阅),推出未来 90 天现金流提示。</p>
+      </div>
+      <div class="verdict" data-key="p2-budget">
+        <span class="vlabel">你的判断</span>
+        <button data-v="keep">✓ 保留</button><button data-v="hold">? 待定</button><button data-v="drop">✕ 砍掉</button>
+      </div>
+    </div>
+
+    <div class="two-col" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
+      <div>
+        <div class="section">
+          <div class="section-title"><span>2026Q2 分类预算 vs 实际</span><span class="hint">超支项自动进 AI 财报风险段</span></div>
+          <div id="budget-list"></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="section">
+          <div class="section-title"><span>周期交易(从流水自动识别)</span><span class="hint">缺口 #8</span></div>
+          <table class="ledger">
+            <thead><tr><th>项目</th><th>周期</th><th class="amount">金额</th><th>下次</th></tr></thead>
+            <tbody>
+              <tr><td>房贷月供 <span class="badge">已识别 22 期</span></td><td>每月 18 日</td><td class="amount">¥9,800</td><td>07-18</td></tr>
+              <tr><td>停车月租</td><td>每月 1 日</td><td class="amount">¥450</td><td>08-01</td></tr>
+              <tr><td>视频平台会员</td><td>每月 5 日</td><td class="amount">¥25</td><td>08-05</td></tr>
+              <tr><td>物业费</td><td>每季度</td><td class="amount">¥1,180</td><td>08-15</td></tr>
+              <tr><td>百万医疗续保 <span class="badge warn">到期</span></td><td>每年</td><td class="amount">¥1,500</td><td>09-01</td></tr>
+              <tr><td>重疾险保费(阿哲)</td><td>每年</td><td class="amount">¥5,400</td><td>09-10</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="section" style="margin-top:16px">
+          <div class="section-title"><span>未来 90 天现金流(2026-07-11 起)</span><span class="hint">流入按近 6 个月工资均值估算</span></div>
+          <div class="cf-chart" id="cf-chart"></div>
+          <div class="timeline">
+            <div class="tl-item"><span class="tl-d">07-18</span><span>房贷月供</span><span class="tl-a">−¥9,800</span></div>
+            <div class="tl-item"><span class="tl-d">08-15</span><span>物业费(Q3)</span><span class="tl-a">−¥1,180</span></div>
+            <div class="tl-item"><span class="tl-d">09-01</span><span>百万医疗续保 ⚠ 到期日</span><span class="tl-a">−¥1,500</span></div>
+            <div class="tl-item"><span class="tl-d">09-10</span><span>重疾险年缴(阿哲)</span><span class="tl-a">−¥5,400</span></div>
+            <div class="tl-item" style="color:var(--muted);font-size:12px"><span class="tl-d"></span><span>9 月固定支出比均月多 ¥6,900,月结余仍为正,无需动用活钱。</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="proto-foot">原型仅供产品评审 · 所有数字为 mock · p0.html → p1.html → <b>P2</b> → p3.html</footer>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $=s=>document.querySelector(s);
+const fy=n=>'¥'+Math.round(n).toLocaleString('zh-CN');
+const tabs=[...document.querySelectorAll('.tabbar button')];
+tabs.forEach(t=>t.addEventListener('click',()=>{
+  tabs.forEach(x=>x.classList.toggle('active',x===t));
+  document.querySelectorAll('main > section.view').forEach(s=>s.hidden=s.id!=='view-'+t.dataset.view);
+}));
+document.querySelectorAll('.verdict').forEach(v=>{
+  const key='ffproto-'+v.dataset.key,bs=v.querySelectorAll('button');
+  const paint=val=>bs.forEach(b=>b.classList.toggle('on',b.dataset.v===val));
+  paint(localStorage.getItem(key));
+  bs.forEach(b=>b.addEventListener('click',()=>{const nv=b.classList.contains('on')?null:b.dataset.v;
+    nv?localStorage.setItem(key,nv):localStorage.removeItem(key);paint(nv);}));
+});
+const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2400);};
+
+/* ========== ⑦ 目标 ========== */
+const GOALS=[
+  {icon:'🎓',n:'子女教育金',target:800000,saved:180000,ym:'2039-09',link:'关联 asset.deposit + 教育金基金 · 快照自动更新',color:'var(--c1)'},
+  {icon:'🚗',n:'换车基金',  target:150000,saved:60000, ym:'2029-06',link:'手动划拨 · 每季确认',color:'var(--c2)'},
+  {icon:'🏖',n:'退休储备',  target:3000000,saved:218000,ym:'2051-01',link:'关联 asset.pension · 按 4% 年化估算',color:'var(--c3)'},
+];
+const NOW=new Date(2026,6,1);
+function monthsTo(ym){const [y,m]=ym.split('-').map(Number);return Math.max(1,(y-NOW.getFullYear())*12+(m-1)-NOW.getMonth());}
+function renderGoals(){
+  const g=$('#goal-grid'); g.innerHTML='';
+  GOALS.forEach((o,i)=>{
+    const pct=Math.min(100,o.saved/o.target*100);
+    const monthly=(o.target-o.saved)/monthsTo(o.ym);
+    const card=document.createElement('div'); card.className='goal-card';
+    card.innerHTML=`
+      <div class="g-icon">${o.icon}</div>
+      <h3>${o.n}</h3>
+      <div class="g-meta">目标 ¥<input type="text" data-i="${i}" data-f="target" value="${o.target.toLocaleString('zh-CN')}">
+        · <input type="month" data-i="${i}" data-f="ym" value="${o.ym}" style="width:130px"></div>
+      <div class="pbar"><div style="width:${pct}%;background:${o.color}"></div></div>
+      <div class="g-nums"><span>已积累 <b>${fy(o.saved)}</b></span><span><b>${pct.toFixed(1)}%</b></span></div>
+      <div class="g-monthly">每月应存 <b>${fy(monthly)}</b><br><span style="font-size:11px">${o.link}</span></div>`;
+    g.appendChild(card);
+  });
+  g.querySelectorAll('input').forEach(inp=>inp.addEventListener('change',e=>{
+    const o=GOALS[+e.target.dataset.i];
+    if(e.target.dataset.f==='target'){const v=parseInt(e.target.value.replace(/[^\d]/g,''),10);if(v>0)o.target=v;}
+    else if(/^\d{4}-\d{2}$/.test(e.target.value)) o.ym=e.target.value;
+    renderGoals();
+    toast('每月应存已按新目标重算');
+  }));
+}
+renderGoals();
+$('#goal-add').addEventListener('click',()=>toast('原型演示:目标会写入 financial_goals 表'));
+
+/* ========== ⑧ 保单 ========== */
+$('#ins-add').addEventListener('click',()=>toast('原型演示:保单会写入 insurance_policies 表'));
+
+/* ========== ⑨ 预算 ========== */
+const BUDGETS=[
+  {n:'餐饮',      plan:12000,act:11350},
+  {n:'购物',      plan:9000, act:11240},
+  {n:'子女教育',  plan:15000,act:14760},
+  {n:'娱乐',      plan:6000, act:5090},
+  {n:'交通出行',  plan:4500, act:3820},
+  {n:'日用百货',  plan:7000, act:6180},
+];
+const bl=$('#budget-list');
+BUDGETS.forEach(b=>{
+  const r=b.act/b.plan*100, over=r>100, near=r>95&&!over;
+  bl.insertAdjacentHTML('beforeend',`
+  <div class="budget-row">
+    <div class="b-line">
+      <span>${b.n} ${over?'<span class="badge danger">超支 '+(r-100).toFixed(0)+'%</span>':near?'<span class="badge warn">接近上限</span>':''}</span>
+      <span class="muted"><b style="color:${over?'var(--negative)':'var(--text)'}">${fy(b.act)}</b> / ${fy(b.plan)}</span>
+    </div>
+    <div class="pbar" style="margin:0"><div style="width:${Math.min(100,r)}%;background:${over?'var(--negative)':near?'#d9b06a':'var(--c2)'}"></div></div>
+  </div>`);
+});
+
+/* 90 天现金流:分月双条(流入/固定流出),直接标数值 */
+const CF=[
+  {m:'7 月(剩余)',inflow:32800,outflow:11455},
+  {m:'8 月',inflow:32800,outflow:11455+1180},
+  {m:'9 月',inflow:32800,outflow:11455+1500+5400},
+];
+const cfMax=36000;
+const cf=$('#cf-chart');
+CF.forEach(o=>{
+  cf.insertAdjacentHTML('beforeend',`
+  <div class="cf-month">
+    <div class="cf-label"><span>${o.m}</span><b>净 +${fy(o.inflow-o.outflow).slice(1)}</b></div>
+    <div class="cf-bars" style="grid-template-columns:1fr;max-width:78%">
+      <div class="cf-bar" style="width:${o.inflow/cfMax*100}%;background:#1baf7a"><span>流入 ${fy(o.inflow)}</span></div>
+      <div class="cf-bar" style="width:${o.outflow/cfMax*100}%;background:#d31b5e"><span>固定流出 ${fy(o.outflow)}</span></div>
+    </div>
+  </div>`);
+});
+</script>
+</body>
+</html>
