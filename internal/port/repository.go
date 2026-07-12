@@ -103,6 +103,24 @@ type AssetSnapshotRepo interface {
 	ListAll(ctx context.Context) ([]domain.AssetSnapshot, error)
 }
 
+// FamilyProfileRepo 家庭风险画像（family_profile 单行表）
+type FamilyProfileRepo interface {
+	// Get 未填写过时返回 ErrNotFound
+	Get(ctx context.Context) (*domain.FamilyProfile, error)
+	// Upsert 覆盖写入单行（id 固定 'default'）
+	Upsert(ctx context.Context, p *domain.FamilyProfile) error
+}
+
+// FinancialGoalRepo 财务目标（financial_goals 表，M2 只读）
+type FinancialGoalRepo interface {
+	ListAllGoals(ctx context.Context) ([]domain.FinancialGoal, error)
+}
+
+// InsurancePolicyRepo 保单（insurance_policies 表，M2 只读）
+type InsurancePolicyRepo interface {
+	ListAllPolicies(ctx context.Context) ([]domain.InsurancePolicy, error)
+}
+
 // ReportRepo AI 季/年财报（reports 表）
 type ReportRepo interface {
 	// Upsert 按 (period, period_type) 唯一键覆盖写入
