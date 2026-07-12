@@ -43,7 +43,7 @@ function txTable() {
     keyword: '',
     directionFilter: 'all',
     memberFilter: '',
-    sourceFilter: ['alipay', 'wechat', 'manual'],
+    sourceFilter: ['alipay', 'wechat', 'manual', 'csv'],
     accountFilter: ['husband', 'wife'],
     statusFilter: ['pending_review', 'confirmed'],
     categoryFilter: '',
@@ -115,7 +115,9 @@ function txTable() {
         } else if (memberFilter && t.member !== memberFilter) {
           return false;
         }
-        if (!sources.has(t.source)) return false;
+        // csv:<模板名> 归并到 'csv' 复选项
+        const srcKey = t.source && t.source.startsWith('csv:') ? 'csv' : t.source;
+        if (!sources.has(srcKey)) return false;
         if (t.account && !accounts.has(t.account)) return false;
         if (!statuses.has(t.status)) return false;
         if (catFilter === '__none__') {
@@ -184,6 +186,7 @@ function txTable() {
     },
 
     sourceLabel(s) {
+      if (s && s.startsWith('csv:')) return 'CSV·' + s.slice(4);
       return { alipay: '支付宝', wechat: '微信', manual: '手填' }[s] || s;
     },
 
@@ -200,7 +203,7 @@ function txTable() {
       this.keyword = '';
       this.directionFilter = 'all';
       this.memberFilter = '';
-      this.sourceFilter = ['alipay', 'wechat', 'manual'];
+      this.sourceFilter = ['alipay', 'wechat', 'manual', 'csv'];
       this.accountFilter = ['husband', 'wife'];
       this.statusFilter = ['pending_review', 'confirmed'];
       this.categoryFilter = '';
