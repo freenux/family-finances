@@ -127,6 +127,10 @@ func (r *captureTransactionRepo) ListAllImportBatches(context.Context) ([]domain
 	return nil, nil
 }
 
+func (r *captureTransactionRepo) ListMembers(context.Context) ([]string, error) {
+	return nil, nil
+}
+
 type stubRuleRepo struct {
 	rules []domain.CategoryRule
 }

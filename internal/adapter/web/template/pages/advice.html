@@ -125,6 +125,36 @@
     </div>
   </div>
 </div>
+
+<!-- 情景实验室：三档预设对比（确定性系数演示，不调 LLM） -->
+<div class="section" style="margin-top:18px" id="scenario-lab">
+  <div class="section-title">
+    <span>情景实验室 · 三档长期桶配置对比</span>
+    <span class="hint">假设与系数为教育演示，非预测</span>
+  </div>
+  <div class="scenario-grid">
+    {{range .Scenarios}}
+    <div class="scenario-card">
+      <div class="sc-head">{{.Name}}<span class="code">长期桶权益 {{printf "%.1f%%" .EquityPct}}</span></div>
+      <table class="ledger">
+        <tbody>
+          <tr class="item"><td class="name">预期年化（假设）</td><td class="amount">{{printf "%.1f%%–%.1f%%" .ReturnLowPct .ReturnHighPct}}</td></tr>
+          <tr class="item"><td class="name">历史最大回撤（系数）</td><td class="amount negative">{{printf "%.1f%%–%.1f%%" .DrawdownLowPct .DrawdownHighPct}}</td></tr>
+          {{if .HasGoal}}
+          <tr class="item"><td class="name">「{{.GoalName}}」达成时间</td>
+            <td class="amount">{{if .Reachable}}{{.MonthsBest}}–{{.MonthsWorst}} 个月{{else}}600 个月内难以达成{{end}}</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{end}}
+  </div>
+  <div style="padding:0 16px 12px;font-size:12px;color:var(--muted)">
+    权益比例取各档目标区间中点（保守 C2 / 均衡 C3 / 进取 C5）；年化假设：权益 4–8%、固收 2–3%；
+    回撤系数：权益 20%→5–10%、50%→15–25%、80%→25–40% 线性插值。
+    {{if .Scenarios}}{{$first := index .Scenarios 0}}{{if $first.HasGoal}}目标达成时间按最早目标的当前进度与 0% 口径月供、在区间上下界年化下复利估算，对照直线口径 {{$first.BaselineMonths}} 个月。{{end}}{{end}}
+  </div>
+</div>
 {{end}}
 
 {{define "page"}}{{template "base" .}}{{end}}

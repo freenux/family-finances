@@ -25,7 +25,7 @@ func (r *TransactionRepo) Insert(ctx context.Context, tx domain.Transaction) err
 		tx.ID, string(tx.Source), string(tx.Account), nullIfEmpty(tx.ImportBatchID), tx.OccurredAt,
 		tx.Counterparty, tx.Description, tx.PlatformCategory, tx.Note, tx.Amount,
 		string(tx.Direction), string(tx.Status), nullIfEmpty(tx.CategoryID),
-		tx.RawRow, tx.CreatedAt, tx.UpdatedAt,
+		tx.RawRow, tx.CreatedAt, tx.UpdatedAt, tx.Member,
 	)
 	return err
 }
@@ -33,8 +33,8 @@ func (r *TransactionRepo) Insert(ctx context.Context, tx domain.Transaction) err
 const insertTxSQL = `
 INSERT INTO transactions
   (id, source, account, import_batch_id, occurred_at, counterparty, description, platform_category, note,
-   amount, direction, status, category_id, raw_row, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+   amount, direction, status, category_id, raw_row, created_at, updated_at, member)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 // InsertBatch 把一批候选行写入，逐行检查 imported_transaction_keys 去重，同一事务内提交。
 // 去重键是 (source, account, transaction_no)。
@@ -86,7 +86,7 @@ SELECT 1 FROM imported_transaction_keys WHERE source = ? AND account = ? AND tra
 			t.ID, string(t.Source), string(t.Account), nullIfEmpty(t.ImportBatchID), t.OccurredAt,
 			t.Counterparty, t.Description, t.PlatformCategory, t.Note, t.Amount,
 			string(t.Direction), string(t.Status), nullIfEmpty(t.CategoryID),
-			t.RawRow, t.CreatedAt, t.UpdatedAt,
+			t.RawRow, t.CreatedAt, t.UpdatedAt, t.Member,
 		); err != nil {
 			return res, fmt.Errorf("insert tx: %w", err)
 		}
@@ -138,6 +138,10 @@ func (r *TransactionRepo) Update(ctx context.Context, id string, patch port.Tran
 	if patch.Account != nil {
 		sets = append(sets, "account = ?")
 		args = append(args, string(*patch.Account))
+	}
+	if patch.Member != nil {
+		sets = append(sets, "member = ?")
+		args = append(args, *patch.Member)
 	}
 	if len(sets) == 0 {
 		return nil
@@ -350,7 +354,7 @@ ORDER BY created_at ASC, id ASC`)
 const selectTxSQL = `
 SELECT id, source, account, COALESCE(import_batch_id,''), occurred_at, COALESCE(counterparty,''),
        COALESCE(description,''), COALESCE(platform_category,''), COALESCE(note,''), amount, direction, status, COALESCE(category_id,''),
-       COALESCE(raw_row,''), created_at, updated_at
+       COALESCE(raw_row,''), created_at, updated_at, COALESCE(member,'')
 FROM transactions`
 
 type scanner interface {
@@ -362,7 +366,7 @@ func scanTx(s scanner) (domain.Transaction, error) {
 	var src, acc, dir, st string
 	if err := s.Scan(&t.ID, &src, &acc, &t.ImportBatchID, &t.OccurredAt, &t.Counterparty,
 		&t.Description, &t.PlatformCategory, &t.Note, &t.Amount, &dir, &st, &t.CategoryID, &t.RawRow,
-		&t.CreatedAt, &t.UpdatedAt); err != nil {
+		&t.CreatedAt, &t.UpdatedAt, &t.Member); err != nil {
 		return domain.Transaction{}, err
 	}
 	t.Source = domain.Source(src)
@@ -380,6 +384,25 @@ func scanTxs(rows *sql.Rows) ([]domain.Transaction, error) {
 			return nil, err
 		}
 		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// ListMembers 已出现过的成员标注（去重、非空、按字典序）
+func (r *TransactionRepo) ListMembers(ctx context.Context) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `
+SELECT DISTINCT member FROM transactions WHERE member != '' ORDER BY member`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var m string
+		if err := rows.Scan(&m); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
 	}
 	return out, rows.Err()
 }

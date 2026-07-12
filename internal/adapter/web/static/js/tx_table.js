@@ -42,6 +42,7 @@ function txTable() {
 
     keyword: '',
     directionFilter: 'all',
+    memberFilter: '',
     sourceFilter: ['alipay', 'wechat', 'manual'],
     accountFilter: ['husband', 'wife'],
     statusFilter: ['pending_review', 'confirmed'],
@@ -106,8 +107,14 @@ function txTable() {
       const statuses = new Set(this.statusFilter);
       const catFilter = this.categoryFilter;
 
+      const memberFilter = this.memberFilter;
       let out = this.rows.filter((t) => {
         if (dir !== 'all' && t.direction !== dir) return false;
+        if (memberFilter === '__none__') {
+          if (t.member) return false;
+        } else if (memberFilter && t.member !== memberFilter) {
+          return false;
+        }
         if (!sources.has(t.source)) return false;
         if (t.account && !accounts.has(t.account)) return false;
         if (!statuses.has(t.status)) return false;
@@ -145,6 +152,12 @@ function txTable() {
         return String(av).localeCompare(String(bv), 'zh-CN') * sign;
       });
       return out;
+    },
+
+    get memberOptions() {
+      const set = new Set();
+      for (const t of this.rows) if (t.member) set.add(t.member);
+      return [...set].sort((a, b) => a.localeCompare(b, 'zh-CN'));
     },
 
     get totals() {
@@ -186,6 +199,7 @@ function txTable() {
     resetFilters() {
       this.keyword = '';
       this.directionFilter = 'all';
+      this.memberFilter = '';
       this.sourceFilter = ['alipay', 'wechat', 'manual'];
       this.accountFilter = ['husband', 'wife'];
       this.statusFilter = ['pending_review', 'confirmed'];
@@ -279,6 +293,15 @@ function txTable() {
       t.status = value;
       const ok = await this._patch(t.id, { status: value });
       if (!ok) t.status = prev;
+    },
+
+    async patchMember(t, value) {
+      value = value.trim();
+      if (value === t.member) return;
+      const prev = t.member;
+      t.member = value;
+      const ok = await this._patch(t.id, { member: value });
+      if (!ok) t.member = prev;
     },
 
     async patchAccount(t, value) {

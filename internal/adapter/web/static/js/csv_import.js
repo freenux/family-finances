@@ -11,6 +11,7 @@ function csvImportPage() {
     importing: false,
     errorMsg: '',
     account: 'husband',
+    member: '',
     templateName: '',
     saveTemplate: false,
     mapping: {
@@ -78,6 +79,7 @@ function csvImportPage() {
           body: JSON.stringify({
             token: this.token,
             account: this.account,
+            member: this.member,
             template_name: this.templateName,
             save_template: this.saveTemplate,
             mapping: this.mapping,

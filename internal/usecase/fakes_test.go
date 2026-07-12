@@ -93,6 +93,8 @@ func (f *fakeTransactionRepo) ListAllImportBatches(context.Context) ([]domain.Im
 	return f.allBatches, nil
 }
 
+func (f *fakeTransactionRepo) ListMembers(context.Context) ([]string, error) { return nil, nil }
+
 // ---- fakeAssetSnapshotRepo ----
 
 type fakeAssetSnapshotRepo struct {

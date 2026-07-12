@@ -17,6 +17,7 @@ type TransactionUpdate struct {
 	Note       *string
 	Status     *domain.TxStatus
 	Account    *domain.Account
+	Member     *string
 }
 
 // ImportResult 一次账单导入的结果
@@ -74,6 +75,8 @@ type TransactionRepo interface {
 	ListAll(ctx context.Context) ([]domain.Transaction, error)
 	// ListAllImportBatches 全量导入批次；供 /export 使用
 	ListAllImportBatches(ctx context.Context) ([]domain.ImportBatch, error)
+	// ListMembers 已出现过的成员标注去重列表（datalist 记忆用）
+	ListMembers(ctx context.Context) ([]string, error)
 }
 
 type CategoryRepo interface {

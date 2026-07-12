@@ -32,6 +32,7 @@ func (uc *ImportBill) WithTrigger(f func()) *ImportBill {
 type ImportBillInput struct {
 	Source   domain.Source
 	Account  domain.Account
+	Member   string // 成员标注（可空）
 	Filename string
 	Reader   io.Reader
 }
@@ -93,6 +94,7 @@ func (uc *ImportBill) ExecuteWithParser(ctx context.Context, in ImportBillInput,
 				ID:               uuid.NewString(),
 				Source:           r.Source,
 				Account:          in.Account,
+				Member:           in.Member,
 				ImportBatchID:    batchID,
 				OccurredAt:       r.OccurredAt,
 				Counterparty:     r.Counterparty,

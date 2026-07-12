@@ -62,6 +62,7 @@ type Transaction struct {
 	Counterparty     string
 	Description      string
 	PlatformCategory string
+	Member           string // 成员标注（自由文本，空 = 未标注）
 	Note             string // 用户在流水表中手填的备注
 	Amount           int64
 	Direction        Direction

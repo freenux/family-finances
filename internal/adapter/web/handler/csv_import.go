@@ -142,6 +142,7 @@ func cleanupStaleCSVTemp(dir string) {
 type csvImportReq struct {
 	Token        string          `json:"token"`
 	Account      string          `json:"account"`
+	Member       string          `json:"member"`
 	TemplateName string          `json:"template_name"`
 	SaveTemplate bool            `json:"save_template"`
 	Mapping      bill.CSVMapping `json:"mapping"`
@@ -182,6 +183,7 @@ func (h *Handler) CSVImportSubmit(w http.ResponseWriter, r *http.Request) {
 	res, err := h.importBill.ExecuteWithParser(r.Context(), usecase.ImportBillInput{
 		Source:   parser.Source(),
 		Account:  acc,
+		Member:   strings.TrimSpace(req.Member),
 		Filename: req.Token + ".csv",
 		Reader:   f,
 	}, parser)

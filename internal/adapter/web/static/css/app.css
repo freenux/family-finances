@@ -1500,3 +1500,9 @@ table.ledger tr.total { font-weight: 600; background: var(--accent-soft); }
 .ask-answer .ask-q { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
 .ask-answer p { margin: 0 0 8px; color: var(--text-secondary); font-size: 13.5px; line-height: 1.75; }
 .ask-answer .ask-meta { margin-top: 8px; font-size: 11px; color: var(--muted); }
+
+.scenario-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; padding: 14px 16px; }
+@media (max-width: 900px) { .scenario-grid { grid-template-columns: 1fr; } }
+.scenario-card { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.scenario-card .sc-head { padding: 10px 14px; background: var(--bg-soft); font-weight: 500; font-size: 13px; border-bottom: 1px solid var(--border); }
+.scenario-card .sc-head .code { display: block; font-size: 11px; color: var(--muted); font-weight: 400; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }

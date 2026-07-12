@@ -22,6 +22,7 @@ func diagProfileOrDefault(in usecase.BucketInputs) domain.FamilyProfile {
 type adviceVM struct {
 	pageBase
 	LLMEnabled bool
+	Scenarios  []usecase.ScenarioPreset
 	// 系统计算（即时现算，与生成时可能不同——生成后的存档见 Stored*）
 	D          usecase.BucketDiagnosis
 	Allocation usecase.AllocationResult
@@ -52,6 +53,7 @@ func (h *Handler) Advice(w http.ResponseWriter, r *http.Request) {
 		LLMEnabled: h.genAdvice.Enabled(),
 		D:          diag,
 		Allocation: alloc,
+		Scenarios:  usecase.ComputeScenarios(in.Goals, snapData, time.Now()),
 	}
 
 	// 最新一份 advice 存档（reports 表 period_type='advice'，ListAll 已按 generated_at desc）

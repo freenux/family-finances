@@ -14,6 +14,10 @@
   <div class="section" style="padding:12px;color:var(--negative);margin-bottom:16px">⚠️ {{.Error}}</div>
 {{end}}
 
+<datalist id="member-options">
+  {{range .Members}}<option value="{{.}}"></option>{{end}}
+</datalist>
+
 <form class="form-grid" method="POST" action="/imports" enctype="multipart/form-data">
   <label>
     账户归属
@@ -22,6 +26,11 @@
       <option value="husband">男主</option>
       <option value="wife">女主</option>
     </select>
+  </label>
+
+  <label>
+    成员标注（可选）
+    <input type="text" name="member" list="member-options" maxlength="20" placeholder="如：男主 / 孩子">
   </label>
 
   <label>
@@ -73,6 +82,11 @@
       <option value="husband">男主</option>
       <option value="wife">女主</option>
     </select>
+  </label>
+
+  <label>
+    成员标注（可选）
+    <input type="text" name="member" list="member-options" maxlength="20" placeholder="如：男主 / 孩子">
   </label>
 
   <label>

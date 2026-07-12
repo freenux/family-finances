@@ -8,6 +8,9 @@
      data-initial-granularity="{{.Period.Type}}"
      data-initial-account="{{.Account}}"
      x-cloak>
+  <datalist id="member-list">
+    <template x-for="m in memberOptions" :key="m"><option :value="m"></option></template>
+  </datalist>
   <div class="stats-head">
     <div>
       <h2 class="title-zh"><span x-text="periodKey">{{.Period.Label}}</span> 收支流水</h2>
@@ -75,6 +78,17 @@
         </div>
 
         <div class="tx-filter-group">
+          <span class="label">成员：</span>
+          <select x-model="memberFilter">
+            <option value="">全部</option>
+            <option value="__none__">未标注</option>
+            <template x-for="m in memberOptions" :key="m">
+              <option :value="m" x-text="m"></option>
+            </template>
+          </select>
+        </div>
+
+        <div class="tx-filter-group">
           <span class="label">状态：</span>
           <label><input type="checkbox" value="pending_review" x-model="statusFilter"> 待处理</label>
           <label><input type="checkbox" value="confirmed"      x-model="statusFilter"> 已确认</label>
@@ -111,6 +125,7 @@
           <col class="tx-col-date">
           <col class="tx-col-source">
           <col class="tx-col-account">
+          <col class="tx-col-member">
           <col class="tx-col-direction">
           <col class="tx-col-description">
           <col class="tx-col-amount">
@@ -123,6 +138,7 @@
             <th @click="sortBy('occurred_at')" class="sortable">日期 <span x-text="sortIcon('occurred_at')"></span></th>
             <th @click="sortBy('source')"      class="sortable">来源 <span x-text="sortIcon('source')"></span></th>
             <th @click="sortBy('account')"     class="sortable">账户 <span x-text="sortIcon('account')"></span></th>
+            <th @click="sortBy('member')"      class="sortable">成员 <span x-text="sortIcon('member')"></span></th>
             <th @click="sortBy('direction')"   class="sortable">方向 <span x-text="sortIcon('direction')"></span></th>
             <th @click="sortBy('counterparty')" class="sortable">对方 / 说明 <span x-text="sortIcon('counterparty')"></span></th>
             <th @click="sortBy('amount_fen')"  class="sortable">金额 <span x-text="sortIcon('amount_fen')"></span></th>
@@ -142,6 +158,12 @@
                   <option value="husband" :selected="t.account === 'husband'">男主</option>
                   <option value="wife"    :selected="t.account === 'wife'">女主</option>
                 </select>
+              </td>
+              <td>
+                <input class="inline-input" type="text" placeholder="成员" list="member-list" style="width:70px"
+                       :value="t.member"
+                       @blur="patchMember(t, $event.target.value)"
+                       @keydown.enter="$event.target.blur()">
               </td>
               <td>
                 <span :class="t.direction === 'income' ? 'badge' : 'badge warn'"
@@ -183,7 +205,7 @@
             </tr>
           </template>
           <tr x-show="filtered.length === 0">
-            <td colspan="9" class="empty" style="padding:30px">没有匹配当前筛选条件的记录。</td>
+            <td colspan="10" class="empty" style="padding:30px">没有匹配当前筛选条件的记录。</td>
           </tr>
         </tbody>
       </table>
