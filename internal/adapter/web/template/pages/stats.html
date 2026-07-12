@@ -241,6 +241,25 @@
     </div>
   </div>
 
+  {{if .Rebalance}}
+  <div class="rebalance-card" id="rebalance-card">
+    <div class="rb-head">
+      <span class="rb-title">⚖️ 再平衡提醒</span>
+      <span class="rb-meta">按 {{.RebalancePeriod}} 快照与画像区间现算</span>
+    </div>
+    <ul class="rb-list">
+      {{range .Rebalance}}
+      <li>
+        <b>{{.Name}}</b> 当前 {{printf "%.1f%%" .CurrentPct}}，
+        {{if eq .Status "above"}}高于目标区间上限 {{printf "%.0f%%" .MaxPct}}{{else}}低于目标区间下限 {{printf "%.0f%%" .MinPct}}{{end}}
+        （目标 {{printf "%.0f%%–%.0f%%" .MinPct .MaxPct}}）
+      </li>
+      {{end}}
+    </ul>
+    <div class="rb-foot"><a href="/advice">查看配置建议与调整动作 →</a></div>
+  </div>
+  {{end}}
+
   <template x-if="loading">
     <div class="panel"><div class="empty-soft">加载中…</div></div>
   </template>

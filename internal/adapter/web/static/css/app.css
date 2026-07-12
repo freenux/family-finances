@@ -1406,3 +1406,70 @@ table.ledger tr.total { font-weight: 600; background: var(--accent-soft); }
 .export-card .export-body .btn { margin-top: 6px; }
 
 .btn:disabled { opacity: .55; cursor: not-allowed; }
+
+/* ============================================================
+   M2：风险画像 / 四笔钱诊断 / AI 建议 / 再平衡卡片
+   ============================================================ */
+
+.profile-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 18px;
+  padding: 16px;
+}
+.profile-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.profile-form input,
+.profile-form select {
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 13px;
+  background: var(--surface);
+  color: var(--text);
+}
+.profile-form input:focus,
+.profile-form select:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
+.profile-form .profile-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+@media (max-width: 700px) { .profile-form { grid-template-columns: 1fr; } }
+
+.bucket-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 900px) { .bucket-grid { grid-template-columns: 1fr; } }
+.section-title .dot { display: inline-block; width: 8px; height: 8px; border-radius: 3px; margin-right: 6px; vertical-align: 1px; }
+.bucket-card .bucket-body { padding: 14px 16px 16px; }
+.bucket-card .bucket-amount { font-size: 24px; font-weight: 300; letter-spacing: -.24px; font-variant-numeric: tabular-nums; }
+.bucket-card .bucket-scope { color: var(--muted); font-size: 12px; margin: 2px 0 10px; }
+.bucket-card p { margin: 6px 0 0; color: var(--text-secondary); font-size: 13px; line-height: 1.7; }
+.bucket-card p.meta { color: var(--muted); font-size: 12px; }
+.bucket-card table.ledger { margin-top: 4px; }
+.badge.ok { background: #e8f6ee; color: var(--positive); }
+.badge.danger { background: #fdf2f6; color: var(--negative); }
+
+.finding-list { margin: 0; padding-left: 18px; color: var(--text-secondary); font-size: 13px; line-height: 1.9; }
+.ref-note.cost { border-color: rgba(155, 104, 41, .45); color: var(--warning); background: var(--cream); }
+
+.rebalance-card {
+  background: linear-gradient(180deg, #fff, #fdfaf3);
+  border: 1px solid rgba(155, 104, 41, .4);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-1);
+  padding: 14px 18px;
+  margin-bottom: 18px;
+}
+.rebalance-card .rb-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.rebalance-card .rb-title { font-weight: 600; font-size: 13px; color: var(--warning); }
+.rebalance-card .rb-meta { color: var(--muted); font-size: 12px; }
+.rebalance-card .rb-list { margin: 8px 0 6px; padding-left: 18px; color: var(--text-secondary); font-size: 13px; line-height: 1.8; }
+.rebalance-card .rb-foot { font-size: 12px; }
+.rebalance-card .rb-foot a { color: var(--accent); text-decoration: none; }
+.rebalance-card .rb-foot a:hover { text-decoration: underline; }

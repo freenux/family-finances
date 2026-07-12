@@ -46,6 +46,7 @@ func main() {
 	catRepo := sqlite.NewCategoryRepo(db)
 	assetRepo := sqlite.NewAssetSnapshotRepo(db)
 	reportRepo := sqlite.NewReportRepo(db)
+	profileRepo := sqlite.NewProfileRepo(db)
 
 	llmClient := llm.NewClient(llm.Config{
 		APIKey:  cfg.OpenAIAPIKey,
@@ -61,6 +62,8 @@ func main() {
 	contextPackBuilder := usecase.NewContextPackBuilder(queryRep, assetRepo, txRepo)
 	genReport := usecase.NewGenerateReport(contextPackBuilder, reportRepo, llmClient, cfg.OpenAIModel)
 	exportUC := usecase.NewExport(txRepo, catRepo, catRepo, assetRepo, reportRepo)
+	bucketEng := usecase.NewBucketEngine(assetRepo, profileRepo, profileRepo, profileRepo, txRepo)
+	genAdvice := usecase.NewGenerateAdvice(contextPackBuilder, bucketEng, reportRepo, llmClient, cfg.OpenAIModel)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -72,8 +75,24 @@ func main() {
 		log.Error("init renderer", "err", err)
 		os.Exit(1)
 	}
-	h := handler.NewWithAuthKey(renderer, importBill, queryRep, queryStats, assetSvc, genReport, exportUC,
-		txRepo, catRepo, catRepo, reportRepo, log, cfg.AuthKey)
+	h := handler.New(handler.Deps{
+		Render:      renderer,
+		ImportBill:  importBill,
+		QueryReport: queryRep,
+		QueryStats:  queryStats,
+		AssetSvc:    assetSvc,
+		GenReport:   genReport,
+		GenAdvice:   genAdvice,
+		BucketEng:   bucketEng,
+		Export:      exportUC,
+		TxRepo:      txRepo,
+		CatRepo:     catRepo,
+		RuleRepo:    catRepo,
+		ReportRepo:  reportRepo,
+		ProfileRepo: profileRepo,
+		Log:         log,
+		AuthKey:     cfg.AuthKey,
+	})
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
@@ -131,6 +150,12 @@ func main() {
 		r.Get("/export", h.ExportPage)
 		r.Get("/export/transactions.csv", h.ExportTransactionsCSV)
 		r.Get("/export/full.json", h.ExportFullJSON)
+
+		r.Get("/profile", h.Profile)
+		r.Post("/profile", h.SaveProfile)
+		r.Get("/buckets", h.Buckets)
+		r.Get("/advice", h.Advice)
+		r.Post("/advice/generate", h.GenerateAdviceSubmit)
 	})
 
 	log.Info("listening", "addr", cfg.ServerAddr, "db", cfg.DatabasePath, "openai_key", cfg.MaskedAPIKey())

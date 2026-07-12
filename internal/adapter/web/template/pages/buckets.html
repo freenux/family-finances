@@ -1,0 +1,125 @@
+{{define "content"}}
+<div class="stats-head">
+  <div>
+    <h2 class="title-zh">四笔钱分层诊断</h2>
+    <div class="subtitle">按用途与流动性分层（系统确定性计算）{{if .D.HasSnapshot}} · 快照 {{.D.SnapshotPeriod}}{{end}} · 风险等级 {{.D.Grade}}</div>
+  </div>
+  <div class="flex-row" style="gap:10px">
+    <a class="btn ghost" href="/profile">画像</a>
+    <a class="btn ghost" href="/assets">资产快照</a>
+    <a class="btn" href="/advice">AI 配置建议 →</a>
+  </div>
+</div>
+
+{{if not .D.HasProfile}}
+  <div class="note-strip" style="margin:0 0 14px;border-color:var(--warning)">
+    ⚠️ 尚未填写<a href="/profile">风险画像</a>，以下诊断按缺省画像（35 岁 / 平衡 / 应急金 6 个月）计算，建议先补填。
+  </div>
+{{end}}
+{{if not .D.HasSnapshot}}
+  <div class="note-strip" style="margin:0 0 14px;border-color:var(--warning)">
+    ⚠️ 尚无<a href="/assets">资产快照</a>，各桶金额均为 0——请先录入当季快照。
+  </div>
+{{end}}
+
+<div class="bucket-grid">
+  <!-- ① 活钱 -->
+  <div class="section bucket-card">
+    <div class="section-title">
+      <span><span class="dot" style="background:#2a78d6"></span>活钱 · 应急与日常</span>
+      {{template "bucket_badge" .D.Liquid.Status}}
+    </div>
+    <div class="bucket-body">
+      <div class="bucket-amount">¥{{yuan .D.Liquid.AmountFen}}</div>
+      <div class="bucket-scope">现金及活期 + 货币基金</div>
+      {{if eq (printf "%s" .D.Liquid.Status) "unknown"}}
+        <p>缺少月支出数据：请在<a href="/profile">画像</a>填写月支出，或先<a href="/imports">导入流水</a>。</p>
+      {{else}}
+        <p>可覆盖 <b>{{printf "%.1f" .D.Liquid.CoverageMonths}}</b> 个月支出（目标 {{.D.Liquid.TargetMonths}} 个月）。</p>
+        <p class="meta">月支出口径：¥{{yuan .D.Liquid.MonthlyExpenseFen}}/月 · {{if eq .D.Liquid.ExpenseSource "profile"}}画像手填{{else}}近 4 季流水折算{{end}}</p>
+      {{end}}
+    </div>
+  </div>
+
+  <!-- ② 稳健 -->
+  <div class="section bucket-card">
+    <div class="section-title">
+      <span><span class="dot" style="background:#1baf7a"></span>稳健 · 3 年内要用的钱</span>
+      {{template "bucket_badge" .D.Steady.Status}}
+    </div>
+    <div class="bucket-body">
+      <div class="bucket-amount">¥{{yuan .D.Steady.AmountFen}}</div>
+      <div class="bucket-scope">定期存款 + 银行理财/债券基金</div>
+      {{if .D.Steady.HasGoals}}
+        <p>对照 3 年内 <b>{{.D.Steady.GoalCount}}</b> 项大额目标合计 <b>¥{{yuan .D.Steady.Goals3yFen}}</b>{{if gt .D.Steady.GapFen 0}}，缺口 <b class="negative">¥{{yuan .D.Steady.GapFen}}</b>{{else}}，足以覆盖{{end}}。</p>
+      {{else}}
+        <p>未登记 3 年内大额支出目标（购房/换车/教育金等），无法评估匹配度。请在财务目标中登记后再看。</p>
+      {{end}}
+    </div>
+  </div>
+
+  <!-- ③ 长期 -->
+  <div class="section bucket-card">
+    <div class="section-title">
+      <span><span class="dot" style="background:#4a3aa7"></span>长期 · 10 年不用的钱</span>
+      <span class="badge">桶内结构</span>
+    </div>
+    <div class="bucket-body">
+      <div class="bucket-amount">¥{{yuan .D.LongTerm.AmountFen}}</div>
+      <div class="bucket-scope">境内权益 + 海外权益 + 黄金及另类</div>
+      {{if gt .D.LongTerm.AmountFen 0}}
+        <table class="ledger">
+          <tbody>
+            <tr class="item"><td class="name">权益（境内+海外）</td><td class="amount">{{printf "%.1f%%" .D.LongTerm.EquityPct}}</td></tr>
+            <tr class="item"><td class="name">其中：海外权益</td><td class="amount">{{printf "%.1f%%" .D.LongTerm.GlobalPct}}</td></tr>
+            <tr class="item"><td class="name">黄金及另类</td><td class="amount">{{printf "%.1f%%" .D.LongTerm.GoldPct}}</td></tr>
+          </tbody>
+        </table>
+        <p class="meta" style="margin-top:8px">桶内占比 vs 目标区间的对照见 <a href="/advice">AI 配置建议</a>。</p>
+      {{else}}
+        <p>长期桶为空。适合放这里的是 10 年以上不动用的钱。</p>
+      {{end}}
+    </div>
+  </div>
+
+  <!-- ④ 保障 -->
+  <div class="section bucket-card">
+    <div class="section-title">
+      <span><span class="dot" style="background:#eda100"></span>保障 · 保单双十检查</span>
+      {{if .D.Insurance.Registered}}{{template "bucket_badge" .D.Insurance.Status}}{{else}}<span class="badge warn">未登记</span>{{end}}
+    </div>
+    <div class="bucket-body">
+      {{if not .D.Insurance.Registered}}
+        <p>尚未登记任何保单。登记后这里会做「双十检查」：年缴保费 ≤ 年收入 10%、寿险保额 ≥ 年收入 10 倍。</p>
+      {{else if not .D.Insurance.HasIncome}}
+        <p>已登记 {{.D.Insurance.PolicyCount}} 张保单，但<a href="/profile">画像</a>未填年收入，双十检查无从对照。</p>
+      {{else}}
+        <table class="ledger">
+          <tbody>
+            <tr class="item">
+              <td class="name">年缴保费占年收入（上限 10%）</td>
+              <td class="amount">{{pct .D.Insurance.PremiumRatio}}
+                {{if .D.Insurance.PremiumOK}}<span class="badge ok">达标</span>{{else}}<span class="badge danger">超限</span>{{end}}</td>
+            </tr>
+            <tr class="item">
+              <td class="name">寿险保额 / 年收入（目标 ≥10 倍）</td>
+              <td class="amount">{{printf "%.1f 倍" .D.Insurance.LifeCoverageMultiple}}
+                {{if .D.Insurance.LifeCoverageOK}}<span class="badge ok">达标</span>{{else}}<span class="badge danger">不足</span>{{end}}</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="meta" style="margin-top:8px">共 {{.D.Insurance.PolicyCount}} 张保单，年缴合计 ¥{{yuan .D.Insurance.AnnualPremiumFen}}。保障独立诊断，不参与占比。</p>
+      {{end}}
+    </div>
+  </div>
+</div>
+
+<div class="note-strip" style="margin-top:16px">
+  <b>口径说明</b> · 四笔钱按「用途/流动性」分层诊断（活钱看覆盖月数、稳健对照 3 年内目标、长期看桶内结构、保障走双十），不做固定占比考核。
+  所有数字由系统确定性计算，数据来自资产快照、画像与流水聚合。
+</div>
+{{end}}
+
+{{define "bucket_badge"}}{{if eq (printf "%s" .) "ok"}}<span class="badge ok">达标</span>{{else if eq (printf "%s" .) "low"}}<span class="badge danger">偏低</span>{{else if eq (printf "%s" .) "high"}}<span class="badge warn">偏高</span>{{else}}<span class="badge warn">数据不足</span>{{end}}{{end}}
+
+{{define "page"}}{{template "base" .}}{{end}}

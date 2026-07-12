@@ -1,0 +1,130 @@
+{{define "content"}}
+<div class="stats-head">
+  <div>
+    <h2 class="title-zh">AI 配置建议</h2>
+    <div class="subtitle">系统计算（画像等级 → 四笔钱诊断 → 目标区间）→ AI 只解释并给出可选动作及代价</div>
+  </div>
+</div>
+
+{{if .Flash}}
+  <div class="section" style="padding:10px 14px;margin-bottom:14px;background:var(--accent-soft);color:var(--accent)">
+    ✅ {{.Flash}}
+  </div>
+{{end}}
+
+<form class="toolbar" method="post" action="/advice/generate">
+  <button class="btn" type="submit" id="advice-gen" {{if not .LLMEnabled}}disabled{{end}}>✦ 生成 AI 解释</button>
+  <span class="spacer"></span>
+  {{if .LLMEnabled}}
+    <span class="hint">基于下方系统计算结果生成 · 校验 refs 后写入 reports 表（period_type=advice）</span>
+  {{else}}
+    <span class="hint" style="color:var(--warning)">未配置 OPENAI_API_KEY，生成功能不可用；系统计算部分不受影响</span>
+  {{end}}
+</form>
+
+<div class="two-col" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
+  <!-- 左：系统计算（确定性，即时现算） -->
+  <div>
+    <div class="section">
+      <div class="section-title">
+        <span>① 系统计算 · 目标区间对照</span>
+        <span class="hint">等级 {{.Allocation.Grade}} · 权益上限 {{.Allocation.EquityCapPct}}%</span>
+      </div>
+      <table class="ledger">
+        <thead><tr><th>指标</th><th>目标区间</th><th style="text-align:right">当前</th><th style="text-align:right">状态</th></tr></thead>
+        <tbody>
+          {{range .Allocation.Bands}}
+          <tr class="item">
+            <td class="name">{{.Name}}<span class="code">{{.Key}}</span></td>
+            <td>{{printf "%.0f%%–%.0f%%" .MinPct .MaxPct}}</td>
+            <td class="amount">{{if .HasCurrent}}{{printf "%.1f%%" .CurrentPct}}{{else}}—{{end}}</td>
+            <td class="amount">
+              {{if eq .Status "within"}}<span class="badge ok">区间内</span>
+              {{else if eq .Status "above"}}<span class="badge danger">偏高</span>
+              {{else if eq .Status "below"}}<span class="badge warn">偏低</span>
+              {{else}}<span class="badge">无快照</span>{{end}}
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section" style="margin-top:14px">
+      <div class="section-title"><span>② 系统计算 · 四笔钱诊断结论</span><span class="hint"><a href="/buckets">明细 →</a></span></div>
+      <div style="padding:12px 16px">
+        <ul class="finding-list">
+          {{range .D.Findings}}<li>{{.Text}} <span class="ref-note">{{.Key}}</span></li>{{end}}
+        </ul>
+      </div>
+    </div>
+
+    <div class="section" style="margin-top:14px">
+      <div class="section-title"><span>③ 引擎假设（显式声明）</span></div>
+      <div style="padding:12px 16px">
+        <ul class="finding-list">
+          {{range .Allocation.Assumptions}}<li>{{.Text}} <span class="ref-note">{{.Key}}</span></li>{{end}}
+        </ul>
+      </div>
+    </div>
+
+    {{if not .D.HasProfile}}
+    <div class="note-strip" style="margin-top:14px;border-color:var(--warning)">
+      ⚠️ 尚未填写<a href="/profile">风险画像</a>，以上按缺省画像计算；生成建议前请先补填。
+    </div>
+    {{end}}
+  </div>
+
+  <!-- 右：AI 解释（存库结果） -->
+  <div>
+    {{if .HasStored}}
+    {{$vm := .}}
+    <div class="report-card">
+      <div class="rc-head">
+        <h3>AI 解释与行动选项</h3>
+        <span class="meta">生成于 {{.Stored.GeneratedAt.Format "2006-01-02 15:04"}} · {{.Stored.AIModel}} · 基于 {{.Stored.Period}} 数据存档</span>
+      </div>
+      <div class="rc-body">
+        <h4><span class="dot" style="background:#2a78d6"></span>摘要</h4>
+        <p>{{.StoredContent.Summary}}</p>
+
+        {{if .StoredContent.Explanations}}
+        <h4><span class="dot" style="background:#0e7a41"></span>解释</h4>
+        <ul>
+          {{range .StoredContent.Explanations}}
+          <li>{{.Text}}
+            <span class="ref-notes">{{range .Refs}}{{with index $vm.RefText .}}<span class="ref-note">依据：{{.}}</span>{{end}}{{end}}</span>
+          </li>
+          {{end}}
+        </ul>
+        {{end}}
+
+        {{if .StoredContent.Actions}}
+        <h4><span class="dot" style="background:#533afd"></span>可选动作及代价</h4>
+        <ul>
+          {{range .StoredContent.Actions}}
+          <li>{{.Text}}
+            <span class="ref-notes"><span class="ref-note cost">代价：{{.Cost}}</span>{{range .Refs}}{{with index $vm.RefText .}}<span class="ref-note">依据：{{.}}</span>{{end}}{{end}}</span>
+          </li>
+          {{end}}
+        </ul>
+        {{end}}
+
+        <div class="disclaimer">本建议由大模型基于家庭聚合数据生成，仅作教育与参考用途，不构成投资建议。所有区间与数字来自系统确定性计算。</div>
+      </div>
+    </div>
+    {{else}}
+    <div class="report-card">
+      <div class="rc-body" style="text-align:center;padding:52px 20px;color:var(--muted);font-size:13px">
+        还没有已存档的 AI 建议。{{if .LLMEnabled}}点击上方「生成 AI 解释」，AI 将解释左侧系统计算结果。{{else}}配置 OPENAI_API_KEY 后可生成。{{end}}
+      </div>
+    </div>
+    {{end}}
+    <div class="note-strip" style="margin-top:14px">
+      <b>可信边界</b> · 区间、占比、覆盖月数均由确定性引擎给出；AI 只解释、不发明数字，每条结论带数据依据（refs 白名单校验，违规条目已在服务端丢弃）。
+    </div>
+  </div>
+</div>
+{{end}}
+
+{{define "page"}}{{template "base" .}}{{end}}

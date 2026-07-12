@@ -1,0 +1,97 @@
+{{define "content"}}
+<div class="stats-head">
+  <div>
+    <h2 class="title-zh">风险画像</h2>
+    <div class="subtitle">画像决定风险等级与配置区间——只影响建议口径，不会改动任何账目数据</div>
+  </div>
+</div>
+
+{{if .Flash}}
+  <div class="section" style="padding:10px 14px;margin-bottom:14px;background:var(--accent-soft);color:var(--accent)">
+    ✅ {{.Flash}}
+  </div>
+{{end}}
+{{if .Error}}
+  <div class="section" style="padding:10px 14px;margin-bottom:14px;color:var(--negative)">
+    ⚠️ {{.Error}}
+  </div>
+{{end}}
+
+<div class="two-col">
+  <form class="section" method="post" action="/profile">
+    <div class="section-title"><span>家庭画像（保存后 /buckets 与 /advice 立即生效）</span></div>
+    <div class="profile-form">
+      <label>家庭结构
+        <select name="family_structure">
+          {{$fs := .P.FamilyStructure}}
+          <option value="单身" {{if eq $fs "单身"}}selected{{end}}>单身</option>
+          <option value="夫妻" {{if eq $fs "夫妻"}}selected{{end}}>夫妻</option>
+          <option value="夫妻+子女" {{if or (eq $fs "夫妻+子女") (eq $fs "")}}selected{{end}}>夫妻 + 子女</option>
+          <option value="三代同堂" {{if eq $fs "三代同堂"}}selected{{end}}>三代同堂</option>
+        </select>
+      </label>
+      <label>主要收入者年龄
+        <input type="number" name="main_age" min="18" max="100" required value="{{.P.MainAge}}">
+      </label>
+      <label>收入稳定性
+        <select name="income_stability">
+          <option value="stable"   {{if eq .P.IncomeStability "stable"}}selected{{end}}>稳定（体制内 / 长期合同）</option>
+          <option value="medium"   {{if eq .P.IncomeStability "medium"}}selected{{end}}>一般</option>
+          <option value="unstable" {{if eq .P.IncomeStability "unstable"}}selected{{end}}>不稳定（自由职业 / 周期行业）</option>
+        </select>
+      </label>
+      <label>家庭年收入（元，税后）
+        <input type="text" name="annual_income" inputmode="decimal" placeholder="如 400000" value="{{.AnnualIncomeYuan}}">
+      </label>
+      <label>房贷月供（元）
+        <input type="text" name="mortgage_monthly" inputmode="decimal" placeholder="无则留空" value="{{.MortgageMonthlyYuan}}">
+      </label>
+      <label>家庭月支出（元）
+        <input type="text" name="monthly_expense" inputmode="decimal" placeholder="留空 = 按近 4 个季度流水自动折算" value="{{.MonthlyExpenseYuan}}">
+      </label>
+      <label>应急金目标月数
+        <input type="number" name="emergency_months" min="1" max="24" required value="{{.P.EmergencyMonths}}">
+      </label>
+      <label>风险偏好
+        <select name="risk_appetite">
+          <option value="conservative" {{if eq .P.RiskAppetite "conservative"}}selected{{end}}>保守：亏 5% 就睡不着</option>
+          <option value="balanced"     {{if eq .P.RiskAppetite "balanced"}}selected{{end}}>平衡：能接受阶段性回撤换取长期收益</option>
+          <option value="aggressive"   {{if eq .P.RiskAppetite "aggressive"}}selected{{end}}>进取：接受较大波动追求更高收益</option>
+        </select>
+      </label>
+      <label>这笔钱多久不用（投资年限）
+        <select name="horizon">
+          <option value="short"  {{if eq .P.Horizon "short"}}selected{{end}}>3 年内要用</option>
+          <option value="medium" {{if eq .P.Horizon "medium"}}selected{{end}}>3–10 年</option>
+          <option value="long"   {{if eq .P.Horizon "long"}}selected{{end}}>10 年以上</option>
+        </select>
+      </label>
+      <div class="profile-actions">
+        <button class="btn" type="submit" id="save-profile">保存画像</button>
+      </div>
+    </div>
+  </form>
+
+  <div>
+    <div class="kpi-grid" style="grid-template-columns:1fr 1fr">
+      <div class="kpi-card">
+        <div class="label">风险等级</div>
+        <div class="value" id="grade-value">{{.Grade}}</div>
+        <div class="sub">{{if .HasProfile}}按当前已保存画像{{else}}按缺省画像（尚未保存）{{end}}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="label">权益上限</div>
+        <div class="value">{{.EquityCapPct}}%</div>
+        <div class="sub">占可投资资产</div>
+      </div>
+    </div>
+    <div class="note-strip">
+      <b>评分规则（确定性）</b> · 风险偏好 0/3/6 分 + 投资年限 0/1/2 分 + 收入稳定性 0/1/2 分 − 年龄惩罚（40+ 每十岁 −1）。
+      总分映射 C1–C5，对应权益上限 20%–80%。等级只框定区间，<b>不构成投资建议</b>。<br>
+      <b>下一步</b> · 保存后到 <a href="/buckets">四笔钱诊断</a> 查看资金分层，或到 <a href="/advice">AI 配置建议</a> 生成解释。
+    </div>
+  </div>
+</div>
+{{end}}
+
+{{define "page"}}{{template "base" .}}{{end}}

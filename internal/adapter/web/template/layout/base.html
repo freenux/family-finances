@@ -12,8 +12,8 @@
   <script src="/static/js/stats_page.js" defer></script>
   <script src="/static/js/dashboard_page.js" defer></script>
   <script src="/static/js/assets.js" defer></script>
-  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
-  <script src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js" defer></script>
+  <script src="/static/js/vendor/htmx-1.9.12.min.js" defer></script>
+  <script src="/static/js/vendor/alpinejs-3.14.1.min.js" defer></script>
 </head>
 <body>
 <header class="app-header">
@@ -25,7 +25,10 @@
     <a href="/cashflow"     class="{{if eq .Nav "dashboard"}}active{{end}}">现金流表</a>
     <a href="/rules"        class="{{if eq .Nav "rules"}}active{{end}}">分类规则</a>
     <a href="/assets"       class="{{if eq .Nav "assets"}}active{{end}}">资产快照</a>
+    <a href="/profile"      class="{{if eq .Nav "profile"}}active{{end}}">画像</a>
+    <a href="/buckets"      class="{{if eq .Nav "buckets"}}active{{end}}">四笔钱</a>
     <a href="/reports"      class="{{if eq .Nav "reports"}}active{{end}}">AI 财报</a>
+    <a href="/advice"       class="{{if eq .Nav "advice"}}active{{end}}">AI 建议</a>
     <a href="/export"       class="{{if eq .Nav "export"}}active{{end}}">数据导出</a>
   </nav>
   {{end}}

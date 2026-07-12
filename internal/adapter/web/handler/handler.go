@@ -24,48 +24,64 @@ import (
 func newID() string { return uuid.NewString() }
 
 type Handler struct {
-	render     *web.Renderer
-	importBill *usecase.ImportBill
-	queryRep   *usecase.QueryReport
-	queryStats *usecase.QueryStats
-	assetSvc   *usecase.AssetSnapshotService
-	genReport  *usecase.GenerateReport
-	exportUC   *usecase.Export
-	txRepo     port.TransactionRepo
-	catRepo    port.CategoryRepo
-	ruleRepo   port.CategoryRuleRepo
-	reportRepo port.ReportRepo
-	log        *slog.Logger
-	flash      *flashStore
-	auth       *authManager
+	render      *web.Renderer
+	importBill  *usecase.ImportBill
+	queryRep    *usecase.QueryReport
+	queryStats  *usecase.QueryStats
+	assetSvc    *usecase.AssetSnapshotService
+	genReport   *usecase.GenerateReport
+	genAdvice   *usecase.GenerateAdvice
+	bucketEng   *usecase.BucketEngine
+	exportUC    *usecase.Export
+	txRepo      port.TransactionRepo
+	catRepo     port.CategoryRepo
+	ruleRepo    port.CategoryRuleRepo
+	reportRepo  port.ReportRepo
+	profileRepo port.FamilyProfileRepo
+	log         *slog.Logger
+	flash       *flashStore
+	auth        *authManager
 }
 
-func New(r *web.Renderer, importBill *usecase.ImportBill, qr *usecase.QueryReport, qs *usecase.QueryStats,
-	assetSvc *usecase.AssetSnapshotService, genReport *usecase.GenerateReport, exportUC *usecase.Export,
-	txRepo port.TransactionRepo, catRepo port.CategoryRepo, ruleRepo port.CategoryRuleRepo, reportRepo port.ReportRepo,
-	log *slog.Logger) *Handler {
-	return NewWithAuthKey(r, importBill, qr, qs, assetSvc, genReport, exportUC, txRepo, catRepo, ruleRepo, reportRepo, log, "")
+// Deps 聚合 Handler 依赖，避免构造函数参数无限增长
+type Deps struct {
+	Render      *web.Renderer
+	ImportBill  *usecase.ImportBill
+	QueryReport *usecase.QueryReport
+	QueryStats  *usecase.QueryStats
+	AssetSvc    *usecase.AssetSnapshotService
+	GenReport   *usecase.GenerateReport
+	GenAdvice   *usecase.GenerateAdvice
+	BucketEng   *usecase.BucketEngine
+	Export      *usecase.Export
+	TxRepo      port.TransactionRepo
+	CatRepo     port.CategoryRepo
+	RuleRepo    port.CategoryRuleRepo
+	ReportRepo  port.ReportRepo
+	ProfileRepo port.FamilyProfileRepo
+	Log         *slog.Logger
+	AuthKey     string
 }
 
-func NewWithAuthKey(r *web.Renderer, importBill *usecase.ImportBill, qr *usecase.QueryReport, qs *usecase.QueryStats,
-	assetSvc *usecase.AssetSnapshotService, genReport *usecase.GenerateReport, exportUC *usecase.Export,
-	txRepo port.TransactionRepo, catRepo port.CategoryRepo, ruleRepo port.CategoryRuleRepo, reportRepo port.ReportRepo,
-	log *slog.Logger, authKey string) *Handler {
+func New(d Deps) *Handler {
 	return &Handler{
-		render:     r,
-		importBill: importBill,
-		queryRep:   qr,
-		queryStats: qs,
-		assetSvc:   assetSvc,
-		genReport:  genReport,
-		exportUC:   exportUC,
-		txRepo:     txRepo,
-		catRepo:    catRepo,
-		ruleRepo:   ruleRepo,
-		reportRepo: reportRepo,
-		log:        log,
-		flash:      newFlashStore(),
-		auth:       newAuthManager(authKey),
+		render:      d.Render,
+		importBill:  d.ImportBill,
+		queryRep:    d.QueryReport,
+		queryStats:  d.QueryStats,
+		assetSvc:    d.AssetSvc,
+		genReport:   d.GenReport,
+		genAdvice:   d.GenAdvice,
+		bucketEng:   d.BucketEng,
+		exportUC:    d.Export,
+		txRepo:      d.TxRepo,
+		catRepo:     d.CatRepo,
+		ruleRepo:    d.RuleRepo,
+		reportRepo:  d.ReportRepo,
+		profileRepo: d.ProfileRepo,
+		log:         d.Log,
+		flash:       newFlashStore(),
+		auth:        newAuthManager(d.AuthKey),
 	}
 }
 
@@ -181,9 +197,37 @@ func (h *Handler) PartialReport(w http.ResponseWriter, r *http.Request) {
 
 // ----- Stats -----
 
+type statsVM struct {
+	pageBase
+	// 再平衡告警：最新快照的长期桶配置偏出引擎区间时非空（查询时现算，无新表）
+	Rebalance       []usecase.AllocationBand
+	RebalancePeriod string
+}
+
 func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
-	vm := pageBase{Title: "仪表盘", Nav: "stats"}
+	vm := statsVM{pageBase: pageBase{Title: "仪表盘", Nav: "stats"}}
+	if bands, period, err := h.rebalanceAlerts(r.Context()); err != nil {
+		// 再平衡是增值信息，失败不阻塞仪表盘
+		h.log.Warn("rebalance alerts", "err", err)
+	} else {
+		vm.Rebalance = bands
+		vm.RebalancePeriod = period
+	}
 	h.renderPage(w, http.StatusOK, "stats", vm)
+}
+
+// rebalanceAlerts 现算最新快照 vs 配置区间，返回偏出区间的条目
+func (h *Handler) rebalanceAlerts(ctx context.Context) ([]usecase.AllocationBand, string, error) {
+	in, err := h.bucketEng.LoadInputs(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	if in.Snapshot == nil || in.Profile == nil {
+		// 无快照或未填画像时不打扰（区间无从对照/等级只是缺省值）
+		return nil, "", nil
+	}
+	alloc := usecase.ComputeAllocation(*in.Profile, true, in.Snapshot.Data)
+	return alloc.OutOfBand(), in.Snapshot.Period, nil
 }
 
 // StatsAPI: GET /api/stats?granularity=month|quarter|year&period=2026-05&direction=expense&account=family
