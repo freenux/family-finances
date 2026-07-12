@@ -1,0 +1,67 @@
+{{define "content"}}
+<div x-data="askPage()" x-cloak>
+  <div class="stats-head">
+    <div>
+      <h2 class="title-zh">AI 问数</h2>
+      <div class="subtitle">只回答能从家庭聚合数据（当前季度上下文包）溯源的问题；答不了就明说，不编数</div>
+    </div>
+  </div>
+
+  <div class="two-col" style="grid-template-columns:minmax(0,1.5fr) minmax(0,1fr)">
+    <div>
+      <div class="section">
+        <div class="section-title"><span>提问</span><span class="hint">每问独立，无会话历史，不落库</span></div>
+        <div class="ask-body">
+          <div class="stat-chips" style="margin-bottom:10px">
+            {{range .Presets}}
+            <button type="button" class="chip ask-chip" @click="askPreset('{{.}}')" {{if not $.LLMEnabled}}disabled{{end}}>{{.}}</button>
+            {{end}}
+          </div>
+          <div class="ask-input-row">
+            <input type="text" id="ask-input" class="tx-search" style="flex:1" maxlength="200"
+                   placeholder="{{if .LLMEnabled}}问一个关于家庭财务的问题…{{else}}未配置 OPENAI_API_KEY，问答不可用{{end}}"
+                   x-model="question" @keydown.enter="submit()" {{if not .LLMEnabled}}disabled{{end}}>
+            <button type="button" class="btn" id="ask-submit" @click="submit()"
+                    :disabled="loading || !question.trim()" {{if not .LLMEnabled}}disabled{{end}}
+                    x-text="loading ? '思考中…' : '提问'">提问</button>
+          </div>
+
+          <template x-if="error">
+            <div style="margin-top:12px;color:var(--negative);font-size:13px">出错了：<span x-text="error"></span></div>
+          </template>
+
+          <template x-if="answer">
+            <div class="ask-answer" id="ask-answer">
+              <div class="ask-q">Q：<span x-text="askedQuestion"></span></div>
+              <p x-text="answer.answer"></p>
+              <template x-if="answer.can_answer && answer.refs && answer.refs.length">
+                <div class="ref-notes">
+                  <template x-for="ref in answer.refs" :key="ref.key">
+                    <span class="ref-note" x-text="'依据：' + (ref.text || ref.key)"></span>
+                  </template>
+                </div>
+              </template>
+              <div class="ask-meta" x-text="'数据口径：' + answer.period + ' 家庭聚合数据'"></div>
+            </div>
+          </template>
+
+          <div class="disclaimer" style="margin-top:16px">
+            回答由大模型基于家庭聚合数据生成，仅作教育与参考用途，不构成投资建议。
+            每个可作答的回答均标注数据依据；无法溯源的问题会被明确拒答。
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="note-strip">
+        <b>能答什么</b> · 结余率与连续性、支出类目环比、自由裁量占比、净资产环比、活钱覆盖月数，
+        以及目标过载、保单续期、预算超支等系统诊断结论。<br>
+        <b>不做什么</b> · 不看单笔明细与交易对手方、不开放 SQL、不推测未来、不给投资标的建议。
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}
+
+{{define "page"}}{{template "base" .}}{{end}}

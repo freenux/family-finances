@@ -71,6 +71,7 @@ func main() {
 	contextPackBuilder.AddFindingSource(goalView.Findings)
 	contextPackBuilder.AddFindingSource(insView.Findings)
 	contextPackBuilder.AddFindingSource(budgetView.Findings)
+	askUC := usecase.NewAsk(contextPackBuilder, llmClient)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -103,6 +104,7 @@ func main() {
 		InsView:     insView,
 		BudgetRepo:  budgetRepo,
 		BudgetView:  budgetView,
+		Ask:         askUC,
 		Log:         log,
 		AuthKey:     cfg.AuthKey,
 	})
@@ -174,6 +176,8 @@ func main() {
 		r.Post("/api/insurance/{id}/delete", h.DeleteInsurance)
 		r.Get("/budget", h.Budget)
 		r.Put("/api/budgets", h.SaveBudgets)
+		r.Get("/ask", h.AskPage)
+		r.Post("/api/ask", h.AskAPI)
 		r.Get("/buckets", h.Buckets)
 		r.Get("/advice", h.Advice)
 		r.Post("/advice/generate", h.GenerateAdviceSubmit)

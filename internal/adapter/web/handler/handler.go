@@ -44,6 +44,7 @@ type Handler struct {
 	insView     *usecase.InsuranceView
 	budgetRepo  port.BudgetRepo
 	budgetView  *usecase.BudgetView
+	ask         *usecase.Ask
 	log         *slog.Logger
 	flash       *flashStore
 	auth        *authManager
@@ -71,6 +72,7 @@ type Deps struct {
 	InsView     *usecase.InsuranceView
 	BudgetRepo  port.BudgetRepo
 	BudgetView  *usecase.BudgetView
+	Ask         *usecase.Ask
 	Log         *slog.Logger
 	AuthKey     string
 }
@@ -97,6 +99,7 @@ func New(d Deps) *Handler {
 		insView:     d.InsView,
 		budgetRepo:  d.BudgetRepo,
 		budgetView:  d.BudgetView,
+		ask:         d.Ask,
 		log:         d.Log,
 		flash:       newFlashStore(),
 		auth:        newAuthManager(d.AuthKey),
