@@ -48,6 +48,7 @@ type Handler struct {
 	digestRepo   port.DigestRepo
 	digestSvc    *usecase.DigestService
 	digestSender usecase.DigestSender
+	templateRepo port.ImportTemplateRepo
 	log          *slog.Logger
 	flash        *flashStore
 	auth         *authManager
@@ -79,6 +80,7 @@ type Deps struct {
 	DigestRepo   port.DigestRepo
 	DigestSvc    *usecase.DigestService
 	DigestSender usecase.DigestSender
+	TemplateRepo port.ImportTemplateRepo
 	Log          *slog.Logger
 	AuthKey      string
 }
@@ -109,6 +111,7 @@ func New(d Deps) *Handler {
 		digestRepo:   d.DigestRepo,
 		digestSvc:    d.DigestSvc,
 		digestSender: d.DigestSender,
+		templateRepo: d.TemplateRepo,
 		log:          d.Log,
 		flash:        newFlashStore(),
 		auth:         newAuthManager(d.AuthKey),

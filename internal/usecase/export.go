@@ -2,6 +2,9 @@ package usecase
 
 import (
 	"context"
+	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"family-finances/internal/domain"
@@ -120,4 +123,168 @@ func (uc *Export) BuildFull(ctx context.Context) (FullExport, error) {
 		Reports:        reports,
 		ImportBatches:  batches,
 	}, nil
+}
+
+// ---- Beancount 导出 ----
+
+// BuildBeancount 全量流水（不含 excluded）转 Beancount 复式记账文本。
+// income.* → Income:...、expense.* → Expenses:...（点分路径驼峰化）；
+// 资金账户按来源：Assets:WeChat / Assets:Alipay / Assets:Manual / Assets:Csv:<模板名>。
+func (uc *Export) BuildBeancount(ctx context.Context) (string, error) {
+	txs, err := uc.txRepo.ListAll(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	var sb strings.Builder
+	sb.WriteString("; family-finances Beancount export\n")
+	sb.WriteString("; generated at " + time.Now().Format(time.RFC3339) + "\n")
+	sb.WriteString("; 金额单位 CNY；收入行金额为负（复式记账）\n\n")
+	sb.WriteString("option \"title\" \"家庭财务\"\n")
+	sb.WriteString("option \"operating_currency\" \"CNY\"\n\n")
+
+	type entry struct {
+		date      string
+		payee     string
+		narration string
+		catAcc    string
+		assetAcc  string
+		amountFen int64
+		income    bool
+	}
+	var entries []entry
+	accounts := map[string]bool{}
+	for _, t := range txs {
+		if t.Status == domain.TxStatusExcluded {
+			continue
+		}
+		catAcc := beancountCategoryAccount(t.CategoryID, t.Direction)
+		assetAcc := beancountAssetAccount(string(t.Source))
+		accounts[catAcc] = true
+		accounts[assetAcc] = true
+		entries = append(entries, entry{
+			date:      t.OccurredAt.Format("2006-01-02"),
+			payee:     beancountEscape(t.Counterparty),
+			narration: beancountEscape(t.Description),
+			catAcc:    catAcc,
+			assetAcc:  assetAcc,
+			amountFen: t.Amount,
+			income:    t.Direction == domain.DirectionIncome,
+		})
+	}
+
+	accList := make([]string, 0, len(accounts))
+	for a := range accounts {
+		accList = append(accList, a)
+	}
+	sort.Strings(accList)
+	for _, a := range accList {
+		sb.WriteString("1970-01-01 open " + a + " CNY\n")
+	}
+	sb.WriteString("\n")
+
+	for _, e := range entries {
+		sb.WriteString(fmt.Sprintf("%s * \"%s\" \"%s\"\n", e.date, e.payee, e.narration))
+		amount := formatYuanPlain(e.amountFen)
+		if e.income {
+			// 收入：Income 腿为负
+			sb.WriteString(fmt.Sprintf("  %s  -%s CNY\n", e.catAcc, amount))
+			sb.WriteString(fmt.Sprintf("  %s  %s CNY\n\n", e.assetAcc, amount))
+		} else {
+			sb.WriteString(fmt.Sprintf("  %s  %s CNY\n", e.catAcc, amount))
+			sb.WriteString(fmt.Sprintf("  %s  -%s CNY\n\n", e.assetAcc, amount))
+		}
+	}
+	return sb.String(), nil
+}
+
+// beancountCategoryAccount 分类科目 → Beancount 账户
+func beancountCategoryAccount(categoryID string, dir domain.Direction) string {
+	root := "Expenses"
+	if dir == domain.DirectionIncome {
+		root = "Income"
+	}
+	if categoryID == "" {
+		return root + ":Uncategorized"
+	}
+	parts := strings.Split(categoryID, ".")
+	segs := []string{root}
+	for _, p := range parts[1:] { // 跳过 income/expense 前缀
+		segs = append(segs, beancountCamel(p))
+	}
+	if len(segs) == 1 {
+		return root + ":Uncategorized"
+	}
+	return strings.Join(segs, ":")
+}
+
+// beancountAssetAccount 资金账户
+func beancountAssetAccount(source string) string {
+	switch source {
+	case "wechat":
+		return "Assets:WeChat"
+	case "alipay":
+		return "Assets:Alipay"
+	case "manual":
+		return "Assets:Manual"
+	}
+	if name, ok := strings.CutPrefix(source, "csv:"); ok {
+		return "Assets:Csv:" + beancountSanitize(name)
+	}
+	return "Assets:" + beancountSanitize(source)
+}
+
+// beancountCamel snake_case → CamelCase
+func beancountCamel(s string) string {
+	parts := strings.Split(s, "_")
+	var sb strings.Builder
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		sb.WriteString(strings.ToUpper(p[:1]) + p[1:])
+	}
+	if sb.Len() == 0 {
+		return "X"
+	}
+	return sb.String()
+}
+
+// beancountSanitize Beancount 账户段只允许 ASCII 字母数字；中文等字符剔除，空则回退 Generic
+func beancountSanitize(s string) string {
+	var sb strings.Builder
+	upperNext := true
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+			if upperNext {
+				sb.WriteRune(r - 32)
+				upperNext = false
+			} else {
+				sb.WriteRune(r)
+			}
+		case (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9'):
+			sb.WriteRune(r)
+			upperNext = false
+		default:
+			upperNext = true
+		}
+	}
+	if sb.Len() == 0 {
+		return "Generic"
+	}
+	return sb.String()
+}
+
+func beancountEscape(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	return strings.ReplaceAll(s, `"`, `\"`)
+}
+
+// formatYuanPlain 分 → "1234.56"（无千位分隔，Beancount 数字格式）
+func formatYuanPlain(fen int64) string {
+	if fen < 0 {
+		fen = -fen
+	}
+	return fmt.Sprintf("%d.%02d", fen/100, fen%100)
 }

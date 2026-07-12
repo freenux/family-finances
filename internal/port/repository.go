@@ -125,6 +125,13 @@ type InsurancePolicyRepo interface {
 	DeletePolicy(ctx context.Context, id string) error
 }
 
+// ImportTemplateRepo CSV 导入映射模板（import_templates 表）
+type ImportTemplateRepo interface {
+	ListTemplates(ctx context.Context) ([]domain.ImportTemplate, error)
+	// SaveTemplate 按 name 唯一键覆盖
+	SaveTemplate(ctx context.Context, t *domain.ImportTemplate) error
+}
+
 // DigestRepo 摘要推送设置（digest_settings 单行表）
 type DigestRepo interface {
 	// GetSettings 未配置过时返回 ErrNotFound

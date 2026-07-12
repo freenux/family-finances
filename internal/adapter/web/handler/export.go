@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/csv"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 )
@@ -79,5 +80,19 @@ func (h *Handler) ExportFullJSON(w http.ResponseWriter, r *http.Request) {
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(full); err != nil {
 		h.log.Error("export full json encode", "err", err)
+	}
+}
+
+// ExportBeancount GET /export/beancount —— Beancount 复式记账导出
+func (h *Handler) ExportBeancount(w http.ResponseWriter, r *http.Request) {
+	out, err := h.exportUC.BuildBeancount(r.Context())
+	if err != nil {
+		h.serverError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="family-finances.beancount"`)
+	if _, err := io.WriteString(w, out); err != nil {
+		h.log.Error("export beancount write", "err", err)
 	}
 }

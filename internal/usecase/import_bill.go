@@ -41,12 +41,18 @@ type ImportBillInput struct {
 // "应跳过"的支出行（转账/中性交易等）以 status=excluded 落地，方便人工恢复。
 // 收入行暂不导入。
 func (uc *ImportBill) Execute(ctx context.Context, in ImportBillInput) (port.ImportResult, error) {
-	if !in.Account.IsStorageAccount() {
-		return port.ImportResult{}, fmt.Errorf("未指定账户归属（husband/wife）")
-	}
 	parser, ok := bill.ParserFor(in.Source)
 	if !ok {
 		return port.ImportResult{}, fmt.Errorf("不支持的账单来源: %s", in.Source)
+	}
+	return uc.ExecuteWithParser(ctx, in, parser)
+}
+
+// ExecuteWithParser 用显式解析器走同一条 解析→规则分类→事务去重入库 链路
+// （通用 CSV 导入用：解析器由映射动态构造，不在 ParserFor 注册表里）。
+func (uc *ImportBill) ExecuteWithParser(ctx context.Context, in ImportBillInput, parser bill.Parser) (port.ImportResult, error) {
+	if !in.Account.IsStorageAccount() {
+		return port.ImportResult{}, fmt.Errorf("未指定账户归属（husband/wife）")
 	}
 
 	rawRows, err := parser.Parse(in.Reader)
@@ -112,7 +118,7 @@ func (uc *ImportBill) Execute(ctx context.Context, in ImportBillInput) (port.Imp
 
 	batch := domain.ImportBatch{
 		ID:          batchID,
-		Source:      in.Source,
+		Source:      parser.Source(),
 		Account:     in.Account,
 		Filename:    in.Filename,
 		PeriodStart: periodStart,

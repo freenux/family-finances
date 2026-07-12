@@ -4,7 +4,10 @@
     <h2>导入账单</h2>
     <div class="meta">支持微信支付 xlsx 与支付宝 csv；重复交易单号自动跳过</div>
   </div>
-  <a class="btn secondary" href="/transactions">返回流水列表</a>
+  <div class="flex-row" style="gap:10px">
+    <a class="btn ghost" href="/imports/csv">通用 CSV 导入</a>
+    <a class="btn secondary" href="/transactions">返回流水列表</a>
+  </div>
 </div>
 
 {{if .Error}}

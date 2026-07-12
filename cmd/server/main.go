@@ -78,6 +78,7 @@ func main() {
 		Host: cfg.SMTPHost, Port: cfg.SMTPPort, User: cfg.SMTPUser, Pass: cfg.SMTPPass, From: cfg.SMTPFrom,
 	})
 	digestSvc := usecase.NewDigestService(digestRepo, txRepo, catRepo, llmClient, digestSender, log)
+	templateRepo := sqlite.NewImportTemplateRepo(db)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -115,6 +116,7 @@ func main() {
 		DigestRepo:   digestRepo,
 		DigestSvc:    digestSvc,
 		DigestSender: digestSender,
+		TemplateRepo: templateRepo,
 		Log:          log,
 		AuthKey:      cfg.AuthKey,
 	})
@@ -191,6 +193,10 @@ func main() {
 		r.Get("/settings/digest", h.DigestSettingsPage)
 		r.Post("/settings/digest", h.SaveDigestSettings)
 		r.Post("/api/digest/test", h.DigestTestSend)
+		r.Get("/imports/csv", h.CSVImportPage)
+		r.Post("/api/imports/csv/preview", h.CSVPreview)
+		r.Post("/imports/csv", h.CSVImportSubmit)
+		r.Get("/export/beancount", h.ExportBeancount)
 		r.Get("/buckets", h.Buckets)
 		r.Get("/advice", h.Advice)
 		r.Post("/advice/generate", h.GenerateAdviceSubmit)

@@ -1,0 +1,161 @@
+{{define "content"}}
+<script id="data-csv-templates" type="application/json">{{rawJSON .TemplatesJSON}}</script>
+
+<div x-data="csvImportPage()" x-cloak>
+  <div class="stats-head">
+    <div>
+      <h2 class="title-zh">通用 CSV 导入</h2>
+      <div class="subtitle">上传任意银行/平台的 CSV → 映射列 → 走与微信/支付宝相同的去重与分类链路；原始文件导入后即删</div>
+    </div>
+    <a class="btn ghost" href="/imports">← 返回账单导入</a>
+  </div>
+
+  {{if .Flash}}
+    <div class="section" style="padding:10px 14px;margin-bottom:14px;background:var(--accent-soft);color:var(--accent)">✅ {{.Flash}}</div>
+  {{end}}
+  <template x-if="errorMsg">
+    <div class="section" style="padding:10px 14px;margin-bottom:14px;color:var(--negative)">⚠️ <span x-text="errorMsg"></span></div>
+  </template>
+
+  <!-- 第一步：上传 -->
+  <div class="section" style="margin-bottom:14px">
+    <div class="section-title"><span>① 上传 CSV（UTF-8 或 GB18030）</span>
+      <span class="hint" x-show="totalRows > 0" x-text="'共 ' + totalRows + ' 行'"></span>
+    </div>
+    <div style="padding:14px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <input type="file" id="csv-file" accept=".csv,text/csv" @change="upload($event)">
+      <span class="hint" style="font-size:12px;color:var(--muted)" x-show="uploading">上传解析中…</span>
+    </div>
+  </div>
+
+  <template x-if="rows.length > 0">
+    <div>
+      <!-- 第二步：预览 + 映射 -->
+      <div class="section" style="margin-bottom:14px">
+        <div class="section-title"><span>② 预览前几行，配置列映射（点击列头下拉设置用途）</span></div>
+        <div style="padding:10px 16px;overflow-x:auto">
+          <table class="ledger" style="min-width:640px">
+            <thead>
+              <tr>
+                <template x-for="(cell, ci) in rows[0]" :key="ci">
+                  <th><span class="code" x-text="'列 ' + ci"></span></th>
+                </template>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(row, ri) in rows" :key="ri">
+                <tr :class="ri === mapping.skip_rows ? 'group' : 'item'">
+                  <template x-for="(cell, ci) in row" :key="ci">
+                    <td x-text="cell" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></td>
+                  </template>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div class="hint" style="font-size:12px;color:var(--muted);margin-top:6px">高亮行 = 表头行（由「表头前跳过行数」决定），其后为数据行。</div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="section">
+          <div class="section-title"><span>③ 列映射</span>
+            <span class="hint">
+              套用模板：
+              <select @change="applyTemplate($event.target.value)" style="font-size:12px">
+                <option value="">—</option>
+                <template x-for="t in templates" :key="t.name">
+                  <option :value="t.name" x-text="t.name"></option>
+                </template>
+              </select>
+            </span>
+          </div>
+          <div class="profile-form" style="grid-template-columns:1fr 1fr">
+            <label>表头前跳过行数
+              <input type="number" min="0" max="100" x-model.number="mapping.skip_rows">
+            </label>
+            <label>时间列
+              <select x-model.number="mapping.time_col"><template x-for="ci in colIndexes()" :key="ci"><option :value="ci" x-text="'列 ' + ci"></option></template></select>
+            </label>
+            <label>日期格式（Go layout）
+              <input type="text" x-model="mapping.date_format" list="date-formats" placeholder="2006-01-02 15:04:05">
+              <datalist id="date-formats">
+                <option value="2006-01-02 15:04:05"></option>
+                <option value="2006-01-02"></option>
+                <option value="2006/01/02"></option>
+                <option value="20060102"></option>
+              </datalist>
+            </label>
+            <label>金额模式
+              <select x-model="mapping.amount_mode">
+                <option value="single">单列（负数为收入）</option>
+                <option value="debit_credit">支出/收入分列</option>
+              </select>
+            </label>
+            <template x-if="mapping.amount_mode === 'single'">
+              <label>金额列
+                <select x-model.number="mapping.amount_col"><template x-for="ci in colIndexes()" :key="ci"><option :value="ci" x-text="'列 ' + ci"></option></template></select>
+              </label>
+            </template>
+            <template x-if="mapping.amount_mode === 'debit_credit'">
+              <label>支出列
+                <select x-model.number="mapping.debit_col"><option :value="-1">—</option><template x-for="ci in colIndexes()" :key="ci"><option :value="ci" x-text="'列 ' + ci"></option></template></select>
+              </label>
+            </template>
+            <template x-if="mapping.amount_mode === 'debit_credit'">
+              <label>收入列
+                <select x-model.number="mapping.credit_col"><option :value="-1">—</option><template x-for="ci in colIndexes()" :key="ci"><option :value="ci" x-text="'列 ' + ci"></option></template></select>
+              </label>
+            </template>
+            <label>对方列
+              <select x-model.number="mapping.counterparty_col"><option :value="-1">—</option><template x-for="ci in colIndexes()" :key="ci"><option :value="ci" x-text="'列 ' + ci"></option></template></select>
+            </label>
+            <div style="grid-column:1/-1">
+              <div style="font-size:12px;color:var(--muted);margin-bottom:6px">说明列（可多选，拼接为商品说明）</div>
+              <div class="goal-links">
+                <template x-for="ci in colIndexes()" :key="ci">
+                  <label class="goal-link-item">
+                    <input type="checkbox" :value="ci" @change="toggleDescCol(ci, $event.target.checked)"
+                           :checked="mapping.desc_cols.includes(ci)">
+                    <span x-text="'列 ' + ci"></span>
+                  </label>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="section">
+            <div class="section-title"><span>④ 导入</span></div>
+            <div class="profile-form" style="grid-template-columns:1fr 1fr">
+              <label>账户归属
+                <select x-model="account">
+                  <option value="husband">男主</option>
+                  <option value="wife">女主</option>
+                </select>
+              </label>
+              <label>模板名（去重键的一部分）
+                <input type="text" x-model="templateName" placeholder="如 招行卡" maxlength="30">
+              </label>
+              <label class="goal-link-item" style="grid-column:1/-1">
+                <input type="checkbox" x-model="saveTemplate"> 保存为映射模板，下次直接套用
+              </label>
+              <div class="profile-actions">
+                <button type="button" class="btn" id="csv-import-btn" @click="doImport()"
+                        :disabled="importing" x-text="importing ? '导入中…' : '开始导入'">开始导入</button>
+              </div>
+            </div>
+          </div>
+          <div class="note-strip" style="margin-top:14px">
+            <b>去重</b> · CSV 无平台交易号，用「时间+金额+方向+描述+对方」哈希作为去重键，
+            来源标记为 csv:&lt;模板名&gt;；同一文件重复导入会全部跳过。<br>
+            <b>分类</b> · 与微信/支付宝相同：先过本地规则，未命中转待处理（LLM/人工兜底）。
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+</div>
+{{end}}
+
+{{define "page"}}{{template "base" .}}{{end}}
