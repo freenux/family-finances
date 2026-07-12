@@ -125,6 +125,13 @@ type InsurancePolicyRepo interface {
 	DeletePolicy(ctx context.Context, id string) error
 }
 
+// BudgetRepo 季度预算（budgets 表）
+type BudgetRepo interface {
+	ListBudgets(ctx context.Context) ([]domain.Budget, error)
+	// ReplaceBudgets 整表覆盖：amounts 里 >0 的科目 upsert，未出现或 =0 的科目删除
+	ReplaceBudgets(ctx context.Context, amounts map[string]int64) error
+}
+
 // ReportRepo AI 季/年财报（reports 表）
 type ReportRepo interface {
 	// Upsert 按 (period, period_type) 唯一键覆盖写入

@@ -1,0 +1,108 @@
+{{define "content"}}
+<script id="data-budget-rows" type="application/json">{{rawJSON .RowsJSON}}</script>
+
+<div x-data="budgetPage()" x-cloak>
+  <div class="stats-head">
+    <div>
+      <h2 class="title-zh">{{.Data.Quarter}} 预算与周期交易</h2>
+      <div class="subtitle">季度预算就地编辑 · 周期支出自动识别 · 未来 90 天现金流外推（全部确定性计算）</div>
+    </div>
+    <button type="button" class="btn" id="save-budgets" @click="save()" :disabled="saving"
+            x-text="saving ? '保存中…' : '保存预算'">保存预算</button>
+  </div>
+
+  {{if .Flash}}
+    <div class="section" style="padding:10px 14px;margin-bottom:14px;background:var(--accent-soft);color:var(--accent)">✅ {{.Flash}}</div>
+  {{end}}
+  <template x-if="msg">
+    <div class="section" style="padding:10px 14px;margin-bottom:14px;background:var(--accent-soft);color:var(--accent)">✅ <span x-text="msg"></span></div>
+  </template>
+  <template x-if="errorMsg">
+    <div class="section" style="padding:10px 14px;margin-bottom:14px;color:var(--negative)">保存失败：<span x-text="errorMsg"></span></div>
+  </template>
+
+  <div class="two-col">
+    <div class="section">
+      <div class="section-title">
+        <span>季度预算（元，可就地编辑；留空或 0 = 不设预算）</span>
+        <span class="hint">超支 <b x-text="overCount()">{{.Data.OverCount}}</b> 项</span>
+      </div>
+      <table class="ledger" id="budget-table">
+        <thead><tr><th>科目</th><th style="text-align:right;width:130px">预算</th><th style="text-align:right">本季已花</th><th style="text-align:right">执行</th></tr></thead>
+        <tbody>
+          {{$prevGroup := ""}}
+          {{range .Data.Rows}}
+            {{if ne .GroupName $prevGroup}}
+              <tr class="group"><td colspan="4">{{.GroupName}}</td></tr>
+              {{$prevGroup = .GroupName}}
+            {{end}}
+            <tr class="item">
+              <td class="name">{{.Name}}<span class="code">{{.CategoryID}}</span></td>
+              <td class="amount">
+                <input class="cell-input" style="width:110px" inputmode="decimal" data-cat="{{.CategoryID}}"
+                       @input="onInput('{{.CategoryID}}', $event.target.value)">
+              </td>
+              <td class="amount">¥{{yuan .SpentFen}}</td>
+              <td class="amount">
+                <span x-show="budgetOf('{{.CategoryID}}') > 0"
+                      :class="'badge ' + badgeClass('{{.CategoryID}}')"
+                      x-text="ratioLabel('{{.CategoryID}}')"></span>
+                <span x-show="budgetOf('{{.CategoryID}}') <= 0" class="hint">—</span>
+              </td>
+            </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+
+    <div>
+      <div class="section">
+        <div class="section-title"><span>已识别的周期支出</span><span class="hint">近 12 个月 · 金额差 ≤5% · 间隔规律</span></div>
+        {{if .Data.Recurring}}
+        <table class="ledger">
+          <thead><tr><th>名称</th><th>周期</th><th style="text-align:right">金额</th><th>下次</th></tr></thead>
+          <tbody>
+            {{range .Data.Recurring}}
+            <tr class="item">
+              <td class="name">{{.Name}}<span class="code">观察到 {{.Count}} 次</span></td>
+              <td>{{if eq (printf "%s" .Cadence) "monthly"}}每月{{else if eq (printf "%s" .Cadence) "quarterly"}}每季{{else}}每年{{end}}</td>
+              <td class="amount">¥{{yuan .AmountFen}}</td>
+              <td>{{.NextDate.Format "01-02"}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+        {{else}}
+        <div class="empty" style="padding:26px 16px">暂未识别到周期支出（需同一对象、金额稳定且间隔规律的 confirmed 流水 ≥3 次，年付 ≥2 次）。</div>
+        {{end}}
+      </div>
+
+      <div class="section" style="margin-top:14px">
+        <div class="section-title"><span>未来 90 天现金流</span><span class="hint">流入按近 6 个月工资月均 ¥{{yuan .Data.MonthlyInflow}}</span></div>
+        <table class="ledger">
+          <thead><tr><th>月份</th><th style="text-align:right">预计流入</th><th style="text-align:right">固定流出</th><th style="text-align:right">净额</th></tr></thead>
+          <tbody>
+            {{range .Data.Cashflow}}
+            <tr class="item">
+              <td class="name">{{.Month}}
+                {{if .Entries}}<span class="code">{{range $i, $e := .Entries}}{{if $i}} · {{end}}{{$e.Date.Format "01-02"}} {{$e.Name}} ¥{{yuan $e.AmountFen}}{{end}}</span>{{end}}
+              </td>
+              <td class="amount positive">¥{{yuan .InflowFen}}</td>
+              <td class="amount negative">¥{{yuan .OutflowFen}}</td>
+              <td class="amount {{if ge .NetFen 0}}positive{{else}}negative{{end}}">¥{{yuan .NetFen}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note-strip" style="margin-top:14px">
+        <b>口径</b> · 预算只按季度设置；执行率 >95% 亮黄、>100% 亮红并进入 AI 财报依据（budget_over_*）。
+        现金流为外推估计：固定流出 = 周期项 + 保单续期，流入 = 工资类月均，不含变动消费。
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}
+
+{{define "page"}}{{template "base" .}}{{end}}

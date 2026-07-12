@@ -47,6 +47,7 @@ func main() {
 	assetRepo := sqlite.NewAssetSnapshotRepo(db)
 	reportRepo := sqlite.NewReportRepo(db)
 	profileRepo := sqlite.NewProfileRepo(db)
+	budgetRepo := sqlite.NewBudgetRepo(db)
 
 	llmClient := llm.NewClient(llm.Config{
 		APIKey:  cfg.OpenAIAPIKey,
@@ -66,8 +67,10 @@ func main() {
 	genAdvice := usecase.NewGenerateAdvice(contextPackBuilder, bucketEng, reportRepo, llmClient, cfg.OpenAIModel)
 	goalView := usecase.NewGoalView(profileRepo, assetRepo, txRepo)
 	insView := usecase.NewInsuranceView(profileRepo, profileRepo)
+	budgetView := usecase.NewBudgetView(budgetRepo, txRepo, catRepo, profileRepo)
 	contextPackBuilder.AddFindingSource(goalView.Findings)
 	contextPackBuilder.AddFindingSource(insView.Findings)
+	contextPackBuilder.AddFindingSource(budgetView.Findings)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -98,6 +101,8 @@ func main() {
 		GoalView:    goalView,
 		PolicyRepo:  profileRepo,
 		InsView:     insView,
+		BudgetRepo:  budgetRepo,
+		BudgetView:  budgetView,
 		Log:         log,
 		AuthKey:     cfg.AuthKey,
 	})
@@ -167,6 +172,8 @@ func main() {
 		r.Get("/insurance", h.Insurance)
 		r.Post("/api/insurance", h.SaveInsurance)
 		r.Post("/api/insurance/{id}/delete", h.DeleteInsurance)
+		r.Get("/budget", h.Budget)
+		r.Put("/api/budgets", h.SaveBudgets)
 		r.Get("/buckets", h.Buckets)
 		r.Get("/advice", h.Advice)
 		r.Post("/advice/generate", h.GenerateAdviceSubmit)
