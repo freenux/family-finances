@@ -200,3 +200,39 @@ var (
 	_ port.CategoryRuleRepo  = (*fakeCategoryRuleRepo)(nil)
 	_ ReportLLM              = (*fakeLLM)(nil)
 )
+
+// ---- fakeProfileRepo（画像 + 目标 + 保单三合一）----
+
+type fakeProfileRepo struct {
+	profile  *domain.FamilyProfile
+	goals    []domain.FinancialGoal
+	policies []domain.InsurancePolicy
+}
+
+func (f *fakeProfileRepo) Get(context.Context) (*domain.FamilyProfile, error) {
+	if f.profile == nil {
+		return nil, port.ErrNotFound
+	}
+	cp := *f.profile
+	return &cp, nil
+}
+
+func (f *fakeProfileRepo) Upsert(_ context.Context, p *domain.FamilyProfile) error {
+	cp := *p
+	f.profile = &cp
+	return nil
+}
+
+func (f *fakeProfileRepo) ListAllGoals(context.Context) ([]domain.FinancialGoal, error) {
+	return f.goals, nil
+}
+
+func (f *fakeProfileRepo) ListAllPolicies(context.Context) ([]domain.InsurancePolicy, error) {
+	return f.policies, nil
+}
+
+var (
+	_ port.FamilyProfileRepo   = (*fakeProfileRepo)(nil)
+	_ port.FinancialGoalRepo   = (*fakeProfileRepo)(nil)
+	_ port.InsurancePolicyRepo = (*fakeProfileRepo)(nil)
+)
