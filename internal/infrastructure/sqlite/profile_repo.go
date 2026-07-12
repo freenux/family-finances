@@ -173,3 +173,33 @@ FROM insurance_policies ORDER BY sort_order, updated_at`)
 	}
 	return out, rows.Err()
 }
+
+// UpsertPolicy 新建/更新保单
+func (r *ProfileRepo) UpsertPolicy(ctx context.Context, p *domain.InsurancePolicy) error {
+	_, err := r.db.ExecContext(ctx, `
+INSERT INTO insurance_policies
+  (id, insured_person, insurance_type, company_product, coverage, coverage_amount,
+   annual_premium, renewal_date, notes, sort_order, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+  insured_person = excluded.insured_person, insurance_type = excluded.insurance_type,
+  company_product = excluded.company_product, coverage = excluded.coverage,
+  coverage_amount = excluded.coverage_amount, annual_premium = excluded.annual_premium,
+  renewal_date = excluded.renewal_date, notes = excluded.notes,
+  sort_order = excluded.sort_order, updated_at = excluded.updated_at`,
+		p.ID, p.InsuredPerson, p.InsuranceType, p.CompanyProduct, p.Coverage, p.CoverageAmount,
+		p.AnnualPremium, nullIfZeroTime(p.RenewalDate), p.Notes, p.SortOrder, p.UpdatedAt)
+	return err
+}
+
+// DeletePolicy 删除保单
+func (r *ProfileRepo) DeletePolicy(ctx context.Context, id string) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM insurance_policies WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return port.ErrNotFound
+	}
+	return nil
+}

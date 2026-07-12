@@ -118,9 +118,11 @@ type FinancialGoalRepo interface {
 	DeleteGoal(ctx context.Context, id string) error
 }
 
-// InsurancePolicyRepo 保单（insurance_policies 表，M2 只读）
+// InsurancePolicyRepo 保单（insurance_policies 表）
 type InsurancePolicyRepo interface {
 	ListAllPolicies(ctx context.Context) ([]domain.InsurancePolicy, error)
+	UpsertPolicy(ctx context.Context, p *domain.InsurancePolicy) error
+	DeletePolicy(ctx context.Context, id string) error
 }
 
 // ReportRepo AI 季/年财报（reports 表）

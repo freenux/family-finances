@@ -1,0 +1,132 @@
+{{define "content"}}
+<div class="stats-head">
+  <div>
+    <h2 class="title-zh">保单登记</h2>
+    <div class="subtitle">登记后自动做「双十检查」，续期临近 90 天进入提醒与 AI 财报依据</div>
+  </div>
+</div>
+
+{{if .Flash}}
+  <div class="section" style="padding:10px 14px;margin-bottom:14px;background:var(--accent-soft);color:var(--accent)">✅ {{.Flash}}</div>
+{{end}}
+{{if .Error}}
+  <div class="section" style="padding:10px 14px;margin-bottom:14px;color:var(--negative)">⚠️ {{.Error}}</div>
+{{end}}
+
+{{if .Data.RenewalsDueSoon}}
+<div class="rebalance-card" id="renewal-card">
+  <div class="rb-head">
+    <span class="rb-title">⏰ 续期提醒</span>
+    <span class="rb-meta">未来 {{.Data.RenewalWindowDay}} 天内</span>
+  </div>
+  <ul class="rb-list">
+    {{range .Data.RenewalsDueSoon}}
+    <li><b>{{.Policy.InsuredPerson}} · {{.Policy.InsuranceType}}</b>{{if .Policy.CompanyProduct}}（{{.Policy.CompanyProduct}}）{{end}} {{.DueInDay}} 天后续期，年缴 ¥{{yuan .Policy.AnnualPremium}}</li>
+    {{end}}
+  </ul>
+</div>
+{{end}}
+
+<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
+  <div class="kpi-card">
+    <div class="label">保单数</div>
+    <div class="value">{{len .Data.Policies}}</div>
+    <div class="sub">已登记保单</div>
+  </div>
+  <div class="kpi-card {{if and .Data.Check.Registered .Data.Check.HasIncome (not .Data.Check.PremiumOK)}}warning{{end}}">
+    <div class="label">年缴保费合计</div>
+    <div class="value">¥{{yuan .Data.TotalPremiumFen}}</div>
+    <div class="sub">
+      {{if and .Data.Check.Registered .Data.Check.HasIncome}}
+        占年收入 {{pct .Data.Check.PremiumRatio}}（上限 10%）
+        {{if .Data.Check.PremiumOK}}<span class="badge ok">达标</span>{{else}}<span class="badge danger">超限</span>{{end}}
+      {{else}}双十对照需先在<a href="/profile">画像</a>填年收入{{end}}
+    </div>
+  </div>
+  <div class="kpi-card {{if and .Data.Check.Registered .Data.Check.HasIncome (not .Data.Check.LifeCoverageOK)}}warning{{end}}">
+    <div class="label">寿险保额倍数</div>
+    <div class="value">{{if and .Data.Check.Registered .Data.Check.HasIncome}}{{printf "%.1f×" .Data.Check.LifeCoverageMultiple}}{{else}}—{{end}}</div>
+    <div class="sub">
+      {{if and .Data.Check.Registered .Data.Check.HasIncome}}
+        目标 ≥10 倍年收入
+        {{if .Data.Check.LifeCoverageOK}}<span class="badge ok">达标</span>{{else}}<span class="badge danger">不足</span>{{end}}
+      {{else}}寿险保额 / 年收入{{end}}
+    </div>
+  </div>
+</div>
+
+<div class="two-col" style="grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)">
+  <div class="section">
+    <div class="section-title"><span>保单列表</span><span class="hint">保障独立诊断，不参与资产占比</span></div>
+    {{if .Data.Policies}}
+    <table class="ledger">
+      <thead>
+        <tr><th>被保险人</th><th>类型 / 产品</th><th style="text-align:right">保额</th><th style="text-align:right">年缴</th><th>续期日</th><th></th></tr>
+      </thead>
+      <tbody>
+        {{range .Data.Policies}}
+        <tr class="item">
+          <td class="name">{{.InsuredPerson}}</td>
+          <td>{{.InsuranceType}}{{if .CompanyProduct}}<span class="code">{{.CompanyProduct}}</span>{{end}}</td>
+          <td class="amount">{{if .CoverageAmount}}¥{{yuan .CoverageAmount}}{{else}}—{{end}}</td>
+          <td class="amount">¥{{yuan .AnnualPremium}}</td>
+          <td>{{if .RenewalDate.IsZero}}—{{else}}{{.RenewalDate.Format "01-02"}}（每年）{{end}}</td>
+          <td style="text-align:right">
+            <form method="post" action="/api/insurance/{{.ID}}/delete" onsubmit="return confirm('删除该保单？')" style="margin:0">
+              <button class="btn danger" type="submit" style="font-size:12px;padding:3px 10px">删除</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <div class="empty" style="padding:36px 16px">尚未登记保单。用右侧表单登记后，四笔钱「保障」桶的双十检查自动生效。</div>
+    {{end}}
+  </div>
+
+  <div>
+    <form class="section" method="post" action="/api/insurance">
+      <div class="section-title"><span>登记保单</span></div>
+      <div class="profile-form" style="grid-template-columns:1fr 1fr">
+        <input type="hidden" name="id" value="">
+        <label>被保险人
+          <input type="text" name="insured_person" required placeholder="如：男主">
+        </label>
+        <label>保险类型
+          <select name="insurance_type">
+            {{range .Types}}<option>{{.}}</option>{{end}}
+          </select>
+        </label>
+        <label style="grid-column:1/-1">公司 / 产品
+          <input type="text" name="company_product" placeholder="可选">
+        </label>
+        <label>保额（元）
+          <input type="text" name="coverage_amount" inputmode="decimal" placeholder="如 4000000">
+        </label>
+        <label>年缴保费（元）
+          <input type="text" name="annual_premium" inputmode="decimal" placeholder="如 10000">
+        </label>
+        <label>下次续期日
+          <input type="date" name="renewal_date">
+        </label>
+        <label>保障说明
+          <input type="text" name="coverage" placeholder="可选，如 重疾 100 种">
+        </label>
+        <label style="grid-column:1/-1">备注
+          <input type="text" name="notes" placeholder="可选">
+        </label>
+        <div class="profile-actions">
+          <button class="btn" type="submit" id="save-insurance">保存保单</button>
+        </div>
+      </div>
+    </form>
+    <div class="note-strip" style="margin-top:14px">
+      <b>双十检查</b> · 年缴保费 ≤ 家庭年收入 10%；寿险（定期/终身）保额 ≥ 年收入 10 倍。
+      续期日按年滚动，临近 90 天出现在上方提醒与 <a href="/budget">90 天现金流</a>时间线。
+    </div>
+  </div>
+</div>
+{{end}}
+
+{{define "page"}}{{template "base" .}}{{end}}

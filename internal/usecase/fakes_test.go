@@ -252,6 +252,27 @@ func (f *fakeProfileRepo) ListAllPolicies(context.Context) ([]domain.InsurancePo
 	return f.policies, nil
 }
 
+func (f *fakeProfileRepo) UpsertPolicy(_ context.Context, p *domain.InsurancePolicy) error {
+	for i := range f.policies {
+		if f.policies[i].ID == p.ID {
+			f.policies[i] = *p
+			return nil
+		}
+	}
+	f.policies = append(f.policies, *p)
+	return nil
+}
+
+func (f *fakeProfileRepo) DeletePolicy(_ context.Context, id string) error {
+	for i := range f.policies {
+		if f.policies[i].ID == id {
+			f.policies = append(f.policies[:i], f.policies[i+1:]...)
+			return nil
+		}
+	}
+	return port.ErrNotFound
+}
+
 var (
 	_ port.FamilyProfileRepo   = (*fakeProfileRepo)(nil)
 	_ port.FinancialGoalRepo   = (*fakeProfileRepo)(nil)
