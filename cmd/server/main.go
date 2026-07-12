@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"family-finances/internal/adapter/llm"
+	"family-finances/internal/adapter/notify"
 	"family-finances/internal/adapter/web"
 	"family-finances/internal/adapter/web/handler"
 	"family-finances/internal/infrastructure/config"
@@ -72,11 +73,17 @@ func main() {
 	contextPackBuilder.AddFindingSource(insView.Findings)
 	contextPackBuilder.AddFindingSource(budgetView.Findings)
 	askUC := usecase.NewAsk(contextPackBuilder, llmClient)
+	digestRepo := sqlite.NewDigestRepo(db)
+	digestSender := notify.NewSender(notify.SMTPConfig{
+		Host: cfg.SMTPHost, Port: cfg.SMTPPort, User: cfg.SMTPUser, Pass: cfg.SMTPPass, From: cfg.SMTPFrom,
+	})
+	digestSvc := usecase.NewDigestService(digestRepo, txRepo, catRepo, llmClient, digestSender, log)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
 	go classifyPending.Run(ctx, 30*time.Second, 200)
+	go digestSvc.Run(ctx, time.Hour)
 
 	renderer, err := web.NewRenderer()
 	if err != nil {
@@ -84,29 +91,32 @@ func main() {
 		os.Exit(1)
 	}
 	h := handler.New(handler.Deps{
-		Render:      renderer,
-		ImportBill:  importBill,
-		QueryReport: queryRep,
-		QueryStats:  queryStats,
-		AssetSvc:    assetSvc,
-		GenReport:   genReport,
-		GenAdvice:   genAdvice,
-		BucketEng:   bucketEng,
-		Export:      exportUC,
-		TxRepo:      txRepo,
-		CatRepo:     catRepo,
-		RuleRepo:    catRepo,
-		ReportRepo:  reportRepo,
-		ProfileRepo: profileRepo,
-		GoalRepo:    profileRepo,
-		GoalView:    goalView,
-		PolicyRepo:  profileRepo,
-		InsView:     insView,
-		BudgetRepo:  budgetRepo,
-		BudgetView:  budgetView,
-		Ask:         askUC,
-		Log:         log,
-		AuthKey:     cfg.AuthKey,
+		Render:       renderer,
+		ImportBill:   importBill,
+		QueryReport:  queryRep,
+		QueryStats:   queryStats,
+		AssetSvc:     assetSvc,
+		GenReport:    genReport,
+		GenAdvice:    genAdvice,
+		BucketEng:    bucketEng,
+		Export:       exportUC,
+		TxRepo:       txRepo,
+		CatRepo:      catRepo,
+		RuleRepo:     catRepo,
+		ReportRepo:   reportRepo,
+		ProfileRepo:  profileRepo,
+		GoalRepo:     profileRepo,
+		GoalView:     goalView,
+		PolicyRepo:   profileRepo,
+		InsView:      insView,
+		BudgetRepo:   budgetRepo,
+		BudgetView:   budgetView,
+		Ask:          askUC,
+		DigestRepo:   digestRepo,
+		DigestSvc:    digestSvc,
+		DigestSender: digestSender,
+		Log:          log,
+		AuthKey:      cfg.AuthKey,
 	})
 
 	r := chi.NewRouter()
@@ -178,6 +188,9 @@ func main() {
 		r.Put("/api/budgets", h.SaveBudgets)
 		r.Get("/ask", h.AskPage)
 		r.Post("/api/ask", h.AskAPI)
+		r.Get("/settings/digest", h.DigestSettingsPage)
+		r.Post("/settings/digest", h.SaveDigestSettings)
+		r.Post("/api/digest/test", h.DigestTestSend)
 		r.Get("/buckets", h.Buckets)
 		r.Get("/advice", h.Advice)
 		r.Post("/advice/generate", h.GenerateAdviceSubmit)

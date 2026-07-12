@@ -125,6 +125,14 @@ type InsurancePolicyRepo interface {
 	DeletePolicy(ctx context.Context, id string) error
 }
 
+// DigestRepo 摘要推送设置（digest_settings 单行表）
+type DigestRepo interface {
+	// GetSettings 未配置过时返回 ErrNotFound
+	GetSettings(ctx context.Context) (*domain.DigestSettings, error)
+	UpsertSettings(ctx context.Context, s *domain.DigestSettings) error
+	MarkSent(ctx context.Context, at time.Time) error
+}
+
 // BudgetRepo 季度预算（budgets 表）
 type BudgetRepo interface {
 	ListBudgets(ctx context.Context) ([]domain.Budget, error)

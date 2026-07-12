@@ -1,0 +1,85 @@
+{{define "content"}}
+<div class="stats-head">
+  <div>
+    <h2 class="title-zh">摘要推送设置</h2>
+    <div class="subtitle">周一 08:00（周报）或季初首日（季报）自动发送；内容为确定性摘要 + 可选 AI 一句话观察</div>
+  </div>
+</div>
+
+{{if .Flash}}
+  <div class="section" style="padding:10px 14px;margin-bottom:14px;background:var(--accent-soft);color:var(--accent)">✅ {{.Flash}}</div>
+{{end}}
+{{if .Error}}
+  <div class="section" style="padding:10px 14px;margin-bottom:14px;color:var(--negative)">⚠️ {{.Error}}</div>
+{{end}}
+
+<div class="two-col">
+  <form class="section" method="post" action="/settings/digest">
+    <div class="section-title"><span>推送配置</span></div>
+    <div class="profile-form" style="grid-template-columns:1fr 1fr">
+      <label>启用状态
+        <select name="enabled">
+          <option value="0" {{if not .S.Enabled}}selected{{end}}>关闭</option>
+          <option value="1" {{if .S.Enabled}}selected{{end}}>开启</option>
+        </select>
+      </label>
+      <label>频率
+        <select name="cadence">
+          <option value="weekly"    {{if eq .S.Cadence "weekly"}}selected{{end}}>每周（周一 08:00 后）</option>
+          <option value="quarterly" {{if eq .S.Cadence "quarterly"}}selected{{end}}>每季（季初首日）</option>
+        </select>
+      </label>
+      <label>通道
+        <select name="channel" id="digest-channel">
+          <option value="email"   {{if eq .S.Channel "email"}}selected{{end}}>邮件{{if not .EmailAvailable}}（SMTP 未配置，发送不可用）{{end}}</option>
+          <option value="webhook" {{if eq .S.Channel "webhook"}}selected{{end}}>Webhook（POST JSON）</option>
+        </select>
+      </label>
+      <label>收件地址 / Webhook URL
+        <input type="text" name="target" value="{{.S.Target}}" placeholder="you@example.com 或 https://…">
+      </label>
+      <div style="grid-column:1/-1">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">包含的模块</div>
+        <div class="goal-links" style="grid-template-columns:1fr 1fr">
+          {{$s := .S}}
+          {{range .Modules}}
+          <label class="goal-link-item">
+            <input type="checkbox" name="modules" value="{{.Key}}"
+              {{$key := .Key}}{{range $s.Modules}}{{if eq . $key}}checked{{end}}{{end}}> {{.Label}}
+          </label>
+          {{end}}
+        </div>
+      </div>
+      <div class="profile-actions" style="justify-content:space-between">
+        <span class="hint" style="font-size:12px;color:var(--muted)">
+          {{if .S.LastSentAt.IsZero}}尚未发送过{{else}}上次发送：{{.S.LastSentAt.Format "2006-01-02 15:04"}}{{end}}
+        </span>
+        <button class="btn" type="submit" id="save-digest">保存设置</button>
+      </div>
+    </div>
+  </form>
+
+  <div>
+    <div class="section">
+      <div class="section-title"><span>测试发送</span></div>
+      <div style="padding:14px 16px">
+        <p style="margin:0 0 10px;font-size:13px;color:var(--text-secondary)">
+          按当前已保存的设置立即发送一封测试摘要（不影响正常调度节奏）。
+        </p>
+        <form method="post" action="/api/digest/test" style="margin:0">
+          <button class="btn secondary" type="submit" id="digest-test"
+            {{if and (eq .S.Channel "email") (not .EmailAvailable)}}disabled title="SMTP 未配置"{{end}}>发送测试摘要</button>
+        </form>
+      </div>
+    </div>
+    <div class="note-strip" style="margin-top:14px">
+      <b>内容边界</b> · 摘要只含聚合数（支出环比 / Top 科目 / 待确认条数），不含单笔明细与交易对手方。
+      AI 观察为可选模块，未配置 OPENAI_API_KEY 时自动跳过。<br>
+      <b>邮件通道</b> · 需在 .env 配置 SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS/SMTP_FROM；
+      webhook 通道无需额外配置。
+    </div>
+  </div>
+</div>
+{{end}}
+
+{{define "page"}}{{template "base" .}}{{end}}
