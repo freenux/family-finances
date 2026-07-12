@@ -69,15 +69,26 @@ func (p ContextPack) RefWhitelist() map[string]bool {
 	return set
 }
 
+// FindingSource 额外的确定性诊断来源（目标过载 / 保单续期 / 预算超支等），
+// 其输出并入 ContextPack.Findings，从而自动进入财报与 /ask 的 refs 白名单。
+type FindingSource func(ctx context.Context, p domain.Period) ([]Finding, error)
+
 // ContextPackBuilder 组装 ContextPack：确定性计算，不发起任何 LLM 调用。
 type ContextPackBuilder struct {
 	queryReport *QueryReport
 	assetRepo   port.AssetSnapshotRepo
 	txRepo      port.TransactionRepo
+	sources     []FindingSource
 }
 
 func NewContextPackBuilder(qr *QueryReport, assetRepo port.AssetSnapshotRepo, txRepo port.TransactionRepo) *ContextPackBuilder {
 	return &ContextPackBuilder{queryReport: qr, assetRepo: assetRepo, txRepo: txRepo}
+}
+
+// AddFindingSource 注册额外诊断来源（按注册顺序追加到 Findings）
+func (b *ContextPackBuilder) AddFindingSource(src FindingSource) *ContextPackBuilder {
+	b.sources = append(b.sources, src)
+	return b
 }
 
 const savingsRateStreakThreshold = 0.30
@@ -154,6 +165,15 @@ func (b *ContextPackBuilder) Build(ctx context.Context, p domain.Period) (Contex
 		PrevSnapshot:      prevSnap,
 		MonthlyAvgExpense: monthlyAvgExpense,
 	})
+
+	// 额外诊断来源（M3：目标过载 / 保单续期 / 预算超支）
+	for _, src := range b.sources {
+		extra, err := src(ctx, p)
+		if err != nil {
+			return ContextPack{}, fmt.Errorf("finding source: %w", err)
+		}
+		pack.Findings = append(pack.Findings, extra...)
+	}
 
 	return pack, nil
 }

@@ -38,6 +38,8 @@ type Handler struct {
 	ruleRepo    port.CategoryRuleRepo
 	reportRepo  port.ReportRepo
 	profileRepo port.FamilyProfileRepo
+	goalRepo    port.FinancialGoalRepo
+	goalView    *usecase.GoalView
 	log         *slog.Logger
 	flash       *flashStore
 	auth        *authManager
@@ -59,6 +61,8 @@ type Deps struct {
 	RuleRepo    port.CategoryRuleRepo
 	ReportRepo  port.ReportRepo
 	ProfileRepo port.FamilyProfileRepo
+	GoalRepo    port.FinancialGoalRepo
+	GoalView    *usecase.GoalView
 	Log         *slog.Logger
 	AuthKey     string
 }
@@ -79,6 +83,8 @@ func New(d Deps) *Handler {
 		ruleRepo:    d.RuleRepo,
 		reportRepo:  d.ReportRepo,
 		profileRepo: d.ProfileRepo,
+		goalRepo:    d.GoalRepo,
+		goalView:    d.GoalView,
 		log:         d.Log,
 		flash:       newFlashStore(),
 		auth:        newAuthManager(d.AuthKey),

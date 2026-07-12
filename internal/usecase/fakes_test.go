@@ -227,6 +227,27 @@ func (f *fakeProfileRepo) ListAllGoals(context.Context) ([]domain.FinancialGoal,
 	return f.goals, nil
 }
 
+func (f *fakeProfileRepo) UpsertGoal(_ context.Context, g *domain.FinancialGoal) error {
+	for i := range f.goals {
+		if f.goals[i].ID == g.ID {
+			f.goals[i] = *g
+			return nil
+		}
+	}
+	f.goals = append(f.goals, *g)
+	return nil
+}
+
+func (f *fakeProfileRepo) DeleteGoal(_ context.Context, id string) error {
+	for i := range f.goals {
+		if f.goals[i].ID == id {
+			f.goals = append(f.goals[:i], f.goals[i+1:]...)
+			return nil
+		}
+	}
+	return port.ErrNotFound
+}
+
 func (f *fakeProfileRepo) ListAllPolicies(context.Context) ([]domain.InsurancePolicy, error) {
 	return f.policies, nil
 }

@@ -111,9 +111,11 @@ type FamilyProfileRepo interface {
 	Upsert(ctx context.Context, p *domain.FamilyProfile) error
 }
 
-// FinancialGoalRepo 财务目标（financial_goals 表，M2 只读）
+// FinancialGoalRepo 财务目标（financial_goals 表）
 type FinancialGoalRepo interface {
 	ListAllGoals(ctx context.Context) ([]domain.FinancialGoal, error)
+	UpsertGoal(ctx context.Context, g *domain.FinancialGoal) error
+	DeleteGoal(ctx context.Context, id string) error
 }
 
 // InsurancePolicyRepo 保单（insurance_policies 表，M2 只读）

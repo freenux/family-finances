@@ -1,0 +1,118 @@
+{{define "content"}}
+<div class="stats-head">
+  <div>
+    <h2 class="title-zh">财务目标</h2>
+    <div class="subtitle">目标 → 剩余月数 → 每月应存（确定性计算）；关联资产科目后进度随最新快照自动更新</div>
+  </div>
+</div>
+
+{{if .Flash}}
+  <div class="section" style="padding:10px 14px;margin-bottom:14px;background:var(--accent-soft);color:var(--accent)">✅ {{.Flash}}</div>
+{{end}}
+{{if .Error}}
+  <div class="section" style="padding:10px 14px;margin-bottom:14px;color:var(--negative)">⚠️ {{.Error}}</div>
+{{end}}
+
+<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
+  <div class="kpi-card">
+    <div class="label">目标数</div>
+    <div class="value">{{len .Data.Goals}}</div>
+    <div class="sub">进行中的财务目标</div>
+  </div>
+  <div class="kpi-card">
+    <div class="label">每月应存合计</div>
+    <div class="value">¥{{yuan .Data.TotalMonthlyFen}}</div>
+    <div class="sub">Σ 各目标月供（有期限的目标）</div>
+  </div>
+  <div class="kpi-card {{if .Data.Overloaded}}warning{{end}}">
+    <div class="label">近 4 季月均结余</div>
+    <div class="value">¥{{yuan .Data.AvgMonthlySurplus}}</div>
+    <div class="sub">{{if .Data.Overloaded}}<span class="badge danger">目标过载</span> 月供合计超过月均结余{{else}}月供在结余能力之内{{end}}</div>
+  </div>
+</div>
+
+<div class="two-col">
+  <div>
+    {{if .Data.Goals}}
+      {{range .Data.Goals}}
+      <div class="section goal-card">
+        <div class="section-title">
+          <span>{{.Goal.Description}} <span class="hint">{{.Goal.Category}} · 优先级 {{.Goal.Priority}}</span></span>
+          <form method="post" action="/api/goals/{{.Goal.ID}}/delete" onsubmit="return confirm('删除该目标？')">
+            <button class="btn danger" type="submit" style="font-size:12px;padding:4px 12px">删除</button>
+          </form>
+        </div>
+        <div class="goal-body">
+          <div class="goal-nums">
+            <span>目标 <b>¥{{yuan .Goal.TargetAmount}}</b></span>
+            <span>当前 <b>¥{{yuan .Progress.CurrentFen}}</b>{{if .Progress.FromLinked}} <span class="badge">快照联动</span>{{end}}</span>
+            {{if .Progress.HasDeadline}}
+              <span>剩余 <b>{{.Progress.RemainingMonths}}</b> 个月{{if .Goal.TargetYM}}（{{.Goal.TargetYM}}）{{end}}</span>
+              <span>每月应存 <b>¥{{yuan .Progress.MonthlyRequiredFen}}</b></span>
+            {{else}}
+              <span class="hint">未设目标年月，无法计算月供</span>
+            {{end}}
+          </div>
+          <div class="goal-bar"><div class="goal-bar-fill" style="width:{{printf "%.1f" (goalPct .Progress.ProgressRatio)}}%"></div></div>
+          <div class="goal-meta">进度 {{pct .Progress.ProgressRatio}}{{if .Goal.LinkedCodes}} · 关联：{{range $i, $c := .Goal.LinkedCodes}}{{if $i}}、{{end}}{{$c}}{{end}}{{end}}{{if .Goal.Notes}} · {{.Goal.Notes}}{{end}}</div>
+        </div>
+      </div>
+      {{end}}
+    {{else}}
+      <div class="section"><div class="empty" style="padding:40px 16px">还没有财务目标。用右侧表单新建第一个，例如「教育金 2039-09 前存到 80 万」。</div></div>
+    {{end}}
+  </div>
+
+  <div>
+    <form class="section" method="post" action="/api/goals">
+      <div class="section-title"><span>新建 / 更新目标</span></div>
+      <div class="profile-form" style="grid-template-columns:1fr 1fr">
+        <input type="hidden" name="id" value="">
+        <label style="grid-column:1/-1">目标名称
+          <input type="text" name="description" required placeholder="如：子女教育金">
+        </label>
+        <label>分类
+          <select name="category">
+            <option>教育</option><option>购房</option><option>换车</option><option>养老</option><option>旅行</option><option selected>其他</option>
+          </select>
+        </label>
+        <label>优先级
+          <select name="priority"><option>高</option><option selected>中</option><option>低</option></select>
+        </label>
+        <label>目标金额（元）
+          <input type="text" name="target_amount" inputmode="decimal" required placeholder="800000">
+        </label>
+        <label>目标年月
+          <input type="month" name="target_ym" placeholder="2039-09">
+        </label>
+        <label>当前已积累（元）
+          <input type="text" name="current_amount" inputmode="decimal" placeholder="0">
+        </label>
+        <label>年限（无年月时回退）
+          <input type="text" name="years_to_achieve" placeholder="如 3 / 3-5 / 10+">
+        </label>
+        <div style="grid-column:1/-1">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px">关联资产科目（勾选后当前金额随最新快照自动取数，覆盖手填值）</div>
+          <div class="goal-links">
+            {{range .Catalog}}
+            <label class="goal-link-item"><input type="checkbox" name="linked_codes" value="{{.Code}}"> {{.Name}}</label>
+            {{end}}
+          </div>
+        </div>
+        <label style="grid-column:1/-1">备注
+          <input type="text" name="notes" placeholder="可选">
+        </label>
+        <div class="profile-actions">
+          <button class="btn" type="submit" id="save-goal">保存目标</button>
+        </div>
+      </div>
+    </form>
+    <div class="note-strip" style="margin-top:14px">
+      <b>计算口径</b> · 剩余月数 = 目标年月 − 当前月（下限 1）；每月应存 = (目标 − 当前) ÷ 剩余月数；
+      3 年内到期的目标自动进入<a href="/buckets">四笔钱</a>稳健桶对照。月供合计超过近 4 季月均结余时标记「目标过载」，并进入 AI 财报的数据依据。
+    </div>
+  </div>
+</div>
+{{end}}
+
+{{define "page"}}{{template "base" .}}{{end}}

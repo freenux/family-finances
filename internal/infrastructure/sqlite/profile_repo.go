@@ -3,6 +3,8 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
 
 	"family-finances/internal/domain"
 	"family-finances/internal/port"
@@ -70,7 +72,8 @@ ON CONFLICT(id) DO UPDATE SET
 func (r *ProfileRepo) ListAllGoals(ctx context.Context) ([]domain.FinancialGoal, error) {
 	rows, err := r.db.QueryContext(ctx, `
 SELECT id, category, description, target_amount, COALESCE(years_to_achieve,''), priority,
-       expected_return, annual_saving, COALESCE(notes,''), sort_order, updated_at
+       expected_return, annual_saving, COALESCE(notes,''), sort_order, updated_at,
+       COALESCE(target_ym,''), current_amount_fen, COALESCE(linked_codes,'')
 FROM financial_goals ORDER BY sort_order, updated_at`)
 	if err != nil {
 		return nil, err
@@ -80,17 +83,69 @@ FROM financial_goals ORDER BY sort_order, updated_at`)
 	for rows.Next() {
 		var g domain.FinancialGoal
 		var annualSaving sql.NullInt64
+		var linkedJSON string
 		if err := rows.Scan(&g.ID, &g.Category, &g.Description, &g.TargetAmount, &g.YearsToAchieve,
-			&g.Priority, &g.ExpectedReturn, &annualSaving, &g.Notes, &g.SortOrder, &g.UpdatedAt); err != nil {
+			&g.Priority, &g.ExpectedReturn, &annualSaving, &g.Notes, &g.SortOrder, &g.UpdatedAt,
+			&g.TargetYM, &g.CurrentAmountFen, &linkedJSON); err != nil {
 			return nil, err
 		}
 		if annualSaving.Valid {
 			v := annualSaving.Int64
 			g.AnnualSaving = &v
 		}
+		if linkedJSON != "" {
+			if err := json.Unmarshal([]byte(linkedJSON), &g.LinkedCodes); err != nil {
+				return nil, fmt.Errorf("unmarshal linked_codes: %w", err)
+			}
+		}
 		out = append(out, g)
 	}
 	return out, rows.Err()
+}
+
+// UpsertGoal 新建/更新财务目标
+func (r *ProfileRepo) UpsertGoal(ctx context.Context, g *domain.FinancialGoal) error {
+	var linked any
+	if len(g.LinkedCodes) > 0 {
+		b, err := json.Marshal(g.LinkedCodes)
+		if err != nil {
+			return fmt.Errorf("marshal linked_codes: %w", err)
+		}
+		linked = string(b)
+	}
+	var annualSaving any
+	if g.AnnualSaving != nil {
+		annualSaving = *g.AnnualSaving
+	}
+	_, err := r.db.ExecContext(ctx, `
+INSERT INTO financial_goals
+  (id, category, description, target_amount, years_to_achieve, priority, expected_return,
+   annual_saving, notes, sort_order, updated_at, target_ym, current_amount_fen, linked_codes)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+  category = excluded.category, description = excluded.description,
+  target_amount = excluded.target_amount, years_to_achieve = excluded.years_to_achieve,
+  priority = excluded.priority, expected_return = excluded.expected_return,
+  annual_saving = excluded.annual_saving, notes = excluded.notes,
+  sort_order = excluded.sort_order, updated_at = excluded.updated_at,
+  target_ym = excluded.target_ym, current_amount_fen = excluded.current_amount_fen,
+  linked_codes = excluded.linked_codes`,
+		g.ID, g.Category, g.Description, g.TargetAmount, nullableString(g.YearsToAchieve),
+		g.Priority, g.ExpectedReturn, annualSaving, g.Notes, g.SortOrder, g.UpdatedAt,
+		nullableString(g.TargetYM), g.CurrentAmountFen, linked)
+	return err
+}
+
+// DeleteGoal 删除财务目标
+func (r *ProfileRepo) DeleteGoal(ctx context.Context, id string) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM financial_goals WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return port.ErrNotFound
+	}
+	return nil
 }
 
 // ListAllPolicies 全量保单

@@ -64,6 +64,8 @@ func main() {
 	exportUC := usecase.NewExport(txRepo, catRepo, catRepo, assetRepo, reportRepo)
 	bucketEng := usecase.NewBucketEngine(assetRepo, profileRepo, profileRepo, profileRepo, txRepo)
 	genAdvice := usecase.NewGenerateAdvice(contextPackBuilder, bucketEng, reportRepo, llmClient, cfg.OpenAIModel)
+	goalView := usecase.NewGoalView(profileRepo, assetRepo, txRepo)
+	contextPackBuilder.AddFindingSource(goalView.Findings)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -90,6 +92,8 @@ func main() {
 		RuleRepo:    catRepo,
 		ReportRepo:  reportRepo,
 		ProfileRepo: profileRepo,
+		GoalRepo:    profileRepo,
+		GoalView:    goalView,
 		Log:         log,
 		AuthKey:     cfg.AuthKey,
 	})
@@ -153,6 +157,9 @@ func main() {
 
 		r.Get("/profile", h.Profile)
 		r.Post("/profile", h.SaveProfile)
+		r.Get("/goals", h.Goals)
+		r.Post("/api/goals", h.SaveGoal)
+		r.Post("/api/goals/{id}/delete", h.DeleteGoal)
 		r.Get("/buckets", h.Buckets)
 		r.Get("/advice", h.Advice)
 		r.Post("/advice/generate", h.GenerateAdviceSubmit)

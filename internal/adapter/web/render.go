@@ -52,6 +52,17 @@ var funcMap = template.FuncMap{
 	"pct": func(r float64) string {
 		return fmt.Sprintf("%.1f%%", r*100)
 	},
+	// goalPct 进度条宽度：比例 → 0–100 截断
+	"goalPct": func(r float64) float64 {
+		v := r * 100
+		if v > 100 {
+			v = 100
+		}
+		if v < 0 {
+			v = 0
+		}
+		return v
+	},
 	"formatDate": func(t time.Time) string {
 		return t.Format("2006-01-02")
 	},

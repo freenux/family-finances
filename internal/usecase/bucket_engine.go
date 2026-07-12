@@ -86,7 +86,8 @@ type BucketInputs struct {
 	Profile                   *domain.FamilyProfile // nil = 未填画像
 	Goals                     []domain.FinancialGoal
 	Policies                  []domain.InsurancePolicy
-	TrailingMonthlyExpenseFen int64 // 近 4 季支出折算月均（分）
+	TrailingMonthlyExpenseFen int64     // 近 4 季支出折算月均（分）
+	Now                       time.Time // 目标期限判断的基准时间（零值时 target_ym 目标按未到期处理）
 }
 
 // BucketEngine 组装输入并执行确定性诊断
@@ -147,6 +148,7 @@ func (e *BucketEngine) LoadInputs(ctx context.Context) (BucketInputs, error) {
 		total += b.Amount
 	}
 	in.TrailingMonthlyExpenseFen = total / 12
+	in.Now = e.now()
 
 	return in, nil
 }
@@ -179,7 +181,7 @@ func ComputeBuckets(in BucketInputs) BucketDiagnosis {
 	}
 
 	d.Liquid = diagnoseLiquid(data, profile, in.TrailingMonthlyExpenseFen)
-	d.Steady = diagnoseSteady(data, in.Goals)
+	d.Steady = diagnoseSteady(data, in.Goals, in.Now)
 	d.LongTerm = diagnoseLongTerm(data)
 	d.Insurance = diagnoseInsurance(in.Policies, profile.AnnualIncomeFen)
 	d.Findings = bucketFindings(d)
@@ -217,10 +219,11 @@ func diagnoseLiquid(data map[string]int64, profile domain.FamilyProfile, trailin
 	return b
 }
 
-func diagnoseSteady(data map[string]int64, goals []domain.FinancialGoal) SteadyBucket {
+func diagnoseSteady(data map[string]int64, goals []domain.FinancialGoal, now time.Time) SteadyBucket {
 	b := SteadyBucket{AmountFen: data["asset.deposit"] + data["asset.wealth"]}
 	for _, g := range goals {
-		if y := g.YearsLowerBound(); y >= 0 && y <= 3 {
+		// 优先 target_ym，无 target_ym 回退 years_to_achieve 下界（DueWithinYears 内部处理）
+		if g.DueWithinYears(3, now) {
 			b.Goals3yFen += g.TargetAmount
 			b.GoalCount++
 		}
