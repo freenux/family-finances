@@ -87,3 +87,14 @@ func TestBuildBeancount(t *testing.T) {
 		t.Fatalf("excluded 行不应导出:\n%s", out)
 	}
 }
+
+func TestBeancountEscapeNeutralizesNewline(t *testing.T) {
+	in := "正常描述\n2026-01-01 * \"伪造\" \"分录\"\r\n  Assets:Evil  1.00 CNY"
+	got := beancountEscape(in)
+	if strings.ContainsAny(got, "\n\r") {
+		t.Fatalf("beancountEscape 输出仍含换行,可伪造分录: %q", got)
+	}
+	if !strings.Contains(got, `\"伪造\"`) {
+		t.Fatalf("引号未转义: %q", got)
+	}
+}

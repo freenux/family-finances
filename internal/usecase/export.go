@@ -278,6 +278,9 @@ func beancountSanitize(s string) string {
 
 func beancountEscape(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
+	// 账单字段可能含引号内换行(encoding/csv 允许),原样输出会逃出 narration 伪造分录
+	s = strings.ReplaceAll(s, "\r", "")
+	s = strings.ReplaceAll(s, "\n", " ")
 	return strings.ReplaceAll(s, `"`, `\"`)
 }
 

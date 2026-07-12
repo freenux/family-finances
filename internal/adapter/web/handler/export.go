@@ -45,15 +45,15 @@ func (h *Handler) ExportTransactionsCSV(w http.ResponseWriter, r *http.Request) 
 			row.ID,
 			row.OccurredAt.Format("2006-01-02 15:04:05"),
 			row.Source,
-			row.Account,
+			neutralizeFormula(row.Account),
 			row.Direction,
 			strconv.FormatInt(row.AmountFen, 10),
 			row.AmountYuan,
 			row.CategoryID,
 			row.CategoryName,
-			row.Description,
-			row.Counterparty,
-			row.Note,
+			neutralizeFormula(row.Description),
+			neutralizeFormula(row.Counterparty),
+			neutralizeFormula(row.Note),
 			row.Status,
 		}
 		if err := cw.Write(record); err != nil {
@@ -65,6 +65,20 @@ func (h *Handler) ExportTransactionsCSV(w http.ResponseWriter, r *http.Request) 
 	if err := cw.Error(); err != nil {
 		h.log.Error("export csv flush", "err", err)
 	}
+}
+
+// neutralizeFormula 防电子表格公式注入(CWE-1236):账单导入的文本字段可能被构造成
+// = + - @ 开头的公式,在 Excel/LibreOffice 打开导出文件时被解释执行。单引号前缀中和,
+// 只用于文本列,不用于数字列(负数以 - 开头属正常数据)。
+func neutralizeFormula(s string) string {
+	if s == "" {
+		return s
+	}
+	switch s[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + s
+	}
+	return s
 }
 
 // ExportFullJSON GET /export/full.json —— 全量数据，json.Encoder 流式写出
