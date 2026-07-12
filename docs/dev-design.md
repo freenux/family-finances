@@ -16,9 +16,10 @@
 
 | 里程碑 | 内容 | 状态 |
 |---|---|---|
-| **M1(本次实现)** | P0:① 资产快照 `/assets` ② AI 季/年财报 `/reports` ③ 全量导出 `/export` | 待开发 |
-| **M2(下一次)** | P1:④ 风险画像 ⑤ 四笔钱分层诊断 ⑥ 配置区间引擎 + LLM 解释 ⑦ 再平衡卡片 | 本文档给出设计,暂不实现 |
-| P2/P3 | 不在本文档范围 | — |
+| **M1** | P0:① 资产快照 `/assets` ② AI 季/年财报 `/reports` ③ 全量导出 `/export` | ✅ 已完成(d12e964, 058c91b) |
+| **M2** | P1:④ 风险画像 ⑤ 四笔钱分层诊断 ⑥ 配置区间引擎 + LLM 解释 ⑦ 再平衡卡片 | ✅ 已完成(481534b…0dadbc7) |
+| **M3** | P2:⑧ 财务目标 `/goals` ⑨ 保单 `/insurance` ⑩ 预算与周期交易 `/budget` | 待开发,详见第 8 节 |
+| **M4** | P3:⑪ AI 对话 `/ask` ⑫ 周报推送 ⑬ 通用 CSV 映射导入 + Beancount 导出 ⑭ 多成员 + 情景实验室 + MCP | 待开发,详见第 9 节 |
 
 ## 2. 通用约定(摘自 CLAUDE.md,必须遵守)
 
@@ -139,7 +140,7 @@ type AssetSnapshot struct {
 
 Beancount 导出按 v2 留在 P3,不做。实现放 `handler` + 一个 `usecase/export.go`(遍历 repo,避免 handler 直接摸 SQL);需要在 port 补 `ListAll` 类方法时按约定先加接口。验收:两个端点可下载,CSV 行数 = transactions 行数,中文不乱码(带 BOM),JSON 可被 `jq` 解析。
 
-## 6. M2(P1)设计概要 — 本次不实现,评审后另行开工
+## 6. M2(P1)设计概要 — ✅ 已完成(481534b…0dadbc7)
 
 - **迁移 007**:`family_profile` 单行表(id 固定 'default'):family_structure, main_age, income_stability, annual_income_fen, mortgage_monthly_fen, monthly_expense_fen(可空=用流水自动值), emergency_months, risk_appetite, horizon, updated_at。
 - **画像**:`/profile` 一页表单;`CalcProfileGrade(profile) (grade C1..C5, equityCapPct)` 纯函数 + table-driven 测试(评分:偏好 0/3/6 + 年限 0/1/2 + 稳定性 0/1/2 − 年龄惩罚,映射 C1–C5)。
@@ -158,3 +159,66 @@ Beancount 导出按 v2 留在 P3,不做。实现放 `handler` + 一个 `usecase/
 2. 启动服务(临时 DATABASE_PATH,如 `/tmp` 下),用 playwright 驱动:登录 → `/assets` 录入保存 → 刷新数据仍在 → `/reports` 页可开 → `/export` 两个文件可下载。**不要用 curl 测页面**。
 3. 迁移无新增(M1 复用现有表);若确需调整表结构,新增 goose 迁移,禁止改旧文件。
 4. 提交:分支 `claude/product-prototype-html-8akn67`,git user = `Claude <noreply@anthropic.com>`,按功能分 2–3 个提交;push 若遇 403 权限错误,保留本地提交并在总结中说明,不要反复重试。
+
+## 8. M3(P2)详细设计
+
+> 三个功能相互独立,按 8.1 → 8.2 → 8.3 顺序实现,每小节一个提交。M2 的 bucket_engine 已消费 financial_goals(3 年内目标)与 insurance_policies(双十),本里程碑补上录入界面后它们自动生效。
+
+### 8.1 财务目标 `/goals`
+
+- **迁移 008**:`financial_goals` 加列(不动旧列):`target_ym TEXT`(目标年月 '2039-09',可空)、`current_amount_fen INTEGER NOT NULL DEFAULT 0`、`linked_codes TEXT`(JSON 数组,如 `["asset.deposit"]`,可空)。
+- domain:`GoalProgress` 计算规则(纯函数 + table-driven 测试)——剩余月数 = target_ym − 当前月(≥1);每月应存 = (target − current) / 剩余月数;进度 = current/target。`linked_codes` 非空时 current 取**最新季度快照**对应科目余额合计(覆盖手填值);target_ym 为空时回退用 `years_to_achieve` 的下界折算。
+- port:`GoalRepo { List; Upsert; Delete }`(M2 已有读接口的话扩展之)。
+- usecase `goal_view.go`:目标列表 + 进度 + 月供;**目标过载 finding**(`goal_overload`):Σ各目标月供 > 近 4 季月均结余 → 进 ContextPack findings。
+- handler:`GET /goals` 页面(卡片版式对照 `prototypes/p2.html` ⑦,含新建表单)、`POST /api/goals`(新建/更新,校验 target>0、ym 格式)、`POST /api/goals/{id}/delete`。
+- bucket_engine 稳健桶匹配改为优先用 target_ym(3 年内),无 target_ym 再用 years_to_achieve 下界。
+
+### 8.2 保单登记 `/insurance`
+
+- 表结构够用,无迁移。port:`InsuranceRepo { List; Upsert; Delete }`。
+- usecase `insurance_view.go`:列表 + 年保费合计 + 复用 bucket_engine 的保障双十诊断输出;`renewal_date` 距今 ≤ 90 天 → finding `insurance_renewal_due`(进 ContextPack 与 8.3 现金流时间线)。
+- handler:`GET /insurance`(表格 + 缺口检查面板,版式对照 `prototypes/p2.html` ⑧)、`POST /api/insurance`、`POST /api/insurance/{id}/delete`。insurance_type 用 select(定期寿险/终身寿险/重疾/医疗/意外/年金/其他),寿险识别沿用 M2 domain 逻辑。
+
+### 8.3 预算与周期交易 `/budget`
+
+- **迁移 009**:`budgets(id TEXT PK, category_id TEXT NOT NULL UNIQUE REFERENCES categories(id), quarter_amount INTEGER NOT NULL, updated_at)`——只做季度预算,月度不做。
+- usecase `budget_view.go`:当前季度 confirmed 支出按二级科目聚合 vs 预算;超支(>100%)与接近(>95%)状态;超支科目 → finding `budget_over_<categoryID>` 进 ContextPack。
+- usecase `recurring_engine.go`(**确定性,table-driven 测试为主交付物**):在近 12 个月 confirmed 支出中识别周期项——按(交易对手或描述前缀)分组,组内金额差 ≤5% 且相邻间隔≈30±5 / 90±10 / 365±20 天、月/季项 ≥3 次、年项 ≥2 次即识别;输出 `{name, cadence, amount_fen, last_date, next_date}`。未来 90 天现金流:固定流出 = 周期项外推 + 保单缴费日;流入 = 近 6 个月 `income.salary` 类月均;按自然月分组输出。
+- handler:`GET /budget`(预算表就地编辑 + 周期交易列表 + 90 天现金流,版式对照 `prototypes/p2.html` ⑨)、`PUT /api/budgets`(整表提交 `{category_id: amount_fen}`)。
+
+## 9. M4(P3)详细设计
+
+> 按 9.1 → 9.2 → 9.3 → 9.4 顺序,每小节一个提交。9.4 规模最大且优先级最低,额度紧张时可以只完成 9.1–9.3 并如实报告。
+
+### 9.1 AI 对话问数 `/ask`
+
+- usecase `ask.go`:输入问题 + 最新季度 ContextPack(含 M3 新 findings)→ LLM(json_object)输出 `{can_answer bool, answer string, refs []string}`;can_answer=false 或 refs 违白名单 → 返回固定"无法回答"文案(不编数,铁律 3)。**不落库**,无会话历史(每问独立),不开放 SQL。
+- handler:`GET /ask` 聊天页(预设问题 chips + 输入框,版式对照 `prototypes/p3.html` ⑩;无 key 时输入禁用)+ `POST /api/ask`(同步,30s 超时)。答案下方小字渲染 refs 对应数据依据 + 免责声明。
+
+### 9.2 周报/季报推送
+
+- **迁移 010**:`digest_settings` 单行表(id CHECK ='default'):enabled, cadence('weekly'|'quarterly'), channel('email'|'webhook'), target(收件地址或 webhook URL), modules(JSON), last_sent_at。
+- config 增补:`SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS/SMTP_FROM`(.env.example 同步)。
+- usecase `digest.go`:组装摘要——本周(或本季)支出 vs 上期、Top3 支出科目、待确认流水数、(可选)LLM 一句话观察(无 key 跳过该模块);渲染为简洁 HTML(内联样式)与纯文本两版。
+- 发送器:email 用 `net/smtp`(PlainAuth,STARTTLS);webhook 直接 POST JSON。main.go 起 goroutine 每小时检查 due(参考 ClassifyPending 的循环模式);cadence=weekly 周一 08:00 后首个检查点发送,quarterly 季初首日。
+- handler:`GET/POST /settings/digest`(设置页,版式对照 `prototypes/p3.html` ⑪)+ `POST /api/digest/test`(立即发送一封测试)。未配置 SMTP/webhook 时保存可用、发送禁用并提示。
+
+### 9.3 通用 CSV 映射导入 + Beancount 导出
+
+- **迁移 011**:`import_templates(id TEXT PK, name TEXT UNIQUE, mapping TEXT NOT NULL, created_at)`。
+- `adapter/bill/generic_csv.go`:实现现有 `Parser` 接口,构造时注入 mapping:`{time_col, date_format, amount_mode('single'|'debit_credit'), amount_col, debit_col, credit_col, desc_cols[], counterparty_col, skip_rows}`;编码探测:先 UTF-8(含 BOM),失败转 GB18030(复用 alipay 解析器的转换代码);金额入库走"元×100+0.5"分转换。
+- 流程:`POST /api/imports/csv/preview`(上传文件暂存 scratchpad 风格临时目录,返回表头 + 前 5 行原始值)→ 页面映射 UI(版式对照 `prototypes/p3.html` ⑫,选择映射后预览解析结果)→ `POST /imports/csv`(mapping + 可选 template 名保存)→ 走 `ImportBill.Execute` 同一链路(去重键 source='csv:<模板名>',transaction_no 用 时间+金额+描述 哈希)。
+- Beancount 导出:`GET /export/beancount`——`income.* → Income:<驼峰路径>`、`expense.* → Expenses:<驼峰路径>`,资金账户 `Assets:WeChat / Assets:Alipay / Assets:Csv:<模板名>`;收入行金额为负(复式);描述含引号转义;文件头注释带导出时间。挂到 /export 页第三张卡。
+
+### 9.4 多成员 + 情景实验室(MCP 延后)
+
+- **迁移 012**:`transactions` 加 `member TEXT NOT NULL DEFAULT ''`;导入表单(网页 + CSV)加"成员"文本输入(datalist 记忆已有值);流水页筛选器与统计页聚合加成员维度(空 = 未标注)。不做账号权限体系。
+- 情景实验室(v2 #14,呈现形式):usecase `scenario.go` 纯函数——三档预设(保守/均衡/进取)各自的长期桶权益比例取该档区间中点,输出预期年化区间、历史最大回撤区间(静态系数表:权益比例 20%→回撤5-10%,50%→15-25%,80%→25-40% 线性插值)、对最早 financial_goal 达成时间的影响(按区间上下界复利);页面挂在 `/advice` 下方三卡对比,标注"假设与系数为教育演示,非预测"。**不调 LLM**。
+- MCP server(P3 #13)**本里程碑不做**,在报告中列为遗留。
+
+## 10. M3/M4 通用验收
+
+- 每小节:go build + go test 全绿(新引擎必须 table-driven);gofmt 干净;每小节一个中文提交。
+- 每里程碑收尾:playwright 走通该里程碑全部页面(登录 → 各页核心操作 → 数据持久化验证),截图存 scratchpad;然后 push(失败按 2s/4s/8s/16s 重试)。
+- ContextPack 新增 findings(goal_overload / insurance_renewal_due / budget_over_*)自动进入财报与 /ask 的 refs 白名单,补一条集成测试。
+- 隐私铁律不变:CSV 原始文件解析后即删,LLM 输入不含单笔明细与对手方。
