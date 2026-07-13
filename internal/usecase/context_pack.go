@@ -194,22 +194,38 @@ func flattenMoneySection(groups []domain.CategoryGroupAggregation, total int64) 
 
 // savingsRateStreak 从当期往前数，结余率连续 >= 阈值的期数（含当期）。
 // 当期不达标则返回 0。
+// 性能：不再逐期跑 QueryReport.Execute（每期都是一次 ×30 科目聚合）；
+// 改为 SumByBuckets 一次范围扫描取回溯 8 期的收入/支出合计（income/expense 各一次查询），
+// 在 Go 里算连续性。口径为期内 confirmed 全部流水（含未分类行），阈值与文案不变。
 func (b *ContextPackBuilder) savingsRateStreak(ctx context.Context, p domain.Period, curRate float64) (int, error) {
 	if curRate < savingsRateStreakThreshold {
 		return 0, nil
 	}
-	streak := 1
-	cursor := p.Previous()
-	for i := 0; i < maxStreakLookback; i++ {
-		rep, err := b.queryReport.Execute(ctx, cursor, domain.AccountFamily)
-		if err != nil {
-			return 0, fmt.Errorf("query streak period %s: %w", cursor.Label, err)
-		}
-		if rep.KPI.TotalIncome == 0 || rep.KPI.SurplusRate < savingsRateStreakThreshold {
+	// 回溯 8 期（与 p 同类型），按时间升序构桶（SumByBuckets 约定）
+	buckets := make([]port.PeriodBucket, maxStreakLookback)
+	cursor := p
+	for i := maxStreakLookback - 1; i >= 0; i-- {
+		cursor = cursor.Previous()
+		buckets[i] = port.PeriodBucket{Label: cursor.Label, Start: cursor.Start, End: cursor.End}
+	}
+	income, err := b.txRepo.SumByBuckets(ctx, buckets, domain.DirectionIncome, domain.AccountFamily)
+	if err != nil {
+		return 0, fmt.Errorf("sum streak income: %w", err)
+	}
+	expense, err := b.txRepo.SumByBuckets(ctx, buckets, domain.DirectionExpense, domain.AccountFamily)
+	if err != nil {
+		return 0, fmt.Errorf("sum streak expense: %w", err)
+	}
+
+	streak := 1 // 当期已达标
+	// 桶按时间升序，从最近的过去期（末尾）往回数
+	for i := len(buckets) - 1; i >= 0; i-- {
+		in := income[i].Amount
+		out := expense[i].Amount
+		if in <= 0 || float64(in-out)/float64(in) < savingsRateStreakThreshold {
 			break
 		}
 		streak++
-		cursor = cursor.Previous()
 	}
 	return streak, nil
 }

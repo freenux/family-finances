@@ -145,8 +145,7 @@ func budgetStatus(budget, spent int64) string {
 
 // recurringAndInflow 近 12 个月支出识别周期项 + 近 6 个月工资类月均流入
 func (uc *BudgetView) recurringAndInflow(ctx context.Context, now time.Time) ([]RecurringItem, int64, error) {
-	yearAgo := domain.Period{Start: now.AddDate(-1, 0, 0), End: now.AddDate(0, 0, 1)}
-	txs, err := uc.txRepo.List(ctx, yearAgo, domain.AccountFamily)
+	txs, err := uc.txRepo.ListForRecurring(ctx, now.AddDate(-1, 0, 0), now.AddDate(0, 0, 1))
 	if err != nil {
 		return nil, 0, err
 	}

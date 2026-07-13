@@ -48,8 +48,9 @@ func recurringGroupKey(t domain.Transaction) string {
 	return string(runes)
 }
 
-// DetectRecurring 纯函数：在交易列表（应为近 12 个月 confirmed 支出）中识别周期项。
-// 输入无需有序；输出按下一次发生时间升序。
+// DetectRecurring 纯函数：在交易列表（应为近 12 个月 confirmed 支出，
+// 生产路径经 ListForRecurring 已在 SQL 侧过滤）中识别周期项。
+// 输入无需有序；输出按下一次发生时间升序。方向/状态过滤保留作防御。
 func DetectRecurring(txs []domain.Transaction) []RecurringItem {
 	groups := map[string][]domain.Transaction{}
 	for _, t := range txs {

@@ -77,6 +77,10 @@ type TransactionRepo interface {
 	ListAllImportBatches(ctx context.Context) ([]domain.ImportBatch, error)
 	// ListMembers 已出现过的成员标注去重列表（datalist 记忆用）
 	ListMembers(ctx context.Context) ([]string, error)
+	// ListForRecurring 周期识别专用精简查询：direction='expense' AND status='confirmed'，
+	// 只取 occurred_at / counterparty / description / amount 必要列（不拉 raw_row 等大字段），
+	// 返回的 Transaction 仅这四个字段 + Direction/Status 有值。
+	ListForRecurring(ctx context.Context, from, to time.Time) ([]domain.Transaction, error)
 }
 
 type CategoryRepo interface {

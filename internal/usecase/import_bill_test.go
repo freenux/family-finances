@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/transform"
@@ -128,6 +129,10 @@ func (r *captureTransactionRepo) ListAllImportBatches(context.Context) ([]domain
 }
 
 func (r *captureTransactionRepo) ListMembers(context.Context) ([]string, error) {
+	return nil, nil
+}
+
+func (r *captureTransactionRepo) ListForRecurring(context.Context, time.Time, time.Time) ([]domain.Transaction, error) {
 	return nil, nil
 }
 

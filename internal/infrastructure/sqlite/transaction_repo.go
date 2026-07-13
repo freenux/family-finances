@@ -388,6 +388,29 @@ func scanTxs(rows *sql.Rows) ([]domain.Transaction, error) {
 	return out, rows.Err()
 }
 
+// ListForRecurring 周期识别专用：SQL 侧过滤 + 只取必要列，避免 12 个月全列（含 raw_row）扫描
+func (r *TransactionRepo) ListForRecurring(ctx context.Context, from, to time.Time) ([]domain.Transaction, error) {
+	rows, err := r.db.QueryContext(ctx, `
+SELECT occurred_at, COALESCE(counterparty,''), COALESCE(description,''), amount
+FROM transactions
+WHERE occurred_at >= ? AND occurred_at < ?
+  AND direction = 'expense' AND status = 'confirmed'
+ORDER BY occurred_at`, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.Transaction
+	for rows.Next() {
+		t := domain.Transaction{Direction: domain.DirectionExpense, Status: domain.TxStatusConfirmed}
+		if err := rows.Scan(&t.OccurredAt, &t.Counterparty, &t.Description, &t.Amount); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 // ListMembers 已出现过的成员标注（去重、非空、按字典序）
 func (r *TransactionRepo) ListMembers(ctx context.Context) ([]string, error) {
 	rows, err := r.db.QueryContext(ctx, `

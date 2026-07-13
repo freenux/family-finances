@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"time"
 
 	"family-finances/internal/domain"
 	"family-finances/internal/port"
@@ -94,6 +95,21 @@ func (f *fakeTransactionRepo) ListAllImportBatches(context.Context) ([]domain.Im
 }
 
 func (f *fakeTransactionRepo) ListMembers(context.Context) ([]string, error) { return nil, nil }
+
+func (f *fakeTransactionRepo) ListForRecurring(_ context.Context, from, to time.Time) ([]domain.Transaction, error) {
+	var out []domain.Transaction
+	for _, t := range f.allTxs {
+		if t.Direction == domain.DirectionExpense && t.Status == domain.TxStatusConfirmed &&
+			!t.OccurredAt.Before(from) && t.OccurredAt.Before(to) {
+			out = append(out, domain.Transaction{
+				OccurredAt: t.OccurredAt, Counterparty: t.Counterparty,
+				Description: t.Description, Amount: t.Amount,
+				Direction: t.Direction, Status: t.Status,
+			})
+		}
+	}
+	return out, nil
+}
 
 // ---- fakeAssetSnapshotRepo ----
 
