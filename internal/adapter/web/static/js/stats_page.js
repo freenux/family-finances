@@ -7,6 +7,8 @@ function statsPage() {
     granularity: 'month',
     direction:   'expense',
     account:     'family',
+    // 默认日常口径：默认视图必须是干净的，一次装修就能把全局同比拉到 +368%
+    scope:       'daily',
     periodKey:   defaultPeriodKey('month'),
     expandTop:   false,
 
@@ -51,6 +53,14 @@ function statsPage() {
       this.fetchView();
     },
 
+    setScope(s) {
+      if (this.scope === s) return;
+      this.scope = s;
+      this.resetFocus();
+      this.expandTop = false;
+      this.fetchView();
+    },
+
     shiftPeriod(delta) {
       const next = shiftPeriodKey(this.granularity, this.periodKey, delta);
       if (!next) return;
@@ -86,6 +96,7 @@ function statsPage() {
         period: this.periodKey,
         direction: this.direction,
         account: this.account,
+        scope: this.scope,
       });
       try {
         const r = await fetch('/api/stats?' + q.toString());
@@ -129,7 +140,8 @@ function statsPage() {
       const gl = { month: '月度', quarter: '季度', year: '年度' }[this.granularity];
       const ac = { husband: '男主', wife: '女主', family: '家庭总账' }[this.account];
       const di = { expense: '支出', income: '收入' }[this.direction];
-      return gl + ' · ' + ac + ' · ' + di + ' · ' + this.periodKey;
+      const sc = { daily: '日常', all: '全部', special: '仅专项' }[this.scope] || '日常';
+      return gl + ' · ' + ac + ' · ' + di + ' · ' + sc + ' · ' + this.periodKey;
     },
 
     perDayLabel() {
@@ -171,11 +183,27 @@ function statsPage() {
       return (amount / max * 100).toFixed(1);
     },
 
-    // 对比条高度
+    // 对比条高度。柱子按「日常 + 专项」的总额归一，专项段叠在日常段之上，
+    // 否则专项一多就会把柱子顶出 track。
+    barMax(arr) {
+      const max = Math.max(...arr.map(x => x.amount + (x.special || 0)));
+      return max > 0 ? max : 0;
+    },
+
     normBar(amount, arr) {
-      const max = Math.max(...arr.map(x => x.amount));
+      const max = this.barMax(arr);
       if (!max) return 0;
       return (amount / max * 100).toFixed(1);
+    },
+
+    normSpecial(b, arr) {
+      const max = this.barMax(arr);
+      if (!max || !b.special) return 0;
+      return (b.special / max * 100).toFixed(1);
+    },
+
+    hasSpecial(arr) {
+      return Array.isArray(arr) && arr.some(x => x.special);
     },
 
     focusMonth() {

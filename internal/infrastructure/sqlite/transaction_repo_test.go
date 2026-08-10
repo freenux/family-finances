@@ -86,7 +86,7 @@ func TestSumByBuckets(t *testing.T) {
 	insertTestTx(t, repo, "e", time.Date(2026, 3, 31, 12, 0, 0, 0, loc), 888, domain.TxStatusConfirmed) // 范围外不计
 	insertTestTx(t, repo, "f", time.Date(2026, 7, 1, 0, 0, 0, 0, loc), 777, domain.TxStatusConfirmed)   // End 独占，不计
 
-	got, err := repo.SumByBuckets(context.Background(), buckets, domain.DirectionExpense, domain.AccountFamily)
+	got, err := repo.SumByBuckets(context.Background(), buckets, domain.DirectionExpense, domain.AccountFamily, domain.ScopeAll)
 	if err != nil {
 		t.Fatalf("SumByBuckets() error = %v", err)
 	}
@@ -98,7 +98,7 @@ func TestSumByBuckets(t *testing.T) {
 	}
 
 	// 按账户过滤：wife 名下无流水
-	gotWife, err := repo.SumByBuckets(context.Background(), buckets, domain.DirectionExpense, domain.AccountWife)
+	gotWife, err := repo.SumByBuckets(context.Background(), buckets, domain.DirectionExpense, domain.AccountWife, domain.ScopeAll)
 	if err != nil {
 		t.Fatalf("SumByBuckets(wife) error = %v", err)
 	}
@@ -109,7 +109,7 @@ func TestSumByBuckets(t *testing.T) {
 	}
 
 	// 空桶列表
-	empty, err := repo.SumByBuckets(context.Background(), nil, domain.DirectionExpense, domain.AccountFamily)
+	empty, err := repo.SumByBuckets(context.Background(), nil, domain.DirectionExpense, domain.AccountFamily, domain.ScopeAll)
 	if err != nil || len(empty) != 0 {
 		t.Fatalf("SumByBuckets(nil) = %v, %v; want empty, nil", empty, err)
 	}

@@ -562,11 +562,12 @@ table.tx-list .tx-col-date { width: 7.5%; }
 table.tx-list .tx-col-source { width: 5%; }
 table.tx-list .tx-col-account { width: 7%; }
 table.tx-list .tx-col-direction { width: 5%; }
-table.tx-list .tx-col-description { width: 25%; }
-table.tx-list .tx-col-amount { width: 12%; }
-table.tx-list .tx-col-category { width: 16%; }
-table.tx-list .tx-col-note { width: 12%; }
-table.tx-list .tx-col-status { width: 10.5%; }
+table.tx-list .tx-col-description { width: 21%; }
+table.tx-list .tx-col-amount { width: 11%; }
+table.tx-list .tx-col-category { width: 13%; }
+table.tx-list .tx-col-special { width: 10%; }
+table.tx-list .tx-col-note { width: 10%; }
+table.tx-list .tx-col-status { width: 9%; }
 
 .empty {
   text-align: center;

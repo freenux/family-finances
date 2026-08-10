@@ -49,6 +49,8 @@ type Handler struct {
 	digestSvc    *usecase.DigestService
 	digestSender usecase.DigestSender
 	templateRepo port.ImportTemplateRepo
+	specialRepo  port.SpecialProjectRepo
+	specialView  *usecase.SpecialView
 	log          *slog.Logger
 	flash        *flashStore
 	auth         *authManager
@@ -81,6 +83,8 @@ type Deps struct {
 	DigestSvc    *usecase.DigestService
 	DigestSender usecase.DigestSender
 	TemplateRepo port.ImportTemplateRepo
+	SpecialRepo  port.SpecialProjectRepo
+	SpecialView  *usecase.SpecialView
 	Log          *slog.Logger
 	AuthKey      string
 }
@@ -112,6 +116,8 @@ func New(d Deps) *Handler {
 		digestSvc:    d.DigestSvc,
 		digestSender: d.DigestSender,
 		templateRepo: d.TemplateRepo,
+		specialRepo:  d.SpecialRepo,
+		specialView:  d.SpecialView,
 		log:          d.Log,
 		flash:        newFlashStore(),
 		auth:         newAuthManager(d.AuthKey),
@@ -291,8 +297,10 @@ func (h *Handler) StatsAPI(w http.ResponseWriter, r *http.Request) {
 		dir = domain.DirectionExpense
 	}
 	acc := parseAccountFromQuery(r)
+	// 缺省 daily：默认视图必须是干净的，一次装修就能把全局同比拉到 +368%
+	scope := domain.ParseScope(q.Get("scope"))
 
-	view, err := h.queryStats.Execute(r.Context(), p, dir, acc, 10)
+	view, err := h.queryStats.Execute(r.Context(), p, dir, acc, scope, 10)
 	if err != nil {
 		h.serverError(w, err)
 		return
@@ -319,7 +327,8 @@ func (h *Handler) StatsTopAPI(w http.ResponseWriter, r *http.Request) {
 		limit = l
 	}
 
-	tops, err := h.txRepo.TopTransactions(r.Context(), p, dir, acc, limit)
+	// 与 QueryStats 的 Top 榜单同口径：恒为全口径，剔了大额就不叫大额榜单了
+	tops, err := h.txRepo.TopTransactions(r.Context(), p, dir, acc, domain.ScopeAll, limit)
 	if err != nil {
 		h.serverError(w, err)
 		return
@@ -350,6 +359,7 @@ func (h *Handler) StatsTopAPI(w http.ResponseWriter, r *http.Request) {
 			Amount:   t.Amount,
 			Category: cat,
 			Account:  string(t.Account),
+			Special:  t.SpecialName,
 		})
 	}
 	writeJSON(w, out)
@@ -546,7 +556,35 @@ type txRowJSON struct {
 	Direction        string `json:"direction"`
 	Status           string `json:"status"`
 	CategoryID       string `json:"category_id"`
+	SpecialID        string `json:"special_id"`
 	RawRow           string `json:"raw_row"`
+}
+
+// specialJSON 流水页专项下拉用
+type specialJSON struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Active bool   `json:"active"`
+}
+
+func txRowJSONFrom(t domain.Transaction) txRowJSON {
+	return txRowJSON{
+		ID:               t.ID,
+		OccurredAt:       t.OccurredAt.Format("2006-01-02"),
+		Source:           string(t.Source),
+		Account:          string(t.Account),
+		Member:           t.Member,
+		Counterparty:     t.Counterparty,
+		Description:      t.Description,
+		PlatformCategory: t.PlatformCategory,
+		Note:             t.Note,
+		AmountFen:        t.Amount,
+		Direction:        string(t.Direction),
+		Status:           string(t.Status),
+		CategoryID:       t.CategoryID,
+		SpecialID:        t.SpecialID,
+		RawRow:           t.RawRow,
+	}
 }
 
 type catJSON struct {
@@ -576,6 +614,7 @@ type txListVM struct {
 	TransactionsJSON string
 	CategoriesJSON   string
 	RuleJSON         string
+	SpecialsJSON     string
 }
 
 func ruleJSONFromDomain(rule domain.CategoryRule, cats []domain.Category) ruleJSON {
@@ -619,22 +658,13 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 
 	txJSON := make([]txRowJSON, 0, len(txs))
 	for _, t := range txs {
-		txJSON = append(txJSON, txRowJSON{
-			ID:               t.ID,
-			OccurredAt:       t.OccurredAt.Format("2006-01-02"),
-			Source:           string(t.Source),
-			Account:          string(t.Account),
-			Member:           t.Member,
-			Counterparty:     t.Counterparty,
-			Description:      t.Description,
-			PlatformCategory: t.PlatformCategory,
-			Note:             t.Note,
-			AmountFen:        t.Amount,
-			Direction:        string(t.Direction),
-			Status:           string(t.Status),
-			CategoryID:       t.CategoryID,
-			RawRow:           t.RawRow,
-		})
+		txJSON = append(txJSON, txRowJSONFrom(t))
+	}
+
+	specials, err := h.listSpecialsJSON(r.Context())
+	if err != nil {
+		h.serverError(w, err)
+		return
 	}
 
 	catNameByID := make(map[string]string, len(cats))
@@ -661,6 +691,7 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 
 	txBytes, _ := json.Marshal(txJSON)
 	catBytes, _ := json.Marshal(catJSONs)
+	specialBytes, _ := json.Marshal(specials)
 	ruleBytes := []byte("null")
 	if ruleID := strings.TrimSpace(r.URL.Query().Get("rule_id")); ruleID != "" {
 		rule, err := h.ruleRepo.GetRule(r.Context(), ruleID)
@@ -684,8 +715,25 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		TransactionsJSON: string(txBytes),
 		CategoriesJSON:   string(catBytes),
 		RuleJSON:         string(ruleBytes),
+		SpecialsJSON:     string(specialBytes),
 	}
 	h.renderPage(w, http.StatusOK, "transactions", vm)
+}
+
+// listSpecialsJSON 专项下拉选项（进行中的排前面，由 repo 的排序保证）
+func (h *Handler) listSpecialsJSON(ctx context.Context) ([]specialJSON, error) {
+	if h.specialRepo == nil {
+		return []specialJSON{}, nil
+	}
+	projects, err := h.specialRepo.ListAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]specialJSON, 0, len(projects))
+	for _, p := range projects {
+		out = append(out, specialJSON{ID: p.ID, Name: p.Name, Active: p.IsActive()})
+	}
+	return out, nil
 }
 
 // ListTransactionsAPI: GET /api/transactions?type=...&period=...&account=...
@@ -704,22 +752,7 @@ func (h *Handler) ListTransactionsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]txRowJSON, 0, len(txs))
 	for _, t := range txs {
-		out = append(out, txRowJSON{
-			ID:               t.ID,
-			OccurredAt:       t.OccurredAt.Format("2006-01-02"),
-			Source:           string(t.Source),
-			Account:          string(t.Account),
-			Member:           t.Member,
-			Counterparty:     t.Counterparty,
-			Description:      t.Description,
-			PlatformCategory: t.PlatformCategory,
-			Note:             t.Note,
-			AmountFen:        t.Amount,
-			Direction:        string(t.Direction),
-			Status:           string(t.Status),
-			CategoryID:       t.CategoryID,
-			RawRow:           t.RawRow,
-		})
+		out = append(out, txRowJSONFrom(t))
 	}
 	writeJSON(w, map[string]any{"transactions": out})
 }
@@ -732,6 +765,24 @@ type updateTxReq struct {
 	Status     *string `json:"status"`
 	Account    *string `json:"account"`
 	Member     *string `json:"member"`
+	SpecialID  *string `json:"special_id"` // 空字符串 = 归回日常
+}
+
+// ensureSpecial 校验专项存在；空串（清空）直接放行
+func (h *Handler) ensureSpecial(ctx context.Context, id string) error {
+	if id == "" {
+		return nil
+	}
+	if h.specialRepo == nil {
+		return fmt.Errorf("专项功能未启用")
+	}
+	if _, err := h.specialRepo.Get(ctx, id); err != nil {
+		if errors.Is(err, port.ErrNotFound) {
+			return fmt.Errorf("专项不存在")
+		}
+		return err
+	}
+	return nil
 }
 
 func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
@@ -792,6 +843,14 @@ func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		}
 		patch.Member = &m
 	}
+	if req.SpecialID != nil {
+		v := strings.TrimSpace(*req.SpecialID)
+		if err := h.ensureSpecial(r.Context(), v); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		patch.SpecialID = &v
+	}
 	if err := h.txRepo.Update(r.Context(), id, patch); err != nil {
 		if errors.Is(err, port.ErrNotFound) {
 			http.Error(w, "流水不存在", http.StatusNotFound)
@@ -801,6 +860,61 @@ func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// batchUpdateTxReq PATCH /api/transactions/batch 的请求体
+type batchUpdateTxReq struct {
+	IDs       []string `json:"ids"`
+	SpecialID *string  `json:"special_id"` // 空字符串 = 批量归回日常
+}
+
+// maxBatchTxIDs 一次批量操作的上限。装修一次上百笔，给足余量但不放任无界请求。
+const maxBatchTxIDs = 1000
+
+// BatchUpdateTransactions PATCH /api/transactions/batch —— 批量归入专项。
+// 装修一次几十上百笔，逐条 PATCH 不可用。
+func (h *Handler) BatchUpdateTransactions(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 256<<10)
+	var req batchUpdateTxReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(req.IDs) == 0 {
+		http.Error(w, "请选择要归类的流水", http.StatusBadRequest)
+		return
+	}
+	if len(req.IDs) > maxBatchTxIDs {
+		http.Error(w, fmt.Sprintf("一次最多处理 %d 条流水", maxBatchTxIDs), http.StatusBadRequest)
+		return
+	}
+	if req.SpecialID == nil {
+		http.Error(w, "缺少 special_id", http.StatusBadRequest)
+		return
+	}
+	specialID := strings.TrimSpace(*req.SpecialID)
+	if err := h.ensureSpecial(r.Context(), specialID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	patch := port.TransactionUpdate{SpecialID: &specialID}
+	updated := 0
+	for _, id := range req.IDs {
+		if id == "" {
+			continue
+		}
+		if err := h.txRepo.Update(r.Context(), id, patch); err != nil {
+			// 单条不存在不算整体失败（前端列表可能已过期），继续处理剩下的
+			if errors.Is(err, port.ErrNotFound) {
+				continue
+			}
+			h.serverError(w, err)
+			return
+		}
+		updated++
+	}
+	writeJSON(w, map[string]any{"updated": updated})
 }
 
 // ----- Import bill -----

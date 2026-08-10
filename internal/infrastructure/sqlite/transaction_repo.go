@@ -25,7 +25,7 @@ func (r *TransactionRepo) Insert(ctx context.Context, tx domain.Transaction) err
 		tx.ID, string(tx.Source), string(tx.Account), nullIfEmpty(tx.ImportBatchID), tx.OccurredAt,
 		tx.Counterparty, tx.Description, tx.PlatformCategory, tx.Note, tx.Amount,
 		string(tx.Direction), string(tx.Status), nullIfEmpty(tx.CategoryID),
-		tx.RawRow, tx.CreatedAt, tx.UpdatedAt, tx.Member,
+		tx.RawRow, tx.CreatedAt, tx.UpdatedAt, tx.Member, nullIfEmpty(tx.SpecialID),
 	)
 	return err
 }
@@ -33,8 +33,8 @@ func (r *TransactionRepo) Insert(ctx context.Context, tx domain.Transaction) err
 const insertTxSQL = `
 INSERT INTO transactions
   (id, source, account, import_batch_id, occurred_at, counterparty, description, platform_category, note,
-   amount, direction, status, category_id, raw_row, created_at, updated_at, member)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+   amount, direction, status, category_id, raw_row, created_at, updated_at, member, special_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 // InsertBatch 把一批候选行写入，逐行检查 imported_transaction_keys 去重，同一事务内提交。
 // 去重键是 (source, account, transaction_no)。
@@ -86,7 +86,7 @@ SELECT 1 FROM imported_transaction_keys WHERE source = ? AND account = ? AND tra
 			t.ID, string(t.Source), string(t.Account), nullIfEmpty(t.ImportBatchID), t.OccurredAt,
 			t.Counterparty, t.Description, t.PlatformCategory, t.Note, t.Amount,
 			string(t.Direction), string(t.Status), nullIfEmpty(t.CategoryID),
-			t.RawRow, t.CreatedAt, t.UpdatedAt, t.Member,
+			t.RawRow, t.CreatedAt, t.UpdatedAt, t.Member, nullIfEmpty(t.SpecialID),
 		); err != nil {
 			return res, fmt.Errorf("insert tx: %w", err)
 		}
@@ -143,6 +143,14 @@ func (r *TransactionRepo) Update(ctx context.Context, id string, patch port.Tran
 		sets = append(sets, "member = ?")
 		args = append(args, *patch.Member)
 	}
+	if patch.SpecialID != nil {
+		if *patch.SpecialID == "" {
+			sets = append(sets, "special_id = NULL")
+		} else {
+			sets = append(sets, "special_id = ?")
+			args = append(args, *patch.SpecialID)
+		}
+	}
 	if len(sets) == 0 {
 		return nil
 	}
@@ -195,7 +203,7 @@ LIMIT ?`, limit)
 	return scanTxs(rows)
 }
 
-func (r *TransactionRepo) AggregateByCategory(ctx context.Context, p domain.Period, account domain.Account) ([]domain.CategoryAggregation, error) {
+func (r *TransactionRepo) AggregateByCategory(ctx context.Context, p domain.Period, account domain.Account, scope domain.Scope) ([]domain.CategoryAggregation, error) {
 	q := `
 SELECT c.id, c.name, COALESCE(c.parent_id,''), COALESCE(SUM(t.amount),0) AS total
 FROM categories c
@@ -208,6 +216,8 @@ LEFT JOIN transactions t
 		q += " AND t.account = ?"
 		args = append(args, string(account))
 	}
+	// 口径过滤必须留在 ON 里：挪到 WHERE 会把无匹配流水的科目整行滤掉
+	q += scope.SQLFilter("t.special_id")
 	q += `
 WHERE c.level = 2
 GROUP BY c.id, c.name, c.parent_id
@@ -230,7 +240,7 @@ ORDER BY c.sort_order`
 
 // SumByBuckets 单次范围扫描覆盖全部桶（调用方传入的桶按时间升序、互不重叠），
 // 在 Go 侧按桶边界归集，避免每桶一条 SQL（月+季对比一次要 26 个桶）。
-func (r *TransactionRepo) SumByBuckets(ctx context.Context, buckets []port.PeriodBucket, direction domain.Direction, account domain.Account) ([]port.PeriodBucket, error) {
+func (r *TransactionRepo) SumByBuckets(ctx context.Context, buckets []port.PeriodBucket, direction domain.Direction, account domain.Account, scope domain.Scope) ([]port.PeriodBucket, error) {
 	out := make([]port.PeriodBucket, len(buckets))
 	for i, b := range buckets {
 		out[i] = port.PeriodBucket{Label: b.Label, Start: b.Start, End: b.End}
@@ -249,6 +259,7 @@ WHERE occurred_at >= ? AND occurred_at < ?
 		q += " AND account = ?"
 		args = append(args, string(account))
 	}
+	q += scope.SQLFilter("special_id")
 	rows, err := r.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
@@ -269,12 +280,14 @@ WHERE occurred_at >= ? AND occurred_at < ?
 	return out, rows.Err()
 }
 
-func (r *TransactionRepo) TopTransactions(ctx context.Context, p domain.Period, direction domain.Direction, account domain.Account, limit int) ([]port.TopTransaction, error) {
+func (r *TransactionRepo) TopTransactions(ctx context.Context, p domain.Period, direction domain.Direction, account domain.Account, scope domain.Scope, limit int) ([]port.TopTransaction, error) {
 	q := `
 SELECT t.id, t.occurred_at, COALESCE(t.counterparty,''), COALESCE(t.description,''), COALESCE(t.note,''),
-       t.amount, t.direction, t.account, COALESCE(t.category_id,''), COALESCE(c.name,'')
+       t.amount, t.direction, t.account, COALESCE(t.category_id,''), COALESCE(c.name,''),
+       COALESCE(t.special_id,''), COALESCE(sp.name,'')
 FROM transactions t
 LEFT JOIN categories c ON c.id = t.category_id
+LEFT JOIN special_projects sp ON sp.id = t.special_id
 WHERE t.occurred_at >= ? AND t.occurred_at < ?
   AND t.direction = ?
   AND t.status = 'confirmed'`
@@ -283,6 +296,7 @@ WHERE t.occurred_at >= ? AND t.occurred_at < ?
 		q += " AND t.account = ?"
 		args = append(args, string(account))
 	}
+	q += scope.SQLFilter("t.special_id")
 	q += `
 ORDER BY t.amount DESC, t.occurred_at DESC
 LIMIT ?`
@@ -297,7 +311,8 @@ LIMIT ?`
 		var t port.TopTransaction
 		var dir, acc string
 		if err := rows.Scan(&t.ID, &t.OccurredAt, &t.Counterparty, &t.Description, &t.Note,
-			&t.Amount, &dir, &acc, &t.CategoryID, &t.CategoryName); err != nil {
+			&t.Amount, &dir, &acc, &t.CategoryID, &t.CategoryName,
+			&t.SpecialID, &t.SpecialName); err != nil {
 			return nil, err
 		}
 		t.Direction = domain.Direction(dir)
@@ -354,7 +369,7 @@ ORDER BY created_at ASC, id ASC`)
 const selectTxSQL = `
 SELECT id, source, account, COALESCE(import_batch_id,''), occurred_at, COALESCE(counterparty,''),
        COALESCE(description,''), COALESCE(platform_category,''), COALESCE(note,''), amount, direction, status, COALESCE(category_id,''),
-       COALESCE(raw_row,''), created_at, updated_at, COALESCE(member,'')
+       COALESCE(raw_row,''), created_at, updated_at, COALESCE(member,''), COALESCE(special_id,'')
 FROM transactions`
 
 type scanner interface {
@@ -366,7 +381,7 @@ func scanTx(s scanner) (domain.Transaction, error) {
 	var src, acc, dir, st string
 	if err := s.Scan(&t.ID, &src, &acc, &t.ImportBatchID, &t.OccurredAt, &t.Counterparty,
 		&t.Description, &t.PlatformCategory, &t.Note, &t.Amount, &dir, &st, &t.CategoryID, &t.RawRow,
-		&t.CreatedAt, &t.UpdatedAt, &t.Member); err != nil {
+		&t.CreatedAt, &t.UpdatedAt, &t.Member, &t.SpecialID); err != nil {
 		return domain.Transaction{}, err
 	}
 	t.Source = domain.Source(src)
@@ -389,13 +404,15 @@ func scanTxs(rows *sql.Rows) ([]domain.Transaction, error) {
 }
 
 // ListForRecurring 周期识别专用：SQL 侧过滤 + 只取必要列，避免 12 个月全列（含 raw_row）扫描
-func (r *TransactionRepo) ListForRecurring(ctx context.Context, from, to time.Time) ([]domain.Transaction, error) {
-	rows, err := r.db.QueryContext(ctx, `
+func (r *TransactionRepo) ListForRecurring(ctx context.Context, from, to time.Time, scope domain.Scope) ([]domain.Transaction, error) {
+	q := `
 SELECT occurred_at, COALESCE(counterparty,''), COALESCE(description,''), amount
 FROM transactions
 WHERE occurred_at >= ? AND occurred_at < ?
-  AND direction = 'expense' AND status = 'confirmed'
-ORDER BY occurred_at`, from, to)
+  AND direction = 'expense' AND status = 'confirmed'` +
+		scope.SQLFilter("special_id") + `
+ORDER BY occurred_at`
+	rows, err := r.db.QueryContext(ctx, q, from, to)
 	if err != nil {
 		return nil, err
 	}

@@ -18,6 +18,7 @@ type TransactionUpdate struct {
 	Status     *domain.TxStatus
 	Account    *domain.Account
 	Member     *string
+	SpecialID  *string // nil 表示不修改；空字符串表示清空（归回日常）
 }
 
 // ImportResult 一次账单导入的结果
@@ -48,6 +49,8 @@ type TopTransaction struct {
 	Account      domain.Account
 	CategoryID   string
 	CategoryName string
+	SpecialID    string // 空 = 日常开支
+	SpecialName  string
 }
 
 // PeriodBucket 单个周期（月或季）的聚合点，用于月度/季度对比条
@@ -65,12 +68,14 @@ type TransactionRepo interface {
 	Get(ctx context.Context, id string) (domain.Transaction, error)
 	List(ctx context.Context, p domain.Period, account domain.Account) ([]domain.Transaction, error)
 	ListPendingCategory(ctx context.Context, limit int) ([]domain.Transaction, error)
-	AggregateByCategory(ctx context.Context, p domain.Period, account domain.Account) ([]domain.CategoryAggregation, error)
+	// AggregateByCategory 按二级科目聚合；scope 决定算不算专项开支
+	// （daily 剔除专项、special 只看专项、all 全口径）。
+	AggregateByCategory(ctx context.Context, p domain.Period, account domain.Account, scope domain.Scope) ([]domain.CategoryAggregation, error)
 	// SumByBuckets 按给定的周期桶返回 [{label, amount}]，方向过滤，状态='confirmed'。
 	// 桶必须按时间升序且互不重叠（实现依赖此约定做单次扫描归桶）。
-	SumByBuckets(ctx context.Context, buckets []PeriodBucket, direction domain.Direction, account domain.Account) ([]PeriodBucket, error)
+	SumByBuckets(ctx context.Context, buckets []PeriodBucket, direction domain.Direction, account domain.Account, scope domain.Scope) ([]PeriodBucket, error)
 	// TopTransactions 周期内按 |amount| desc 的前 N 条；account=family 合并统计
-	TopTransactions(ctx context.Context, p domain.Period, direction domain.Direction, account domain.Account, limit int) ([]TopTransaction, error)
+	TopTransactions(ctx context.Context, p domain.Period, direction domain.Direction, account domain.Account, scope domain.Scope, limit int) ([]TopTransaction, error)
 	// ListAll 全量流水，按 occurred_at 升序；供 /export 使用
 	ListAll(ctx context.Context) ([]domain.Transaction, error)
 	// ListAllImportBatches 全量导入批次；供 /export 使用
@@ -79,8 +84,25 @@ type TransactionRepo interface {
 	ListMembers(ctx context.Context) ([]string, error)
 	// ListForRecurring 周期识别专用精简查询：direction='expense' AND status='confirmed'，
 	// 只取 occurred_at / counterparty / description / amount 必要列（不拉 raw_row 等大字段），
-	// 返回的 Transaction 仅这四个字段 + Direction/Status 有值。
-	ListForRecurring(ctx context.Context, from, to time.Time) ([]domain.Transaction, error)
+	// 返回的 Transaction 仅这四个字段 + Direction/Status 有值。scope 同上。
+	ListForRecurring(ctx context.Context, from, to time.Time, scope domain.Scope) ([]domain.Transaction, error)
+}
+
+// SpecialProjectRepo 专项开支项目（special_projects 表）
+type SpecialProjectRepo interface {
+	ListAll(ctx context.Context) ([]domain.SpecialProject, error)
+	// Get 未找到时返回 ErrNotFound
+	Get(ctx context.Context, id string) (domain.SpecialProject, error)
+	// Upsert 按 id 覆盖写入
+	Upsert(ctx context.Context, p *domain.SpecialProject) error
+	Delete(ctx context.Context, id string) error
+	// SumByProject 每个专项的历史已花费合计（专项 id → 分），只算 status='confirmed'
+	SumByProject(ctx context.Context) (map[string]int64, error)
+	// SumByProjectInPeriod 周期内每个专项的花费（专项 id → 分），供季/年报拆行；
+	// account 为非存储值（family）时不做账户过滤
+	SumByProjectInPeriod(ctx context.Context, p domain.Period, account domain.Account) (map[string]int64, error)
+	// SumByCategoryForProject 单个专项内部的跨科目构成，按金额降序，只返回非零科目
+	SumByCategoryForProject(ctx context.Context, projectID string) ([]domain.CategoryAggregation, error)
 }
 
 type CategoryRepo interface {

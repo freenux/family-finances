@@ -152,7 +152,8 @@ func startOfWeek(now time.Time) time.Time {
 
 func (uc *DigestService) sumExpense(ctx context.Context, p domain.Period) (int64, error) {
 	buckets := []port.PeriodBucket{{Label: p.Label, Start: p.Start, End: p.End}}
-	out, err := uc.txRepo.SumByBuckets(ctx, buckets, domain.DirectionExpense, domain.AccountFamily)
+	// 日常口径：摘要要避免"这周花了 12 万"这种一次性专项造成的误报警
+	out, err := uc.txRepo.SumByBuckets(ctx, buckets, domain.DirectionExpense, domain.AccountFamily, domain.ScopeDaily)
 	if err != nil {
 		return 0, err
 	}
@@ -165,7 +166,7 @@ type digestTopCat struct {
 }
 
 func (uc *DigestService) topExpenseCategories(ctx context.Context, p domain.Period, n int) ([]digestTopCat, error) {
-	aggs, err := uc.txRepo.AggregateByCategory(ctx, p, domain.AccountFamily)
+	aggs, err := uc.txRepo.AggregateByCategory(ctx, p, domain.AccountFamily, domain.ScopeDaily)
 	if err != nil {
 		return nil, err
 	}

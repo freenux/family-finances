@@ -1,0 +1,128 @@
+{{define "content"}}
+<div class="stats-head">
+  <div>
+    <h2 class="title-zh">专项开支</h2>
+    <div class="subtitle">装修、购车这类非经常性的一次性大额支出。判据是「非经常性」而不是「金额大」，只能人工标注</div>
+  </div>
+</div>
+
+{{if .Flash}}
+  <div class="section" style="padding:10px 14px;margin-bottom:14px;background:var(--accent-soft);color:var(--accent)">✅ {{.Flash}}</div>
+{{end}}
+{{if .Error}}
+  <div class="section" style="padding:10px 14px;margin-bottom:14px;color:var(--negative)">⚠️ {{.Error}}</div>
+{{end}}
+
+<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
+  <div class="kpi-card">
+    <div class="label">专项数</div>
+    <div class="value">{{len .Data.Rows}}</div>
+    <div class="sub">其中进行中 {{.Data.ActiveCount}} 个</div>
+  </div>
+  <div class="kpi-card">
+    <div class="label">已花费合计</div>
+    <div class="value">¥{{yuan .Data.TotalSpentFen}}</div>
+    <div class="sub">全部专项的历史累计（只算已确认流水）</div>
+  </div>
+  <div class="kpi-card">
+    <div class="label">预算合计</div>
+    <div class="value">¥{{yuan .Data.TotalBudgetFen}}</div>
+    <div class="sub">与季度预算分开：专项不占日常盘子</div>
+  </div>
+</div>
+
+<div class="two-col">
+  <div>
+    {{if .Data.Rows}}
+      {{range .Data.Rows}}
+      <div class="section goal-card">
+        <div class="section-title">
+          <span>{{.Project.Name}}
+            <span class="hint">
+              {{if .Project.IsActive}}<span class="badge">进行中</span>{{else}}已结束{{end}}
+              {{if not .Project.StartedOn.IsZero}} · {{formatDate .Project.StartedOn}}{{end}}
+              {{if not .Project.EndedOn.IsZero}} → {{formatDate .Project.EndedOn}}{{end}}
+            </span>
+          </span>
+          <form method="post" action="/api/specials/{{.Project.ID}}/delete"
+                onsubmit="return confirm('删除该专项？挂在它上面的流水会归回日常，不会被删除。')">
+            <button class="btn danger" type="submit" style="font-size:12px;padding:4px 12px">删除</button>
+          </form>
+        </div>
+        <div class="goal-body">
+          <div class="goal-nums">
+            <span>已花费 <b>¥{{yuan .SpentFen}}</b></span>
+            {{if gt .Project.BudgetFen 0}}
+              <span>预算 <b>¥{{yuan .Project.BudgetFen}}</b></span>
+              <span>执行率 <b>{{pct .Ratio}}</b>
+                {{if eq .Status "over"}}<span class="badge danger">超预算</span>
+                {{else if eq .Status "near"}}<span class="badge warn">接近预算</span>{{end}}
+              </span>
+            {{else}}
+              <span class="hint">未设预算，只做归集统计</span>
+            {{end}}
+          </div>
+          {{if gt .Project.BudgetFen 0}}
+          <div class="goal-bar"><div class="goal-bar-fill" style="width:{{printf "%.1f" (goalPct .Ratio)}}%"></div></div>
+          {{end}}
+          {{if .Breakdown}}
+          <table class="ledger" style="margin-top:10px">
+            <thead><tr><th>科目构成</th><th style="text-align:right">金额</th></tr></thead>
+            <tbody>
+              {{range .Breakdown}}
+              <tr class="item">
+                <td class="name">{{if .Name}}{{.Name}}{{else}}未分类{{end}}</td>
+                <td class="amount">¥{{yuan .Amount}}</td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+          {{else}}
+          <div class="goal-meta">还没有流水归入该专项。到<a href="/transactions">收支流水</a>页用「批量归入专项」把装修期的账挂进来。</div>
+          {{end}}
+          {{if .Project.Note}}<div class="goal-meta">{{.Project.Note}}</div>{{end}}
+        </div>
+      </div>
+      {{end}}
+    {{else}}
+      <div class="section"><div class="empty" style="padding:40px 16px">还没有专项。用右侧表单新建第一个，例如「2026 老房装修」。</div></div>
+    {{end}}
+  </div>
+
+  <div>
+    <form class="section" method="post" action="/specials">
+      <div class="section-title"><span>新建 / 编辑专项</span></div>
+      <div class="profile-form" style="grid-template-columns:1fr 1fr">
+        <input type="hidden" name="id" value="">
+        <label style="grid-column:1/-1">专项名称
+          <input type="text" name="name" required placeholder="如：2026 老房装修">
+        </label>
+        <label>开始日期
+          <input type="date" name="started_on">
+        </label>
+        <label>结束日期（留空 = 进行中）
+          <input type="date" name="ended_on">
+        </label>
+        <label style="grid-column:1/-1">预算（元，可留空）
+          <input type="text" name="budget" inputmode="decimal" placeholder="180000">
+        </label>
+        <label style="grid-column:1/-1">备注
+          <input type="text" name="note" placeholder="可选">
+        </label>
+        <div class="profile-actions">
+          <button class="btn" type="submit">保存专项</button>
+        </div>
+      </div>
+    </form>
+    <div class="note-strip" style="margin-top:14px">
+      <b>口径</b> · 专项是与科目正交的第三个维度：科目回答「钱花在什么上」，专项回答「算不算日常基线」，
+      一个装修会横跨房屋维护、购物消费、居家日常多个科目。
+      专项<b>仍然计入支出合计</b>（这点和「已排除」不同），只是趋势、同比环比、预算、四笔钱、攒钱能力、
+      AI 摘要这些「基线」判断一律走<b>日常口径</b>把它剔除，避免一次装修让全局同比失真。
+      在<a href="/">仪表盘</a>可以切「日常 / 全部 / 仅专项」三种口径。
+    </div>
+  </div>
+</div>
+{{end}}
+
+{{define "page"}}{{template "base" .}}{{end}}

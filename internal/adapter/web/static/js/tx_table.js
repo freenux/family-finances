@@ -6,6 +6,11 @@ function txTable() {
   const catData = JSON.parse(document.getElementById('data-categories').textContent || '[]');
   const ruleEl = document.getElementById('data-rule');
   const ruleData = ruleEl ? JSON.parse(ruleEl.textContent || 'null') : null;
+  const specialEl = document.getElementById('data-specials');
+  const specialData = specialEl ? JSON.parse(specialEl.textContent || '[]') : [];
+
+  const specialNameById = {};
+  for (const s of specialData) specialNameById[s.id] = s.name;
 
   // 按一级分组组装二级科目，给下拉用
   const groups = [];
@@ -30,6 +35,8 @@ function txTable() {
     rows: txData,
     groupedCategories: groups,
     catNameById,
+    specials: specialData,
+    specialNameById,
 
     // 周期状态
     granularity: 'month',
@@ -40,6 +47,10 @@ function txTable() {
     activeRule:  ruleData,
     applyingRule: false,
 
+    // 批量归入专项
+    batchSpecialID: '',
+    batching: false,
+
     keyword: '',
     directionFilter: 'all',
     memberFilter: '',
@@ -47,6 +58,7 @@ function txTable() {
     accountFilter: ['husband', 'wife'],
     statusFilter: ['pending_review', 'confirmed'],
     categoryFilter: '',
+    specialFilter: '',
 
     sortKey: 'occurred_at',
     sortDir: 'desc',
@@ -106,6 +118,7 @@ function txTable() {
       const accounts = new Set(this.accountFilter);
       const statuses = new Set(this.statusFilter);
       const catFilter = this.categoryFilter;
+      const specialFilter = this.specialFilter;
 
       const memberFilter = this.memberFilter;
       let out = this.rows.filter((t) => {
@@ -123,6 +136,11 @@ function txTable() {
         if (catFilter === '__none__') {
           if (t.category_id) return false;
         } else if (catFilter && t.category_id !== catFilter) {
+          return false;
+        }
+        if (specialFilter === '__none__') {
+          if (t.special_id) return false;
+        } else if (specialFilter && t.special_id !== specialFilter) {
           return false;
         }
         if (kw) {
@@ -145,6 +163,9 @@ function txTable() {
         if (key === 'category_id') {
           av = catNameById[av] || '';
           bv = catNameById[bv] || '';
+        } else if (key === 'special_id') {
+          av = specialNameById[av] || '';
+          bv = specialNameById[bv] || '';
         }
         if (av == null) av = '';
         if (bv == null) bv = '';
@@ -207,6 +228,7 @@ function txTable() {
       this.accountFilter = ['husband', 'wife'];
       this.statusFilter = ['pending_review', 'confirmed'];
       this.categoryFilter = '';
+      this.specialFilter = '';
       this.activeRule = null;
       const q = new URLSearchParams(window.location.search);
       q.delete('rule_id');
@@ -312,6 +334,59 @@ function txTable() {
       t.account = value;
       const ok = await this._patch(t.id, { account: value });
       if (!ok) t.account = prev;
+    },
+
+    // patchSpecial 行内改专项；选到「＋ 新建专项…」就跳去 /specials 建，
+    // 下拉先回滚到原值免得看起来像已经改掉了。
+    async patchSpecial(t, value) {
+      if (value === '__new__') {
+        this.$nextTick(() => { window.location.href = '/specials'; });
+        return;
+      }
+      if (value === t.special_id) return;
+      const prev = t.special_id;
+      t.special_id = value;
+      const ok = await this._patch(t.id, { special_id: value });
+      if (!ok) t.special_id = prev;
+    },
+
+    // applyBatchSpecial 把当前筛选出的流水一次归入（或移出）某个专项。
+    // 走 PATCH /api/transactions/batch，失败整体回滚本地状态。
+    async applyBatchSpecial() {
+      if (this.batching || !this.batchSpecialID) return;
+      const targets = this.filtered.filter(
+        (t) => t.special_id !== (this.batchSpecialID === '__clear__' ? '' : this.batchSpecialID),
+      );
+      if (targets.length === 0) {
+        alert('当前筛选的流水已经是该专项，无需处理。');
+        return;
+      }
+      const specialID = this.batchSpecialID === '__clear__' ? '' : this.batchSpecialID;
+      const label = specialID ? (this.specialNameById[specialID] || specialID) : '日常';
+      if (!confirm(`把 ${targets.length} 条流水归入「${label}」？`)) return;
+
+      this.batching = true;
+      const prev = targets.map((t) => t.special_id);
+      targets.forEach((t) => { t.special_id = specialID; });
+      try {
+        const r = await fetch('/api/transactions/batch', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: targets.map((t) => t.id), special_id: specialID }),
+        });
+        if (!r.ok) {
+          targets.forEach((t, i) => { t.special_id = prev[i]; });
+          alert('批量归类失败：' + (await r.text()));
+          return;
+        }
+        const data = await r.json();
+        alert(`已归类 ${data.updated} 条流水。`);
+      } catch (e) {
+        targets.forEach((t, i) => { t.special_id = prev[i]; });
+        alert('批量归类失败：' + e.message);
+      } finally {
+        this.batching = false;
+      }
     },
 
     async _patch(id, body) {

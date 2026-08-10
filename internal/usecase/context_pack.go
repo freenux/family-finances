@@ -208,11 +208,12 @@ func (b *ContextPackBuilder) savingsRateStreak(ctx context.Context, p domain.Per
 		cursor = cursor.Previous()
 		buckets[i] = port.PeriodBucket{Label: cursor.Label, Start: cursor.Start, End: cursor.End}
 	}
-	income, err := b.txRepo.SumByBuckets(ctx, buckets, domain.DirectionIncome, domain.AccountFamily)
+	// 日常口径：否则一次装修会打断连胜，AI 每次都说"支出暴涨"
+	income, err := b.txRepo.SumByBuckets(ctx, buckets, domain.DirectionIncome, domain.AccountFamily, domain.ScopeDaily)
 	if err != nil {
 		return 0, fmt.Errorf("sum streak income: %w", err)
 	}
-	expense, err := b.txRepo.SumByBuckets(ctx, buckets, domain.DirectionExpense, domain.AccountFamily)
+	expense, err := b.txRepo.SumByBuckets(ctx, buckets, domain.DirectionExpense, domain.AccountFamily, domain.ScopeDaily)
 	if err != nil {
 		return 0, fmt.Errorf("sum streak expense: %w", err)
 	}
@@ -234,7 +235,7 @@ func (b *ContextPackBuilder) savingsRateStreak(ctx context.Context, p domain.Per
 // sum(近 4 季度支出) / 12。用于计算活钱覆盖月数。
 func (b *ContextPackBuilder) trailingMonthlyAvgExpense(ctx context.Context, end time.Time) (int64, error) {
 	buckets := trailingQuarterBuckets(end, 4)
-	summed, err := b.txRepo.SumByBuckets(ctx, buckets, domain.DirectionExpense, domain.AccountFamily)
+	summed, err := b.txRepo.SumByBuckets(ctx, buckets, domain.DirectionExpense, domain.AccountFamily, domain.ScopeDaily)
 	if err != nil {
 		return 0, fmt.Errorf("sum trailing quarters: %w", err)
 	}

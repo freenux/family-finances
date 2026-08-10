@@ -17,6 +17,7 @@ type StatsView struct {
 	Granularity     string             `json:"granularity"` // month|quarter|year
 	Direction       string             `json:"direction"`   // income|expense
 	Account         string             `json:"account"`     // husband|wife|family
+	Scope           string             `json:"scope"`       // daily|all|special（只作用于饼图/构成，对比条恒为日常口径）
 	Total           int64              `json:"total"`
 	Categories      []StatsCategorySeg `json:"categories"`
 	MonthlyCompare  []StatsBucket      `json:"monthlyCompare"`
@@ -33,9 +34,11 @@ type StatsCategorySeg struct {
 
 type StatsBucket struct {
 	Label  string   `json:"label"`
-	Amount int64    `json:"amount"`
-	Chain  *float64 `json:"chain"` // 环比：相对上一期的增长率，小数（0.12 = +12%）；基期金额为 0 时为 nil
-	YoY    *float64 `json:"yoy"`   // 同比：相对去年同期的增长率，小数；基期金额为 0 时为 nil
+	Amount int64    `json:"amount"` // 日常口径金额（同比/环比的正主）
+	Chain  *float64 `json:"chain"`  // 环比：相对上一期的增长率，小数（0.12 = +12%）；基期金额为 0 时为 nil
+	YoY    *float64 `json:"yoy"`    // 同比：相对去年同期的增长率，小数；基期金额为 0 时为 nil
+	// Special 该期专项金额（分），前端在柱子上叠一段斜纹；无专项时为 nil
+	Special *int64 `json:"special"`
 }
 
 type StatsTopTx struct {
@@ -46,6 +49,7 @@ type StatsTopTx struct {
 	Amount   int64  `json:"amount"`
 	Category string `json:"category"` // 二级科目名
 	Account  string `json:"account"`
+	Special  string `json:"special"` // 所属专项名；空 = 日常开支
 }
 
 // 分类颜色：稳定分配，前端用它画饼图 + 分类列表（Stripe 品牌色系，见 DESIGN.md）
@@ -64,9 +68,14 @@ func NewQueryStats(tx port.TransactionRepo, cat port.CategoryRepo) *QueryStats {
 	return &QueryStats{txRepo: tx, catRepo: cat}
 }
 
-// Execute 聚合一个周期（月/季/年）×方向×账户的完整统计视图。
+// Execute 聚合一个周期（月/季/年）×方向×账户×口径的完整统计视图。
 // topLimit 传 <=0 时默认 10。
-func (uc *QueryStats) Execute(ctx context.Context, p domain.Period, dir domain.Direction, account domain.Account, topLimit int) (StatsView, error) {
+//
+// 各部分口径是刻意分开定的，不是一路透传 scope：
+//   - 饼图/构成跟随 scope（看构成时通常想看全的）；
+//   - 月/季对比条恒为日常口径（同比环比的正主），专项单独作为 Special 段返回；
+//   - Top 流水恒为全口径（剔了大额榜单没意义）。
+func (uc *QueryStats) Execute(ctx context.Context, p domain.Period, dir domain.Direction, account domain.Account, scope domain.Scope, topLimit int) (StatsView, error) {
 	if topLimit <= 0 {
 		topLimit = 10
 	}
@@ -74,8 +83,8 @@ func (uc *QueryStats) Execute(ctx context.Context, p domain.Period, dir domain.D
 		return StatsView{}, fmt.Errorf("invalid direction: %s", dir)
 	}
 
-	// 1. 分类聚合
-	aggs, err := uc.txRepo.AggregateByCategory(ctx, p, account)
+	// 1. 分类聚合（跟随入参 scope）
+	aggs, err := uc.txRepo.AggregateByCategory(ctx, p, account, scope)
 	if err != nil {
 		return StatsView{}, err
 	}
@@ -122,21 +131,32 @@ func (uc *QueryStats) Execute(ctx context.Context, p domain.Period, dir domain.D
 		monthShow = 6
 		quartShow = 4
 	)
+	//    对比条固定日常口径；专项用同一批桶再查一次，只作为叠加段返回。
 	monthlyAll := buildMonthBuckets(p, monthShow+12)
 	quarterlyAll := buildQuarterBuckets(p, quartShow+4)
-	monthlySummed, err := uc.txRepo.SumByBuckets(ctx, monthlyAll, dir, account)
+	monthlyDaily, err := uc.txRepo.SumByBuckets(ctx, monthlyAll, dir, account, domain.ScopeDaily)
 	if err != nil {
 		return StatsView{}, err
 	}
-	quarterlySummed, err := uc.txRepo.SumByBuckets(ctx, quarterlyAll, dir, account)
+	monthlySpecial, err := uc.txRepo.SumByBuckets(ctx, monthlyAll, dir, account, domain.ScopeSpecial)
 	if err != nil {
 		return StatsView{}, err
 	}
-	monthly := bucketsToStatsWithCompare(monthlySummed, monthShow, 12)
-	quarterly := bucketsToStatsWithCompare(quarterlySummed, quartShow, 4)
+	quarterlyDaily, err := uc.txRepo.SumByBuckets(ctx, quarterlyAll, dir, account, domain.ScopeDaily)
+	if err != nil {
+		return StatsView{}, err
+	}
+	quarterlySpecial, err := uc.txRepo.SumByBuckets(ctx, quarterlyAll, dir, account, domain.ScopeSpecial)
+	if err != nil {
+		return StatsView{}, err
+	}
+	monthly := bucketsToStatsWithCompare(monthlyDaily, monthShow, 12)
+	quarterly := bucketsToStatsWithCompare(quarterlyDaily, quartShow, 4)
+	attachSpecial(monthly, monthlySpecial)
+	attachSpecial(quarterly, quarterlySpecial)
 
-	// 3. Top 流水
-	tops, err := uc.txRepo.TopTransactions(ctx, p, dir, account, topLimit)
+	// 3. Top 流水：恒为全口径，剔掉专项后"大额榜单"就没意义了
+	tops, err := uc.txRepo.TopTransactions(ctx, p, dir, account, domain.ScopeAll, topLimit)
 	if err != nil {
 		return StatsView{}, err
 	}
@@ -162,6 +182,7 @@ func (uc *QueryStats) Execute(ctx context.Context, p domain.Period, dir domain.D
 			Amount:   t.Amount,
 			Category: catName,
 			Account:  string(t.Account),
+			Special:  t.SpecialName,
 		})
 	}
 
@@ -170,6 +191,7 @@ func (uc *QueryStats) Execute(ctx context.Context, p domain.Period, dir domain.D
 		Granularity:      granLabel(p.Type),
 		Direction:        string(dir),
 		Account:          string(account),
+		Scope:            string(scope),
 		Total:            total,
 		Categories:       segs,
 		MonthlyCompare:   monthly,
@@ -248,6 +270,22 @@ func bucketsToStatsWithCompare(bs []port.PeriodBucket, show, yoyOffset int) []St
 		out[i] = seg
 	}
 	return out
+}
+
+// attachSpecial 把专项口径的桶金额贴到已算好同比环比的展示桶上（按 label 对齐，
+// 两边用的是同一批桶，长度可能不同——展示桶只取了末尾 show 条）。金额为 0 时留 nil，
+// 前端就不用画那段斜纹。
+func attachSpecial(out []StatsBucket, special []port.PeriodBucket) {
+	byLabel := make(map[string]int64, len(special))
+	for _, b := range special {
+		byLabel[b.Label] = b.Amount
+	}
+	for i := range out {
+		if amt, ok := byLabel[out[i].Label]; ok && amt != 0 {
+			v := amt
+			out[i].Special = &v
+		}
+	}
 }
 
 // pctDelta 返回 (cur-base)/base，base 为 0 时返回 nil。

@@ -45,6 +45,32 @@ type fakeTransactionRepo struct {
 	bucketAmts map[string]int64 // bucket label -> amount，供 SumByBuckets 用
 	allTxs     []domain.Transaction
 	allBatches []domain.ImportBatch
+	// 专项口径（domain.ScopeSpecial）的数据；不设 = 夹具里没有专项流水。
+	// periodAgg / bucketAmts 是日常口径，全口径 = 两者之和。
+	specialAgg     map[string][]domain.CategoryAggregation
+	specialBuckets map[string]int64
+}
+
+// sumAggs 合并同科目金额，用于拼出全口径（日常 + 专项）
+func sumAggs(a, b []domain.CategoryAggregation) []domain.CategoryAggregation {
+	if len(b) == 0 {
+		return a
+	}
+	out := append([]domain.CategoryAggregation(nil), a...)
+	for _, sp := range b {
+		found := false
+		for i := range out {
+			if out[i].CategoryID == sp.CategoryID {
+				out[i].Amount += sp.Amount
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(out, sp)
+		}
+	}
+	return out
 }
 
 func (f *fakeTransactionRepo) Insert(context.Context, domain.Transaction) error { return nil }
@@ -69,20 +95,34 @@ func (f *fakeTransactionRepo) ListPendingCategory(context.Context, int) ([]domai
 	return nil, nil
 }
 
-func (f *fakeTransactionRepo) AggregateByCategory(_ context.Context, p domain.Period, _ domain.Account) ([]domain.CategoryAggregation, error) {
-	return f.periodAgg[p.Label], nil
+func (f *fakeTransactionRepo) AggregateByCategory(_ context.Context, p domain.Period, _ domain.Account, scope domain.Scope) ([]domain.CategoryAggregation, error) {
+	switch scope {
+	case domain.ScopeSpecial:
+		return f.specialAgg[p.Label], nil
+	case domain.ScopeAll:
+		return sumAggs(f.periodAgg[p.Label], f.specialAgg[p.Label]), nil
+	default: // ScopeDaily
+		return f.periodAgg[p.Label], nil
+	}
 }
 
-func (f *fakeTransactionRepo) SumByBuckets(_ context.Context, buckets []port.PeriodBucket, _ domain.Direction, _ domain.Account) ([]port.PeriodBucket, error) {
+func (f *fakeTransactionRepo) SumByBuckets(_ context.Context, buckets []port.PeriodBucket, _ domain.Direction, _ domain.Account, scope domain.Scope) ([]port.PeriodBucket, error) {
 	out := make([]port.PeriodBucket, len(buckets))
 	copy(out, buckets)
 	for i := range out {
-		out[i].Amount = f.bucketAmts[out[i].Label]
+		switch scope {
+		case domain.ScopeSpecial:
+			out[i].Amount = f.specialBuckets[out[i].Label]
+		case domain.ScopeAll:
+			out[i].Amount = f.bucketAmts[out[i].Label] + f.specialBuckets[out[i].Label]
+		default: // ScopeDaily
+			out[i].Amount = f.bucketAmts[out[i].Label]
+		}
 	}
 	return out, nil
 }
 
-func (f *fakeTransactionRepo) TopTransactions(context.Context, domain.Period, domain.Direction, domain.Account, int) ([]port.TopTransaction, error) {
+func (f *fakeTransactionRepo) TopTransactions(context.Context, domain.Period, domain.Direction, domain.Account, domain.Scope, int) ([]port.TopTransaction, error) {
 	return nil, nil
 }
 
@@ -96,9 +136,15 @@ func (f *fakeTransactionRepo) ListAllImportBatches(context.Context) ([]domain.Im
 
 func (f *fakeTransactionRepo) ListMembers(context.Context) ([]string, error) { return nil, nil }
 
-func (f *fakeTransactionRepo) ListForRecurring(_ context.Context, from, to time.Time) ([]domain.Transaction, error) {
+func (f *fakeTransactionRepo) ListForRecurring(_ context.Context, from, to time.Time, scope domain.Scope) ([]domain.Transaction, error) {
 	var out []domain.Transaction
 	for _, t := range f.allTxs {
+		if scope == domain.ScopeDaily && t.SpecialID != "" {
+			continue
+		}
+		if scope == domain.ScopeSpecial && t.SpecialID == "" {
+			continue
+		}
 		if t.Direction == domain.DirectionExpense && t.Status == domain.TxStatusConfirmed &&
 			!t.OccurredAt.Before(from) && t.OccurredAt.Before(to) {
 			out = append(out, domain.Transaction{

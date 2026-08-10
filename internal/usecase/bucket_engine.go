@@ -139,7 +139,8 @@ func (e *BucketEngine) LoadInputs(ctx context.Context) (BucketInputs, error) {
 	// 近 4 个季度支出折算月均（以当前季度末为右边界）
 	quarterEnd := domain.CurrentQuarter(e.now()).End
 	buckets := trailingQuarterBuckets(quarterEnd, 4)
-	summed, err := e.txRepo.SumByBuckets(ctx, buckets, domain.DirectionExpense, domain.AccountFamily)
+	// 日常口径：一次装修会把"月均支出"抬上去，活钱覆盖月数直接腰斩，纯误报
+	summed, err := e.txRepo.SumByBuckets(ctx, buckets, domain.DirectionExpense, domain.AccountFamily, domain.ScopeDaily)
 	if err != nil {
 		return in, fmt.Errorf("sum trailing expense: %w", err)
 	}

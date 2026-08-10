@@ -88,7 +88,8 @@ func (uc *BudgetView) budgetRows(ctx context.Context, quarter domain.Period) ([]
 	for _, b := range budgets {
 		budgetByCat[b.CategoryID] = b.QuarterAmount
 	}
-	aggs, err := uc.txRepo.AggregateByCategory(ctx, quarter, domain.AccountFamily)
+	// 预算是日常盘子，专项走 /specials 单独的预算/执行率
+	aggs, err := uc.txRepo.AggregateByCategory(ctx, quarter, domain.AccountFamily, domain.ScopeDaily)
 	if err != nil {
 		return nil, err
 	}
@@ -145,14 +146,15 @@ func budgetStatus(budget, spent int64) string {
 
 // recurringAndInflow 近 12 个月支出识别周期项 + 近 6 个月工资类月均流入
 func (uc *BudgetView) recurringAndInflow(ctx context.Context, now time.Time) ([]RecurringItem, int64, error) {
-	txs, err := uc.txRepo.ListForRecurring(ctx, now.AddDate(-1, 0, 0), now.AddDate(0, 0, 1))
+	// 日常口径：装修期连着刷卡会被周期识别误判成"周期性订阅"
+	txs, err := uc.txRepo.ListForRecurring(ctx, now.AddDate(-1, 0, 0), now.AddDate(0, 0, 1), domain.ScopeDaily)
 	if err != nil {
 		return nil, 0, err
 	}
 	items := DetectRecurring(txs)
 
 	sixMonths := domain.Period{Start: now.AddDate(0, -6, 0), End: now.AddDate(0, 0, 1)}
-	aggs, err := uc.txRepo.AggregateByCategory(ctx, sixMonths, domain.AccountFamily)
+	aggs, err := uc.txRepo.AggregateByCategory(ctx, sixMonths, domain.AccountFamily, domain.ScopeDaily)
 	if err != nil {
 		return nil, 0, err
 	}

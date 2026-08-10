@@ -49,6 +49,7 @@ func main() {
 	reportRepo := sqlite.NewReportRepo(db)
 	profileRepo := sqlite.NewProfileRepo(db)
 	budgetRepo := sqlite.NewBudgetRepo(db)
+	specialRepo := sqlite.NewSpecialProjectRepo(db)
 
 	llmClient := llm.NewClient(llm.Config{
 		APIKey:  cfg.OpenAIAPIKey,
@@ -58,7 +59,7 @@ func main() {
 
 	classifyPending := usecase.NewClassifyPending(txRepo, catRepo, llmClient, log)
 	importBill := usecase.NewImportBill(txRepo, catRepo).WithTrigger(classifyPending.Trigger)
-	queryRep := usecase.NewQueryReport(txRepo, catRepo)
+	queryRep := usecase.NewQueryReport(txRepo, catRepo).WithSpecialRepo(specialRepo)
 	queryStats := usecase.NewQueryStats(txRepo, catRepo)
 	assetSvc := usecase.NewAssetSnapshotService(assetRepo)
 	contextPackBuilder := usecase.NewContextPackBuilder(queryRep, assetRepo, txRepo)
@@ -69,6 +70,7 @@ func main() {
 	goalView := usecase.NewGoalView(profileRepo, assetRepo, txRepo)
 	insView := usecase.NewInsuranceView(profileRepo, profileRepo)
 	budgetView := usecase.NewBudgetView(budgetRepo, txRepo, catRepo, profileRepo)
+	specialView := usecase.NewSpecialView(specialRepo)
 	contextPackBuilder.AddFindingSource(goalView.Findings)
 	contextPackBuilder.AddFindingSource(insView.Findings)
 	contextPackBuilder.AddFindingSource(budgetView.Findings)
@@ -117,6 +119,8 @@ func main() {
 		DigestSvc:    digestSvc,
 		DigestSender: digestSender,
 		TemplateRepo: templateRepo,
+		SpecialRepo:  specialRepo,
+		SpecialView:  specialView,
 		Log:          log,
 		AuthKey:      cfg.AuthKey,
 	})
@@ -161,6 +165,8 @@ func main() {
 			http.Redirect(w, req, "/imports", http.StatusMovedPermanently)
 		})
 		r.Get("/api/transactions", h.ListTransactionsAPI)
+		// batch 必须在 {id} 之前注册（chi 静态段优先，但顺序写清楚更不易踩坑）
+		r.Patch("/api/transactions/batch", h.BatchUpdateTransactions)
 		r.Patch("/api/transactions/{id}", h.UpdateTransaction)
 		r.Get("/imports", h.ImportForm)
 		r.Post("/imports", h.ImportSubmit)
@@ -188,6 +194,10 @@ func main() {
 		r.Post("/api/insurance/{id}/delete", h.DeleteInsurance)
 		r.Get("/budget", h.Budget)
 		r.Put("/api/budgets", h.SaveBudgets)
+		r.Get("/specials", h.Specials)
+		r.Post("/specials", h.SaveSpecial)
+		// 删除走 /api 前缀，避免和页面路由 /specials 挤在同一段（见 CLAUDE.md 的 chi 说明）
+		r.Post("/api/specials/{id}/delete", h.DeleteSpecial)
 		r.Get("/ask", h.AskPage)
 		r.Post("/api/ask", h.AskAPI)
 		r.Get("/settings/digest", h.DigestSettingsPage)

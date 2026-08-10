@@ -2,6 +2,7 @@
 <script id="data-transactions" type="application/json">{{rawJSON .TransactionsJSON}}</script>
 <script id="data-categories" type="application/json">{{rawJSON .CategoriesJSON}}</script>
 <script id="data-rule" type="application/json">{{rawJSON .RuleJSON}}</script>
+<script id="data-specials" type="application/json">{{rawJSON .SpecialsJSON}}</script>
 
 <div x-data="txTable()"
      data-initial-period="{{.Period.Label}}"
@@ -90,6 +91,17 @@
         </div>
 
         <div class="tx-filter-group">
+          <span class="label">专项：</span>
+          <select x-model="specialFilter">
+            <option value="">全部</option>
+            <option value="__none__">仅日常（不含专项）</option>
+            <template x-for="s in specials" :key="s.id">
+              <option :value="s.id" x-text="s.name"></option>
+            </template>
+          </select>
+        </div>
+
+        <div class="tx-filter-group">
           <span class="label">状态：</span>
           <label><input type="checkbox" value="pending_review" x-model="statusFilter"> 待处理</label>
           <label><input type="checkbox" value="confirmed"      x-model="statusFilter"> 已确认</label>
@@ -121,6 +133,28 @@
         </div>
       </template>
 
+      <template x-if="specials.length > 0">
+        <div class="rule-apply-bar">
+          <div>
+            <strong>批量归入专项</strong>
+            <span>把当前筛选出的 <b x-text="filtered.length"></b> 条流水一次挂到某个专项上（装修一次几十上百笔，逐条改不现实）</span>
+          </div>
+          <div class="flex-row" style="gap:8px;align-items:center">
+            <select class="inline-select" x-model="batchSpecialID">
+              <option value="">— 选择专项 —</option>
+              <option value="__clear__">清除专项（归回日常）</option>
+              <template x-for="s in specials" :key="s.id">
+                <option :value="s.id" x-text="s.name"></option>
+              </template>
+            </select>
+            <button class="btn" type="button" @click="applyBatchSpecial()"
+                    :disabled="batching || !batchSpecialID || filtered.length === 0">
+              <span x-text="batching ? '处理中...' : '应用到当前筛选'"></span>
+            </button>
+          </div>
+        </div>
+      </template>
+
       <table class="tx-list editable">
         <colgroup>
           <col class="tx-col-date">
@@ -131,6 +165,7 @@
           <col class="tx-col-description">
           <col class="tx-col-amount">
           <col class="tx-col-category">
+          <col class="tx-col-special">
           <col class="tx-col-note">
           <col class="tx-col-status">
         </colgroup>
@@ -144,6 +179,7 @@
             <th @click="sortBy('counterparty')" class="sortable">对方 / 说明 <span x-text="sortIcon('counterparty')"></span></th>
             <th @click="sortBy('amount_fen')"  class="sortable">金额 <span x-text="sortIcon('amount_fen')"></span></th>
             <th @click="sortBy('category_id')" class="sortable">分类 <span x-text="sortIcon('category_id')"></span></th>
+            <th @click="sortBy('special_id')"  class="sortable">专项 <span x-text="sortIcon('special_id')"></span></th>
             <th>备注</th>
             <th>状态</th>
           </tr>
@@ -190,6 +226,16 @@
                 </select>
               </td>
               <td>
+                <select class="inline-select"
+                        @change="patchSpecial(t, $event.target.value)">
+                  <option value="" :selected="!t.special_id">— 日常 —</option>
+                  <template x-for="s in specials" :key="s.id">
+                    <option :value="s.id" :selected="t.special_id === s.id" x-text="s.name"></option>
+                  </template>
+                  <option value="__new__">＋ 新建专项…</option>
+                </select>
+              </td>
+              <td>
                 <input class="inline-input" type="text" placeholder="备注"
                        :value="t.note"
                        @blur="patchNote(t, $event.target.value)"
@@ -206,7 +252,7 @@
             </tr>
           </template>
           <tr x-show="filtered.length === 0">
-            <td colspan="10" class="empty" style="padding:30px">没有匹配当前筛选条件的记录。</td>
+            <td colspan="11" class="empty" style="padding:30px">没有匹配当前筛选条件的记录。</td>
           </tr>
         </tbody>
       </table>
