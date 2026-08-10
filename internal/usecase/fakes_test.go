@@ -157,6 +157,75 @@ func (f *fakeTransactionRepo) ListForRecurring(_ context.Context, from, to time.
 	return out, nil
 }
 
+// ---- fakeSpecialProjectRepo ----
+
+// fakeSpecialProjectRepo 专项仓库替身。spent / inPeriod / breakdown 都直接给值，
+// 口径本身的正确性由 sqlite 层的真库测试负责，这里只验 usecase 的拼装逻辑。
+type fakeSpecialProjectRepo struct {
+	projects  []domain.SpecialProject
+	spent     map[string]int64            // 专项 id → 历史已花费
+	inPeriod  map[string]map[string]int64 // 周期 label → 专项 id → 金额
+	breakdown map[string][]domain.CategoryAggregation
+	deleted   []string
+	upserted  []domain.SpecialProject
+}
+
+func (f *fakeSpecialProjectRepo) ListAll(context.Context) ([]domain.SpecialProject, error) {
+	return f.projects, nil
+}
+
+func (f *fakeSpecialProjectRepo) Get(_ context.Context, id string) (domain.SpecialProject, error) {
+	for _, p := range f.projects {
+		if p.ID == id {
+			return p, nil
+		}
+	}
+	return domain.SpecialProject{}, port.ErrNotFound
+}
+
+func (f *fakeSpecialProjectRepo) Upsert(_ context.Context, p *domain.SpecialProject) error {
+	f.upserted = append(f.upserted, *p)
+	for i := range f.projects {
+		if f.projects[i].ID == p.ID {
+			f.projects[i] = *p
+			return nil
+		}
+	}
+	f.projects = append(f.projects, *p)
+	return nil
+}
+
+func (f *fakeSpecialProjectRepo) Delete(_ context.Context, id string) error {
+	for i := range f.projects {
+		if f.projects[i].ID == id {
+			f.projects = append(f.projects[:i], f.projects[i+1:]...)
+			f.deleted = append(f.deleted, id)
+			return nil
+		}
+	}
+	return port.ErrNotFound
+}
+
+func (f *fakeSpecialProjectRepo) SumByProject(context.Context) (map[string]int64, error) {
+	if f.spent == nil {
+		return map[string]int64{}, nil
+	}
+	return f.spent, nil
+}
+
+func (f *fakeSpecialProjectRepo) SumByProjectInPeriod(_ context.Context, p domain.Period, _ domain.Account) (map[string]int64, error) {
+	if f.inPeriod == nil {
+		return map[string]int64{}, nil
+	}
+	return f.inPeriod[p.Label], nil
+}
+
+func (f *fakeSpecialProjectRepo) SumByCategoryForProject(_ context.Context, id string) ([]domain.CategoryAggregation, error) {
+	return f.breakdown[id], nil
+}
+
+var _ port.SpecialProjectRepo = (*fakeSpecialProjectRepo)(nil)
+
 // ---- fakeAssetSnapshotRepo ----
 
 type fakeAssetSnapshotRepo struct {

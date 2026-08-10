@@ -14,15 +14,58 @@ import (
 type specialsVM struct {
 	pageBase
 	Data  usecase.SpecialViewData
+	Form  specialFormVM
 	Error string
 }
 
-// Specials GET /specials —— 专项列表 + 已花费/预算/执行率/跨科目构成 + 新建表单
-func (h *Handler) Specials(w http.ResponseWriter, r *http.Request) {
-	h.renderSpecials(w, r, "", http.StatusOK)
+// specialFormVM 右侧表单的预填值。全空 = 新建；Editing=true 时表单 POST 会覆盖同 id 的专项。
+// 用预格式化好的字符串而不是 domain 对象，模板才不用为"日期零值要渲染成空串"再加函数。
+type specialFormVM struct {
+	ID        string
+	Name      string
+	StartedOn string // YYYY-MM-DD，空 = 未填
+	EndedOn   string
+	Budget    string // 元
+	Note      string
+	Editing   bool
 }
 
-func (h *Handler) renderSpecials(w http.ResponseWriter, r *http.Request, errMsg string, status int) {
+// specialFormFromProject 已有专项 → 表单预填值
+func specialFormFromProject(p domain.SpecialProject) specialFormVM {
+	f := specialFormVM{
+		ID:      p.ID,
+		Name:    p.Name,
+		Budget:  fenToYuanInput(p.BudgetFen),
+		Note:    p.Note,
+		Editing: p.ID != "",
+	}
+	if !p.StartedOn.IsZero() {
+		f.StartedOn = p.StartedOn.Format("2006-01-02")
+	}
+	if !p.EndedOn.IsZero() {
+		f.EndedOn = p.EndedOn.Format("2006-01-02")
+	}
+	return f
+}
+
+// Specials GET /specials —— 专项列表 + 已花费/预算/执行率/跨科目构成 + 新建/编辑表单。
+// ?edit=<id> 把该专项填进右侧表单（编辑入口是 SSR 的，不引额外 JS）。
+func (h *Handler) Specials(w http.ResponseWriter, r *http.Request) {
+	var form specialFormVM
+	if id := strings.TrimSpace(r.URL.Query().Get("edit")); id != "" && h.specialRepo != nil {
+		p, err := h.specialRepo.Get(r.Context(), id)
+		if err != nil && !errors.Is(err, port.ErrNotFound) {
+			h.serverError(w, err)
+			return
+		}
+		if err == nil {
+			form = specialFormFromProject(p)
+		}
+	}
+	h.renderSpecials(w, r, form, "", http.StatusOK)
+}
+
+func (h *Handler) renderSpecials(w http.ResponseWriter, r *http.Request, form specialFormVM, errMsg string, status int) {
 	data, err := h.specialView.Load(r.Context())
 	if err != nil {
 		h.serverError(w, err)
@@ -31,6 +74,7 @@ func (h *Handler) renderSpecials(w http.ResponseWriter, r *http.Request, errMsg 
 	vm := specialsVM{
 		pageBase: pageBase{Title: "专项开支", Nav: "specials", Flash: h.flash.pop(w, r)},
 		Data:     data,
+		Form:     form,
 		Error:    errMsg,
 	}
 	h.renderPage(w, status, "specials", vm)
@@ -39,12 +83,13 @@ func (h *Handler) renderSpecials(w http.ResponseWriter, r *http.Request, errMsg 
 // SaveSpecial POST /specials —— 表单新建/编辑（带 id 即编辑）
 func (h *Handler) SaveSpecial(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		h.renderSpecials(w, r, "表单解析失败", http.StatusBadRequest)
+		h.renderSpecials(w, r, specialFormVM{}, "表单解析失败", http.StatusBadRequest)
 		return
 	}
 	p, err := specialFromForm(r)
 	if err != nil {
-		h.renderSpecials(w, r, err.Error(), http.StatusBadRequest)
+		// 回填用户刚填的内容，报错不该把表单清空
+		h.renderSpecials(w, r, specialFormFromRequest(r), err.Error(), http.StatusBadRequest)
 		return
 	}
 	if p.ID == "" {
@@ -52,7 +97,7 @@ func (h *Handler) SaveSpecial(w http.ResponseWriter, r *http.Request) {
 		p.CreatedAt = time.Now()
 	}
 	if err := h.specialView.Upsert(r.Context(), &p); err != nil {
-		h.renderSpecials(w, r, err.Error(), http.StatusBadRequest)
+		h.renderSpecials(w, r, specialFormFromRequest(r), err.Error(), http.StatusBadRequest)
 		return
 	}
 	h.flash.set(w, "专项已保存。")
@@ -93,6 +138,20 @@ func specialFromForm(r *http.Request) (domain.SpecialProject, error) {
 		return p, err
 	}
 	return p, nil
+}
+
+// specialFormFromRequest 原样回显用户提交的表单（保存失败时用，日期/预算不做解析）
+func specialFormFromRequest(r *http.Request) specialFormVM {
+	id := strings.TrimSpace(r.FormValue("id"))
+	return specialFormVM{
+		ID:        id,
+		Name:      strings.TrimSpace(r.FormValue("name")),
+		StartedOn: strings.TrimSpace(r.FormValue("started_on")),
+		EndedOn:   strings.TrimSpace(r.FormValue("ended_on")),
+		Budget:    strings.TrimSpace(r.FormValue("budget")),
+		Note:      strings.TrimSpace(r.FormValue("note")),
+		Editing:   id != "",
+	}
 }
 
 // parseOptionalDate 空串 → 零值（表示"未填"/"进行中"）

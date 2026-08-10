@@ -44,10 +44,14 @@
               {{if not .Project.EndedOn.IsZero}} → {{formatDate .Project.EndedOn}}{{end}}
             </span>
           </span>
-          <form method="post" action="/api/specials/{{.Project.ID}}/delete"
-                onsubmit="return confirm('删除该专项？挂在它上面的流水会归回日常，不会被删除。')">
-            <button class="btn danger" type="submit" style="font-size:12px;padding:4px 12px">删除</button>
-          </form>
+          <span class="flex-row" style="gap:8px">
+            <a class="btn ghost" href="/specials?edit={{.Project.ID}}#special-form"
+               style="font-size:12px;padding:4px 12px">编辑</a>
+            <form method="post" action="/api/specials/{{.Project.ID}}/delete"
+                  onsubmit="return confirm('删除该专项？挂在它上面的流水会归回日常，不会被删除。')">
+              <button class="btn danger" type="submit" style="font-size:12px;padding:4px 12px">删除</button>
+            </form>
+          </span>
         </div>
         <div class="goal-body">
           <div class="goal-nums">
@@ -90,27 +94,31 @@
   </div>
 
   <div>
-    <form class="section" method="post" action="/specials">
-      <div class="section-title"><span>新建 / 编辑专项</span></div>
+    <form class="section" method="post" action="/specials" id="special-form">
+      <div class="section-title">
+        <span>{{if .Form.Editing}}编辑专项{{else}}新建专项{{end}}</span>
+        {{if .Form.Editing}}<a class="hint" href="/specials">取消编辑</a>{{end}}
+      </div>
       <div class="profile-form" style="grid-template-columns:1fr 1fr">
-        <input type="hidden" name="id" value="">
+        {{/* id 非空即编辑：后端按 id 覆盖写入 */}}
+        <input type="hidden" name="id" value="{{.Form.ID}}">
         <label style="grid-column:1/-1">专项名称
-          <input type="text" name="name" required placeholder="如：2026 老房装修">
+          <input type="text" name="name" required placeholder="如：2026 老房装修" value="{{.Form.Name}}">
         </label>
         <label>开始日期
-          <input type="date" name="started_on">
+          <input type="date" name="started_on" value="{{.Form.StartedOn}}">
         </label>
         <label>结束日期（留空 = 进行中）
-          <input type="date" name="ended_on">
+          <input type="date" name="ended_on" value="{{.Form.EndedOn}}">
         </label>
         <label style="grid-column:1/-1">预算（元，可留空）
-          <input type="text" name="budget" inputmode="decimal" placeholder="180000">
+          <input type="text" name="budget" inputmode="decimal" placeholder="180000" value="{{.Form.Budget}}">
         </label>
         <label style="grid-column:1/-1">备注
-          <input type="text" name="note" placeholder="可选">
+          <input type="text" name="note" placeholder="可选" value="{{.Form.Note}}">
         </label>
         <div class="profile-actions">
-          <button class="btn" type="submit">保存专项</button>
+          <button class="btn" type="submit">{{if .Form.Editing}}保存修改{{else}}保存专项{{end}}</button>
         </div>
       </div>
     </form>
