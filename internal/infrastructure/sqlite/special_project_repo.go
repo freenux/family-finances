@@ -90,12 +90,25 @@ func (r *SpecialProjectRepo) Delete(ctx context.Context, id string) error {
 	return tx.Commit()
 }
 
+// netAmountSQL 专项已花费一律用「净额」：支出加、收入减。
+//
+// 挂到专项上的收入就是装修退款、退货返现、卖旧车抵扣换车这类冲抵成本的钱，
+// 用户主动把它归到专项上，意思就是"这笔要从项目成本里扣掉"。裸的 SUM(amount)
+// 会把退款当成又花了一笔，"忽略收入"则会静默丢弃用户标注的数据——两者都是错的。
+// 净额可能为负（退款大于支出），如实返回，不要 clamp 到 0。
+//
+// 三处求和（SumByProject / SumByProjectInPeriod / SumByCategoryForProject）共用这个
+// 表达式，要改就三处一起改，否则同一个专项在不同页面上会对不上账；
+// 为此三条 SQL 都把 transactions 别名成 t。
+const netAmountSQL = `SUM(CASE WHEN t.direction = 'income' THEN -t.amount ELSE t.amount END)`
+
+// SumByProject 每个专项的历史净花费（见 netAmountSQL：收入抵扣支出）
 func (r *SpecialProjectRepo) SumByProject(ctx context.Context) (map[string]int64, error) {
 	rows, err := r.db.QueryContext(ctx, `
-SELECT special_id, COALESCE(SUM(amount),0)
-FROM transactions
-WHERE special_id IS NOT NULL AND status = 'confirmed'
-GROUP BY special_id`)
+SELECT t.special_id, COALESCE(`+netAmountSQL+`,0)
+FROM transactions t
+WHERE t.special_id IS NOT NULL AND t.status = 'confirmed'
+GROUP BY t.special_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -103,18 +116,19 @@ GROUP BY special_id`)
 	return scanSumByProject(rows)
 }
 
+// SumByProjectInPeriod 周期内每个专项的净花费（见 netAmountSQL：收入抵扣支出）
 func (r *SpecialProjectRepo) SumByProjectInPeriod(ctx context.Context, p domain.Period, account domain.Account) (map[string]int64, error) {
 	q := `
-SELECT special_id, COALESCE(SUM(amount),0)
-FROM transactions
-WHERE special_id IS NOT NULL AND status = 'confirmed'
-  AND occurred_at >= ? AND occurred_at < ?`
+SELECT t.special_id, COALESCE(` + netAmountSQL + `,0)
+FROM transactions t
+WHERE t.special_id IS NOT NULL AND t.status = 'confirmed'
+  AND t.occurred_at >= ? AND t.occurred_at < ?`
 	args := []any{p.Start, p.End}
 	if account.IsStorageAccount() {
-		q += " AND account = ?"
+		q += " AND t.account = ?"
 		args = append(args, string(account))
 	}
-	q += " GROUP BY special_id"
+	q += " GROUP BY t.special_id"
 	rows, err := r.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
@@ -136,10 +150,11 @@ func scanSumByProject(rows *sql.Rows) (map[string]int64, error) {
 	return out, rows.Err()
 }
 
-// SumByCategoryForProject 专项内部的跨科目构成（一个装修会横跨多个科目）
+// SumByCategoryForProject 专项内部的跨科目构成（一个装修会横跨多个科目）。
+// 同样是净额（见 netAmountSQL）：某科目被全额退款后净额为 0，会被 HAVING 滤掉不再列出。
 func (r *SpecialProjectRepo) SumByCategoryForProject(ctx context.Context, projectID string) ([]domain.CategoryAggregation, error) {
 	rows, err := r.db.QueryContext(ctx, `
-SELECT COALESCE(t.category_id,''), COALESCE(c.name,'未分类'), COALESCE(c.parent_id,''), COALESCE(SUM(t.amount),0) AS total
+SELECT COALESCE(t.category_id,''), COALESCE(c.name,'未分类'), COALESCE(c.parent_id,''), COALESCE(`+netAmountSQL+`,0) AS total
 FROM transactions t
 LEFT JOIN categories c ON c.id = t.category_id
 WHERE t.special_id = ? AND t.status = 'confirmed'

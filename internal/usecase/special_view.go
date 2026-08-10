@@ -9,20 +9,25 @@ import (
 	"family-finances/internal/port"
 )
 
-// SpecialRow 单个专项 + 已花费 / 执行率 / 跨科目构成
+// SpecialRow 单个专项 + 已花费（净额）/ 执行率 / 跨科目构成
 type SpecialRow struct {
-	Project   domain.SpecialProject
+	Project domain.SpecialProject
+	// SpentFen 净额：挂在专项上的收入（退款、退货返现、卖旧车）抵扣支出。
+	// 可能为负（退回的比花掉的多），如实展示，不做 clamp。
 	SpentFen  int64
-	Ratio     float64                      // 执行率 = 已花费 / 预算；未设预算时为 0
+	Ratio     float64                      // 执行率 = 净花费 / 预算；未设预算时为 0，净额为负时为负
 	Status    string                       // none|ok|near|over，与预算页同一套口径
-	Breakdown []domain.CategoryAggregation // 专项内部跨科目构成，金额降序
+	Breakdown []domain.CategoryAggregation // 专项内部跨科目构成，金额降序（净额，可为负）
 }
+
+// NetRefunded 净额为负：退款/变卖已经超过投入，模板据此不画进度条、换个说法
+func (r SpecialRow) NetRefunded() bool { return r.SpentFen < 0 }
 
 // SpecialViewData /specials 页数据
 type SpecialViewData struct {
 	Rows           []SpecialRow
 	TotalBudgetFen int64
-	TotalSpentFen  int64
+	TotalSpentFen  int64 // 各专项净额之和，同样可能为负
 	ActiveCount    int
 }
 
@@ -56,6 +61,7 @@ func (uc *SpecialView) Load(ctx context.Context) (SpecialViewData, error) {
 			Breakdown: breakdown,
 			Status:    budgetStatus(p.BudgetFen, spent[p.ID]),
 		}
+		// 净额为负时执行率也是负的，如实算出来；模板靠 NetRefunded 跳过进度条，不画反向条
 		if p.BudgetFen > 0 {
 			row.Ratio = float64(row.SpentFen) / float64(p.BudgetFen)
 		}

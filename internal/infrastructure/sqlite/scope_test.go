@@ -66,6 +66,30 @@ func fixtureRows() []fixtureTx {
 	}
 }
 
+// insertFixtureRows 把 fixtureTx 写进库；除了搭基础夹具，净额等场景也用它在夹具之上追加流水
+func insertFixtureRows(t *testing.T, txRepo *TransactionRepo, rows ...fixtureTx) {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Now()
+	for _, row := range rows {
+		if err := txRepo.Insert(ctx, domain.Transaction{
+			ID:         row.id,
+			Source:     domain.SourceManual,
+			Account:    row.account,
+			OccurredAt: row.day,
+			Amount:     row.amount,
+			Direction:  row.direction,
+			Status:     row.status,
+			CategoryID: row.category,
+			SpecialID:  row.special,
+			CreatedAt:  now,
+			UpdatedAt:  now,
+		}); err != nil {
+			t.Fatalf("insert %s: %v", row.id, err)
+		}
+	}
+}
+
 func newScopeFixture(t *testing.T) *scopeFixture {
 	t.Helper()
 	db, err := Open(filepath.Join(t.TempDir(), "test.db"))
@@ -89,24 +113,7 @@ func newScopeFixture(t *testing.T) *scopeFixture {
 	}
 
 	txRepo := NewTransactionRepo(db)
-	now := time.Now()
-	for _, row := range fixtureRows() {
-		if err := txRepo.Insert(ctx, domain.Transaction{
-			ID:         row.id,
-			Source:     domain.SourceManual,
-			Account:    row.account,
-			OccurredAt: row.day,
-			Amount:     row.amount,
-			Direction:  row.direction,
-			Status:     row.status,
-			CategoryID: row.category,
-			SpecialID:  row.special,
-			CreatedAt:  now,
-			UpdatedAt:  now,
-		}); err != nil {
-			t.Fatalf("insert %s: %v", row.id, err)
-		}
-	}
+	insertFixtureRows(t, txRepo, fixtureRows()...)
 
 	p, err := domain.ParsePeriod("2026Q2")
 	if err != nil {

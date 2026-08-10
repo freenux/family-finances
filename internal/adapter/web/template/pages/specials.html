@@ -20,9 +20,9 @@
     <div class="sub">其中进行中 {{.Data.ActiveCount}} 个</div>
   </div>
   <div class="kpi-card">
-    <div class="label">已花费合计</div>
+    <div class="label">已花费合计（净）</div>
     <div class="value">¥{{yuan .Data.TotalSpentFen}}</div>
-    <div class="sub">全部专项的历史累计（只算已确认流水）</div>
+    <div class="sub">全部专项的历史累计（只算已确认流水；挂到专项上的退款/变卖按负数抵扣）</div>
   </div>
   <div class="kpi-card">
     <div class="label">预算合计</div>
@@ -55,7 +55,9 @@
         </div>
         <div class="goal-body">
           <div class="goal-nums">
-            <span>已花费 <b>¥{{yuan .SpentFen}}</b></span>
+            {{/* 净额口径：挂在专项上的收入（退款/退货返现/卖旧车）已经抵扣掉支出 */}}
+            <span>已花费（净） <b>¥{{yuan .SpentFen}}</b></span>
+            {{if .NetRefunded}}<span class="hint">退款/变卖已超过投入，净额为负</span>{{end}}
             {{if gt .Project.BudgetFen 0}}
               <span>预算 <b>¥{{yuan .Project.BudgetFen}}</b></span>
               <span>执行率 <b>{{pct .Ratio}}</b>
@@ -66,12 +68,13 @@
               <span class="hint">未设预算，只做归集统计</span>
             {{end}}
           </div>
-          {{if gt .Project.BudgetFen 0}}
+          {{/* 净额为负时不画进度条：反向条没有意义，goalPct 也已把负值截到 0 */}}
+          {{if and (gt .Project.BudgetFen 0) (not .NetRefunded)}}
           <div class="goal-bar"><div class="goal-bar-fill" style="width:{{printf "%.1f" (goalPct .Ratio)}}%"></div></div>
           {{end}}
           {{if .Breakdown}}
           <table class="ledger" style="margin-top:10px">
-            <thead><tr><th>科目构成</th><th style="text-align:right">金额</th></tr></thead>
+            <thead><tr><th>科目构成</th><th style="text-align:right">金额（净）</th></tr></thead>
             <tbody>
               {{range .Breakdown}}
               <tr class="item">
@@ -127,7 +130,9 @@
       一个装修会横跨房屋维护、购物消费、居家日常多个科目。
       专项<b>仍然计入支出合计</b>（这点和「已排除」不同），只是趋势、同比环比、预算、四笔钱、攒钱能力、
       AI 摘要这些「基线」判断一律走<b>日常口径</b>把它剔除，避免一次装修让全局同比失真。
-      在<a href="/">仪表盘</a>可以切「日常 / 全部 / 仅专项」三种口径。
+      在<a href="/">仪表盘</a>可以切「日常 / 全部 / 仅专项」三种口径。<br>
+      <b>已花费按净额算</b>：把装修退款、退货返现、卖旧车这类收入流水也归到专项上，它们会从已花费里
+      <b>扣掉</b>而不是加上去；退回来的比花掉的多时净额为负，如实显示，不画进度条。
     </div>
   </div>
 </div>

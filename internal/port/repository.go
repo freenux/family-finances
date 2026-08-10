@@ -96,12 +96,16 @@ type SpecialProjectRepo interface {
 	// Upsert 按 id 覆盖写入
 	Upsert(ctx context.Context, p *domain.SpecialProject) error
 	Delete(ctx context.Context, id string) error
-	// SumByProject 每个专项的历史已花费合计（专项 id → 分），只算 status='confirmed'
+	// 下面三个求和一律是「净额」口径：挂在专项上的收入（退款、退货返现、卖旧车抵扣换车）
+	// 从支出里减掉，而不是加进已花费。净额可能为负（退款大于支出），实现不得 clamp 到 0。
+
+	// SumByProject 每个专项的历史净花费合计（专项 id → 分），只算 status='confirmed'
 	SumByProject(ctx context.Context) (map[string]int64, error)
-	// SumByProjectInPeriod 周期内每个专项的花费（专项 id → 分），供季/年报拆行；
+	// SumByProjectInPeriod 周期内每个专项的净花费（专项 id → 分），供季/年报拆行；
 	// account 为非存储值（family）时不做账户过滤
 	SumByProjectInPeriod(ctx context.Context, p domain.Period, account domain.Account) (map[string]int64, error)
-	// SumByCategoryForProject 单个专项内部的跨科目构成，按金额降序，只返回非零科目
+	// SumByCategoryForProject 单个专项内部的跨科目构成（净额），按金额降序，
+	// 只返回净额非零的科目——被全额退款冲平的科目不再列出
 	SumByCategoryForProject(ctx context.Context, projectID string) ([]domain.CategoryAggregation, error)
 }
 

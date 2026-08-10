@@ -69,6 +69,59 @@ func TestUpdateExistingRow(t *testing.T) {
 	}
 }
 
+// TestUpdateLeavesUnsetFieldsAlone patch 里为 nil 的字段一句 SQL 都不写。
+// 这是 LLM 兜底分类（只发 CategoryID + Status）不会把用户手工标好的
+// special_id / 备注冲掉的底层保证，配合 usecase 侧的 TestClassifyPendingKeepsSpecialID 一起看。
+func TestUpdateLeavesUnsetFieldsAlone(t *testing.T) {
+	f := newScopeFixture(t)
+	ctx := context.Background()
+
+	// 一笔已归入装修专项、但还没分类的待确认流水
+	insertFixtureRows(t, f.txRepo, fixtureTx{
+		id: "u1", account: domain.AccountWife,
+		day: time.Date(2026, 5, 9, 10, 0, 0, 0, time.Local), amount: 5000,
+		direction: domain.DirectionExpense, status: domain.TxStatusPendingReview,
+		category: "", special: spReno,
+	})
+	note := "装修定金"
+	if err := f.txRepo.Update(ctx, "u1", port.TransactionUpdate{Note: &note}); err != nil {
+		t.Fatalf("Update(note) error = %v", err)
+	}
+
+	// LLM 兜底：只补分类 + 转 confirmed
+	cat := "expense.family.home_maintenance"
+	status := domain.TxStatusConfirmed
+	if err := f.txRepo.Update(ctx, "u1", port.TransactionUpdate{CategoryID: &cat, Status: &status}); err != nil {
+		t.Fatalf("Update(category) error = %v", err)
+	}
+
+	got, err := f.txRepo.Get(ctx, "u1")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got.SpecialID != spReno {
+		t.Fatalf("special_id = %q; want %q（patch 没提到它就不该动）", got.SpecialID, spReno)
+	}
+	if got.Note != note {
+		t.Fatalf("note = %q; want %q", got.Note, note)
+	}
+	if got.Account != domain.AccountWife {
+		t.Fatalf("account = %q; want %q", got.Account, domain.AccountWife)
+	}
+	if got.CategoryID != cat || got.Status != domain.TxStatusConfirmed {
+		t.Fatalf("category/status = %q/%q; want %q/confirmed", got.CategoryID, got.Status, cat)
+	}
+
+	// 补分类后这笔就该计入专项净额：130000 + 5000
+	sums, err := f.spRepo.SumByProject(ctx)
+	if err != nil {
+		t.Fatalf("SumByProject() error = %v", err)
+	}
+	if sums[spReno] != 135000 {
+		t.Fatalf("专项 %s 净额 = %d; want 135000（补分类后这笔应计入）", spReno, sums[spReno])
+	}
+}
+
 func TestSumByBuckets(t *testing.T) {
 	repo := newTestRepo(t)
 	loc := time.Local

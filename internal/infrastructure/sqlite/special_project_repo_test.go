@@ -284,3 +284,187 @@ func TestSpecialProjectDeleteNotFound(t *testing.T) {
 		t.Fatalf("Delete(missing) error = %v; want port.ErrNotFound", err)
 	}
 }
+
+// ---- 净额语义：挂在专项上的收入抵扣支出，而不是加进已花费 ----
+//
+// 三个求和方法共用 netAmountSQL，必须一起满足这条；哪个被"顺手改回" SUM(amount)，
+// 下面的期望值立刻对不上。
+
+// netFixtureRows 在基础夹具之上追加的收入抵扣流水：
+//   - 装修（sp-reno）凑成 3 笔支出（s1/s2/s4）+ 1 笔退货返现（r1）
+//   - 换车（sp-car）卖旧车抵扣（r2）比投入还多 → 净额为负
+//   - r3 是一笔未确认的退款：净额同样不该把它算进去
+func netFixtureRows() []fixtureTx {
+	d := func(m, day int) time.Time { return time.Date(2026, time.Month(m), day, 10, 0, 0, 0, time.Local) }
+	const home = "expense.family.home_maintenance"
+	return []fixtureTx{
+		{"s4", domain.AccountHusband, d(6, 10), 40000, domain.DirectionExpense, domain.TxStatusConfirmed, home, spReno},
+		{"r1", domain.AccountWife, d(6, 12), 20000, domain.DirectionIncome, domain.TxStatusConfirmed, home, spReno},
+		{"r2", domain.AccountHusband, d(6, 15), 250000, domain.DirectionIncome, domain.TxStatusConfirmed, home, spCar},
+		{"r3", domain.AccountHusband, d(6, 16), 77000, domain.DirectionIncome, domain.TxStatusPendingReview, home, spReno},
+	}
+}
+
+// newNetFixture 基础夹具 + netFixtureRows
+func newNetFixture(t *testing.T) *scopeFixture {
+	t.Helper()
+	f := newScopeFixture(t)
+	insertFixtureRows(t, f.txRepo, netFixtureRows()...)
+	return f
+}
+
+// assertSums 逐项比对专项 id → 金额，顺带卡住键的数量（多出来的键说明过滤漏了）
+func assertSums(t *testing.T, got, want map[string]int64) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("专项合计 = %v; want %v", got, want)
+	}
+	for id, w := range want {
+		if got[id] != w {
+			t.Fatalf("专项 %s = %d; want %d（全部：%v）", id, got[id], w, got)
+		}
+	}
+}
+
+// TestSpecialProjectSumByProjectNetsIncome 历史净额：退款抵扣，多退少补都如实算
+func TestSpecialProjectSumByProjectNetsIncome(t *testing.T) {
+	f := newNetFixture(t)
+
+	got, err := f.spRepo.SumByProject(context.Background())
+	if err != nil {
+		t.Fatalf("SumByProject() error = %v", err)
+	}
+	assertSums(t, got, map[string]int64{
+		// 100000 + 30000 + 40000 - 20000（e1 excluded / r3 pending 都不算）
+		spReno: 150000,
+		// 200000 - 250000：卖旧车比买车花的还多，净额为负，不许 clamp 到 0
+		spCar: -50000,
+	})
+}
+
+// TestSpecialProjectSumByProjectInPeriodNetsIncome 周期 + 账户过滤下同样按净额
+func TestSpecialProjectSumByProjectInPeriodNetsIncome(t *testing.T) {
+	f := newNetFixture(t)
+	ctx := context.Background()
+
+	mustPeriod := func(label string) domain.Period {
+		t.Helper()
+		p, err := domain.ParsePeriod(label)
+		if err != nil {
+			t.Fatalf("parse period %s: %v", label, err)
+		}
+		return p
+	}
+
+	tests := []struct {
+		name    string
+		period  domain.Period
+		account domain.Account
+		want    map[string]int64
+	}{
+		// 男主 100000(s1) + 40000(s4)，女主 30000(s2) - 20000(r1)
+		{"2026Q2·家庭", f.period, domain.AccountFamily, map[string]int64{spReno: 150000, spCar: -50000}},
+		{"2026Q2·男主（退款记在女主名下，不参与男主净额）", f.period, domain.AccountHusband,
+			map[string]int64{spReno: 140000, spCar: -50000}},
+		{"2026Q2·女主（退款把自己那半边冲掉大半）", f.period, domain.AccountWife,
+			map[string]int64{spReno: 10000}},
+		// 4 月只有 s1，退款都发生在 6 月
+		{"2026-04·家庭（退款还没发生）", mustPeriod("2026-04"), domain.AccountFamily,
+			map[string]int64{spReno: 100000}},
+		{"2026-06·家庭（当月净额）", mustPeriod("2026-06"), domain.AccountFamily,
+			map[string]int64{spReno: 20000, spCar: -50000}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := f.spRepo.SumByProjectInPeriod(ctx, tt.period, tt.account)
+			if err != nil {
+				t.Fatalf("SumByProjectInPeriod() error = %v", err)
+			}
+			assertSums(t, got, tt.want)
+		})
+	}
+}
+
+// TestSpecialProjectSumByCategoryForProjectNetsIncome 构成表逐科目净额，负值排在最后
+func TestSpecialProjectSumByCategoryForProjectNetsIncome(t *testing.T) {
+	f := newNetFixture(t)
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		project string
+		want    []domain.CategoryAggregation
+	}{
+		{
+			name: "装修：房屋维护被退款冲掉 2 万", project: spReno,
+			want: []domain.CategoryAggregation{
+				// 100000 + 40000 - 20000
+				{CategoryID: "expense.family.home_maintenance", Name: "房屋维护", ParentID: "expense.family", Amount: 120000},
+				{CategoryID: "expense.discretion.shopping", Name: "购物消费", ParentID: "expense.discretion", Amount: 30000},
+			},
+		},
+		{
+			name: "换车：净额为负的科目照样列出来", project: spCar,
+			want: []domain.CategoryAggregation{
+				{CategoryID: "expense.family.home_maintenance", Name: "房屋维护", ParentID: "expense.family", Amount: -50000},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := f.spRepo.SumByCategoryForProject(ctx, tt.project)
+			if err != nil {
+				t.Fatalf("SumByCategoryForProject() error = %v", err)
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("构成 = %+v; want %+v", got, tt.want)
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Fatalf("第 %d 项 = %+v; want %+v", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+// TestSpecialProjectSumNetZero 全额退货把科目冲平：专项净额为 0（键仍在），
+// 构成表按 HAVING total != 0 不再列出这个科目。
+func TestSpecialProjectSumNetZero(t *testing.T) {
+	f := newScopeFixture(t)
+	ctx := context.Background()
+
+	const spTV = "sp-tv"
+	tv := domain.SpecialProject{
+		ID: spTV, Name: "电视机（已全额退货）",
+		StartedOn: time.Date(2026, 6, 1, 0, 0, 0, 0, time.Local), BudgetFen: 500000,
+	}
+	if err := f.spRepo.Upsert(ctx, &tv); err != nil {
+		t.Fatalf("Upsert(%s) error = %v", spTV, err)
+	}
+	d := func(day int) time.Time { return time.Date(2026, 6, day, 10, 0, 0, 0, time.Local) }
+	insertFixtureRows(t, f.txRepo,
+		fixtureTx{"z1", domain.AccountHusband, d(20), 60000, domain.DirectionExpense, domain.TxStatusConfirmed, "expense.discretion.shopping", spTV},
+		fixtureTx{"z2", domain.AccountHusband, d(21), 60000, domain.DirectionIncome, domain.TxStatusConfirmed, "expense.discretion.shopping", spTV},
+	)
+
+	sums, err := f.spRepo.SumByProject(ctx)
+	if err != nil {
+		t.Fatalf("SumByProject() error = %v", err)
+	}
+	got, ok := sums[spTV]
+	if !ok {
+		t.Fatalf("SumByProject() = %v; want 含 %s（有流水的专项应出现，哪怕净额为 0）", sums, spTV)
+	}
+	if got != 0 {
+		t.Fatalf("专项 %s 净额 = %d; want 0（买了又全额退了）", spTV, got)
+	}
+
+	breakdown, err := f.spRepo.SumByCategoryForProject(ctx, spTV)
+	if err != nil {
+		t.Fatalf("SumByCategoryForProject() error = %v", err)
+	}
+	if len(breakdown) != 0 {
+		t.Fatalf("构成 = %+v; want 空（净额为 0 的科目被 HAVING 滤掉）", breakdown)
+	}
+}
