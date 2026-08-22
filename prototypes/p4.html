@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>专项开支过滤 — 产品设计 demo</title>
+<style>
+  :root{
+    color-scheme: light;
+    /* 沿用仓库 DESIGN.md / app.css 的既有 token */
+    --bg:#ffffff; --bg-soft:#f6f9fc; --cream:#f5e9d4; --surface:#ffffff;
+    --border:#e3e8ee; --border-strong:#a8c3de;
+    --text:#0d253d; --text-2:#273951; --muted:#64748d;
+    --accent:#533afd; --accent-deep:#4434d4; --accent-soft:#f4f2ff; --accent-subdued:#b9b9f9;
+    --navy:#1c1e54;
+    --positive:#0e7a41; --negative:#d31b5e; --warning:#9b6829;
+    /* 本次新增的唯一语义色：专项 = 琥珀/奶油（取自系统里已有的 canvas-cream + lemon） */
+    --special:#b5791f; --special-ink:#7d5312; --special-soft:#f5e9d4; --special-line:#e6cfa4;
+    --radius:12px; --radius-sm:6px; --pill:9999px;
+    --sans:"SF Pro Display",-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Segoe UI",sans-serif;
+    --shadow-1:rgba(0,55,112,.08) 0 1px 3px;
+    --shadow-2:rgba(0,55,112,.08) 0 8px 24px, rgba(0,55,112,.04) 0 2px 6px;
+  }
+
+  *{box-sizing:border-box}
+
+  /* 应用是明确的浅色单主题（app.css 里 color-scheme:light）。
+     demo 忠实镜像产品，因此不做深色反转，但所有底色显式声明，不依赖继承。 */
+  .app{
+    background:var(--bg); color:var(--text);
+    font-family:var(--sans); font-size:14px; line-height:1.5;
+    font-feature-settings:"ss01";
+    min-height:100%; position:relative; overflow-x:clip;
+  }
+  .app::before{
+    content:""; position:absolute; top:-150px; left:-10%; right:-10%; height:460px;
+    z-index:0; pointer-events:none; transform:skewY(-6deg); transform-origin:top left;
+    filter:blur(30px) saturate(140%);
+    background:
+      radial-gradient(50% 72% at 4% 42%, rgba(245,226,188,1), transparent 64%),
+      radial-gradient(44% 66% at 24% 16%, rgba(255,187,122,.9), transparent 62%),
+      radial-gradient(50% 74% at 50% 36%, rgba(167,167,250,1), transparent 64%),
+      radial-gradient(40% 62% at 72% 14%, rgba(102,94,253,.7), transparent 62%),
+      radial-gradient(38% 60% at 92% 40%, rgba(249,107,238,.75), transparent 62%);
+    -webkit-mask-image:linear-gradient(180deg,#000 50%,transparent 96%);
+    mask-image:linear-gradient(180deg,#000 50%,transparent 96%);
+  }
+  .wrap{position:relative; z-index:1; max-width:1060px; margin:0 auto; padding:44px 24px 80px}
+
+  /* ---------- 顶部说明 ---------- */
+  .intro{margin-bottom:30px}
+  .eyebrow{
+    display:inline-flex; align-items:center; gap:7px;
+    font-size:11px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--muted); font-weight:500; margin-bottom:14px;
+  }
+  .eyebrow::before{content:""; width:16px; height:1px; background:var(--border-strong)}
+  h1{
+    font-size:clamp(28px,4.2vw,40px); font-weight:300; letter-spacing:-.9px;
+    margin:0 0 12px; text-wrap:balance; color:var(--navy);
+  }
+  .lede{color:var(--muted); font-size:15px; line-height:1.75; max-width:64ch; margin:0}
+  .lede b{color:var(--text-2); font-weight:500}
+
+  /* ---------- 导航 ---------- */
+  .tabs{
+    display:flex; gap:2px; margin:30px 0 24px; padding:4px;
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--pill); box-shadow:var(--shadow-1);
+    width:fit-content; max-width:100%; overflow-x:auto;
+  }
+  .tabs button{
+    appearance:none; border:0; background:transparent; cursor:pointer;
+    font:inherit; font-size:13px; font-weight:500; color:var(--muted);
+    padding:8px 18px; border-radius:var(--pill); white-space:nowrap;
+    transition:background .16s ease, color .16s ease;
+  }
+  .tabs button:hover{color:var(--text); background:var(--bg-soft)}
+  .tabs button[aria-selected="true"]{background:var(--navy); color:#fff}
+  .tabs button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+
+  .screen{display:none; animation:rise .34s ease-out both}
+  .screen.on{display:block}
+  @keyframes rise{from{opacity:0; transform:translateY(10px)} to{opacity:1; transform:none}}
+
+  /* ---------- 面板 ---------- */
+  .panel{
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius); box-shadow:var(--shadow-1);
+    margin-bottom:18px; overflow:hidden;
+  }
+  .panel > h3{
+    display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap;
+    margin:0; padding:15px 20px; border-bottom:1px solid var(--border);
+    font-size:14px; font-weight:600; letter-spacing:-.1px; background:var(--bg-soft);
+  }
+  .panel-body{padding:20px}
+  .hint{font-size:12px; font-weight:400; color:var(--muted)}
+
+  /* ---------- 口径切换 ---------- */
+  .scope-bar{
+    display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+    padding:16px 20px; border-bottom:1px solid var(--border); background:var(--surface);
+  }
+  .scope-label{font-size:12px; color:var(--muted); font-weight:500}
+  .seg{display:inline-flex; padding:3px; background:var(--bg-soft); border:1px solid var(--border); border-radius:var(--pill)}
+  .seg button{
+    appearance:none; border:0; background:transparent; cursor:pointer; font:inherit;
+    font-size:13px; font-weight:500; color:var(--muted); padding:6px 16px; border-radius:var(--pill);
+    transition:background .16s ease, color .16s ease, box-shadow .16s ease;
+  }
+  .seg button:hover{color:var(--text)}
+  .seg button[aria-pressed="true"]{background:var(--surface); color:var(--text); box-shadow:var(--shadow-1)}
+  .seg button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  .seg.amber button[aria-pressed="true"]{color:var(--special-ink)}
+
+  /* 判定条：demo 的核心时刻 */
+  .verdict{
+    display:flex; align-items:flex-start; gap:14px; padding:16px 20px;
+    border-bottom:1px solid var(--border); transition:background .25s ease;
+  }
+  .verdict.bad{background:linear-gradient(90deg, #fdf2f6, transparent 70%)}
+  .verdict.good{background:linear-gradient(90deg, #f0f9f3, transparent 70%)}
+  .verdict.neutral{background:linear-gradient(90deg, var(--special-soft), transparent 70%)}
+  .verdict-mark{
+    flex:none; width:30px; height:30px; border-radius:50%; display:grid; place-items:center;
+    font-size:15px; font-weight:600; color:#fff; margin-top:1px;
+  }
+  .verdict.bad .verdict-mark{background:var(--negative)}
+  .verdict.good .verdict-mark{background:var(--positive)}
+  .verdict.neutral .verdict-mark{background:var(--special)}
+  .verdict-text{min-width:0}
+  .verdict-head{font-size:15px; font-weight:600; letter-spacing:-.2px; margin-bottom:3px}
+  .verdict.bad .verdict-head{color:var(--negative)}
+  .verdict.good .verdict-head{color:var(--positive)}
+  .verdict.neutral .verdict-head{color:var(--special-ink)}
+  .verdict-sub{font-size:13px; color:var(--muted); line-height:1.65}
+  .verdict-sub b{color:var(--text-2); font-weight:500}
+
+  /* ---------- 柱状对比 ---------- */
+  .bars{display:flex; align-items:flex-end; gap:10px; overflow-x:auto; padding-bottom:4px}
+  .bar{flex:1 1 0; min-width:88px; display:flex; flex-direction:column; align-items:center; gap:8px}
+  .bar-val{
+    font-size:12.5px; font-weight:600; color:var(--text);
+    font-variant-numeric:tabular-nums; letter-spacing:-.2px;
+  }
+  .bar-track{
+    width:100%; height:168px; display:flex; flex-direction:column; justify-content:flex-end;
+    background:var(--bg-soft); border-radius:8px 8px 4px 4px; overflow:hidden;
+  }
+  .bar-fill{width:100%; transition:height .42s cubic-bezier(.4,0,.2,1)}
+  .bar-fill.daily{background:linear-gradient(180deg, var(--accent-subdued), var(--accent))}
+  .bar-fill.special{
+    background:repeating-linear-gradient(135deg, var(--special-soft) 0 7px, #eddcbb 7px 14px);
+    border-bottom:1px solid var(--special-line);
+  }
+  .bar-lbl{font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums}
+  .bar.focus .bar-lbl{color:var(--text); font-weight:600}
+  .bar-cmp{display:flex; flex-direction:column; gap:2px; width:100%}
+  .cmp{
+    display:flex; align-items:center; justify-content:center; gap:4px;
+    font-size:11.5px; font-variant-numeric:tabular-nums;
+    transition:color .2s ease;
+  }
+  .cmp .t{
+    font-size:10px; width:15px; height:15px; border-radius:4px; display:grid; place-items:center;
+    background:var(--bg-soft); color:var(--muted); flex:none; font-weight:500;
+  }
+  .cmp.up{color:var(--negative)}
+  .cmp.down{color:var(--positive)}
+  .cmp.flat{color:var(--muted)}
+
+  .legend{display:flex; gap:18px; flex-wrap:wrap; margin-top:16px; padding-top:14px; border-top:1px solid var(--border)}
+  .legend span{display:inline-flex; align-items:center; gap:7px; font-size:12px; color:var(--muted)}
+  .swatch{width:11px; height:11px; border-radius:3px; flex:none}
+  .swatch.daily{background:var(--accent)}
+  .swatch.special{background:repeating-linear-gradient(135deg, var(--special-soft) 0 4px, #eddcbb 4px 8px); border:1px solid var(--special-line)}
+
+  /* ---------- 报表 ---------- */
+  table{width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums}
+  th,td{text-align:left; padding:9px 12px; font-size:13px; border-bottom:1px solid var(--border)}
+  th{font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:500; background:var(--bg-soft)}
+  td.num,th.num{text-align:right}
+  .tbl-wrap{overflow-x:auto}
+  tr.grp td{background:var(--bg-soft); font-weight:600}
+  tr.special-row td{background:var(--special-soft)}
+  tr.special-row td:first-child{color:var(--special-ink)}
+  tr.total td{border-top:2px solid var(--navy); border-bottom:0; font-weight:600; font-size:14px}
+  .sub-line{color:var(--muted); font-size:12px; font-weight:400}
+
+  .kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:1px; background:var(--border)}
+  .kpi{background:var(--surface); padding:18px 20px}
+  .kpi-cap{font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin-bottom:7px}
+  .kpi-val{font-size:25px; font-weight:300; letter-spacing:-.7px; font-variant-numeric:tabular-nums; color:var(--navy)}
+  .kpi-val.neg{color:var(--negative)}
+  .kpi-val.pos{color:var(--positive)}
+  .kpi-sub{font-size:12px; color:var(--muted); margin-top:5px; line-height:1.5}
+
+  /* ---------- 流水表 ---------- */
+  .batch{
+    display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+    padding:12px 20px; background:var(--accent-soft);
+    border-bottom:1px solid var(--border); font-size:13px;
+  }
+  .batch b{font-variant-numeric:tabular-nums}
+  select{
+    font:inherit; font-size:12.5px; color:var(--text); background:var(--surface);
+    border:1px solid var(--border-strong); border-radius:var(--radius-sm);
+    padding:4px 8px; cursor:pointer; max-width:100%;
+  }
+  select:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+  select.tagged{background:var(--special-soft); border-color:var(--special-line); color:var(--special-ink); font-weight:500}
+  .btn{
+    appearance:none; font:inherit; font-size:13px; font-weight:500; cursor:pointer;
+    padding:6px 15px; border-radius:var(--pill); border:1px solid transparent;
+    background:var(--accent); color:#fff; transition:background .15s ease;
+  }
+  .btn:hover{background:var(--accent-deep)}
+  .btn:focus-visible{outline:2px solid var(--navy); outline-offset:2px}
+  .btn.ghost{background:transparent; color:var(--text-2); border-color:var(--border-strong)}
+  .btn.ghost:hover{background:var(--bg-soft)}
+  .amt{font-variant-numeric:tabular-nums; font-weight:500}
+  .amt.big{color:var(--negative)}
+  .chip{
+    display:inline-block; font-size:11px; padding:1.5px 8px; border-radius:var(--pill);
+    background:var(--bg-soft); color:var(--muted); white-space:nowrap;
+  }
+  .chip.amber{background:var(--special-soft); color:var(--special-ink); border:1px solid var(--special-line)}
+
+  /* ---------- 专项卡 ---------- */
+  .proj-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px}
+  .proj{
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    box-shadow:var(--shadow-1); padding:20px; display:flex; flex-direction:column; gap:14px;
+  }
+  .proj.live{border-color:var(--special-line); background:linear-gradient(180deg,var(--special-soft) 0 58px, var(--surface) 58px)}
+  .proj-top{display:flex; align-items:flex-start; justify-content:space-between; gap:10px}
+  .proj-name{font-size:16px; font-weight:600; letter-spacing:-.2px; margin:0 0 3px}
+  .proj-meta{font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums}
+  .proj-figs{display:flex; gap:24px; flex-wrap:wrap}
+  .fig-cap{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:3px}
+  .fig-val{font-size:20px; font-weight:300; letter-spacing:-.4px; font-variant-numeric:tabular-nums; color:var(--navy)}
+  .prog{height:7px; background:var(--bg-soft); border-radius:var(--pill); overflow:hidden}
+  .prog span{display:block; height:100%; background:linear-gradient(90deg,var(--special),#d29a3c); border-radius:var(--pill)}
+  .prog.over span{background:var(--negative)}
+  .split{display:flex; flex-direction:column; gap:7px}
+  .split-row{display:grid; grid-template-columns:1fr auto; gap:10px; font-size:12.5px; align-items:center}
+  .split-bar{grid-column:1/-1; height:4px; background:var(--bg-soft); border-radius:var(--pill); overflow:hidden}
+  .split-bar span{display:block; height:100%; background:var(--special-line)}
+  .split-amt{font-variant-numeric:tabular-nums; color:var(--muted)}
+
+  /* ---------- 设计注解 ---------- */
+  .note{
+    display:flex; gap:12px; margin:20px 0 26px; padding:15px 18px;
+    background:var(--bg-soft); border:1px solid var(--border);
+    border-left:3px solid var(--accent); border-radius:var(--radius-sm);
+  }
+  .note-k{
+    flex:none; font-size:10.5px; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--accent); font-weight:600; padding-top:2px; width:52px;
+  }
+  .note p{margin:0; font-size:13px; line-height:1.75; color:var(--text-2)}
+  .note p + p{margin-top:8px}
+  .note b{font-weight:600; color:var(--navy)}
+  .note code{
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
+    background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:1px 5px;
+  }
+
+  .callout{
+    padding:15px 18px; border-radius:var(--radius-sm); font-size:13px; line-height:1.75;
+    background:var(--special-soft); border:1px solid var(--special-line); color:var(--special-ink);
+    margin-bottom:18px;
+  }
+  .callout b{font-weight:600}
+
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.01ms !important; transition-duration:.01ms !important}
+  }
+  @media (max-width:640px){
+    .wrap{padding:32px 16px 60px}
+    .panel-body{padding:16px}
+    .bar{min-width:76px}
+    .bar-track{height:130px}
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+<div class="wrap">
+
+  <div class="intro">
+    <div class="eyebrow">产品设计方案 · 待评审</div>
+    <h1>把专项开支从「日常盘子」里摘出来</h1>
+    <p class="lede">
+      装修、购车这类支出金额大、一次性，混在总表里会让<b>同比环比彻底失真</b>——
+      你看到的不是「家里花超了」，只是「今年在装修」。<br>
+      方案：给流水加一个和科目正交的<b>专项</b>维度，再给所有统计加一个<b>口径开关</b>。
+      钱一分不少记，但趋势只看日常。
+    </p>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true"  data-tab="stats">① 统计 · 同比环比</button>
+    <button role="tab" aria-selected="false" data-tab="report">② 季度报表</button>
+    <button role="tab" aria-selected="false" data-tab="tx">③ 流水标注</button>
+    <button role="tab" aria-selected="false" data-tab="proj">④ 专项管理</button>
+  </div>
+
+  <!-- ==================== ① 统计 ==================== -->
+  <section class="screen on" data-screen="stats">
+
+    <div class="panel">
+      <div class="scope-bar">
+        <span class="scope-label">统计口径</span>
+        <div class="seg" id="scopeSeg">
+          <button data-scope="daily"   aria-pressed="true">日常</button>
+          <button data-scope="all"     aria-pressed="false">全部</button>
+          <button data-scope="special" aria-pressed="false">仅专项</button>
+        </div>
+        <span class="hint" id="scopeHint">剔除专项，只看可比的日常开支 · 默认</span>
+        <span style="flex:1"></span>
+        <div class="seg" id="granSeg">
+          <button data-gran="month"   aria-pressed="false">月度</button>
+          <button data-gran="quarter" aria-pressed="true">季度</button>
+        </div>
+      </div>
+
+      <div class="verdict" id="verdict">
+        <div class="verdict-mark" id="verdictMark">✓</div>
+        <div class="verdict-text">
+          <div class="verdict-head" id="verdictHead"></div>
+          <div class="verdict-sub" id="verdictSub"></div>
+        </div>
+      </div>
+
+      <div class="panel-body">
+        <div class="bars" id="bars"></div>
+        <div class="legend">
+          <span><i class="swatch daily"></i>日常开支</span>
+          <span><i class="swatch special"></i>专项开支（装修 / 购车）</span>
+          <span style="color:var(--muted)">环 = 环比上期 · 同 = 同比去年同期</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <div class="note-k">要点</div>
+      <div>
+        <p><b>默认是「日常」，不是「全部」。</b>抱怨的起点就是默认视图被专项污染了，所以默认口径必须是干净的那个。想看真实现金流再切「全部」。</p>
+        <p><b>「全部」口径下专项用斜纹叠在柱子上</b>，而不是换个颜色重画一根——一眼能看出「这根柱子高，是因为上面那截」。切到「日常」时斜纹段收起，柱子高度回落，同比环比数字跟着重算。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== ② 报表 ==================== -->
+  <section class="screen" data-screen="report">
+    <div class="callout">
+      报表口径固定为<b>全部</b>——季度报表要和银行流水、资产快照对得上账，不能把 18.6 万装修藏起来。
+      但它<b>拆成三行</b>呈现，让「日常」这条线单独可读。
+    </div>
+
+    <div class="panel">
+      <h3><span>2026Q2 家庭收支表</span><span class="hint">家庭总账 · 含男主 / 女主</span></h3>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr><th>科目</th><th class="num">金额</th><th class="num">占比</th></tr>
+          </thead>
+          <tbody id="reportBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3><span>关键指标</span><span class="hint">比率类指标一律以「日常」为分母</span></h3>
+      <div class="kpis" id="kpis"></div>
+    </div>
+
+    <div class="note">
+      <div class="note-k">要点</div>
+      <div>
+        <p><b>这里顺手修掉一个现有的真 bug。</b>自由裁量占比现在是「自由裁量 ÷ 支出合计」。装修那季支出合计从 4 万涨到 18.5 万，分母暴涨，占比被稀释到 5.6%，35% 的告警<b>正好在最该关注的时候静默关掉了</b>。改成以日常为分母后是 25.5%，是真实的。</p>
+        <p><b>结余也给两个数。</b>全口径 −6.3 万（确实动用了存款，这是事实，要看见）；日常口径 +8.1 万（家庭赚钱能力没问题）。两个都对，回答的是不同问题。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== ③ 流水 ==================== -->
+  <section class="screen" data-screen="tx">
+    <div class="callout">
+      标注入口做在<b>现有流水页</b>，不新开页面。装修一次几十上百笔，所以<b>批量归入是必备项</b>，不是加分项。
+      下面的下拉可以真的点，试试。
+    </div>
+
+    <div class="panel">
+      <h3>
+        <span>流水 · 2026 年 5 月</span>
+        <span class="hint">已归入专项 <b id="taggedCount">0</b> / 8 笔 · 合计 <b id="taggedSum">¥0</b></span>
+      </h3>
+
+      <div class="batch">
+        <span>筛选命中 <b>3</b> 笔（对方含「装饰 / 家居 / 建材」），批量归入</span>
+        <select id="batchSel">
+          <option value="">— 选择专项 —</option>
+          <option value="reno">2026 老房装修</option>
+          <option value="car">2025 换车</option>
+        </select>
+        <button class="btn" id="batchBtn">应用</button>
+        <button class="btn ghost" id="resetBtn">重置 demo</button>
+      </div>
+
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>日期</th><th>对方 · 说明</th><th class="num">金额</th>
+              <th>科目</th><th>专项</th>
+            </tr>
+          </thead>
+          <tbody id="txBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="note">
+      <div class="note-k">要点</div>
+      <div>
+        <p><b>专项和科目是两列，不是一列。</b>看第 1、2、4、6 行——同一个装修专项，科目分别是房屋维护、购物消费。如果把装修做成一个科目，「钱花在什么上」这个维度就毁了。</p>
+        <p><b>不做金额阈值自动判定。</b>专项的判据是「非经常性」，不是「大额」：每年一次的 3 万保费是大额但经常性，不该剔；装修里 800 块的开关面板不大额但属于专项。只做人工 + 规则标注，专项页可以提示「未归属的大额流水」，但决定权留给人。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== ④ 专项 ==================== -->
+  <section class="screen" data-screen="proj">
+    <div class="callout">
+      这一页就是「<b>想看的时候可以存在</b>」。专项做成独立实体（有名字、起止、预算），而不是流水上的一个布尔标记——
+      否则你只能知道「有些钱是一次性的」，不知道「装修一共花了多少、超没超预算」。
+    </div>
+
+    <div class="proj-grid" id="projGrid"></div>
+
+    <div class="note" style="margin-top:26px">
+      <div class="note-k">要点</div>
+      <div>
+        <p><b>专项自带预算，和季度预算分开。</b>日常预算按季度按科目管（现有的 /budget 页），专项预算按项目总额管——装修不该去挤 Q2 的「购物消费」额度。</p>
+        <p><b>专项可以跨年。</b>换车专项落在 2025Q4，装修横跨 2026Q1–Q2。跨年这件事恰恰说明它不能用「期间」来表达，必须是独立实体。</p>
+        <p><b>结项后依然保留。</b>结项只是不再接收新流水，历史照常可查、可对账。</p>
+      </div>
+    </div>
+  </section>
+
+</div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------------- 数据（元） ---------------- */
+  // 日常开支：2025-01 → 2026-06（当期 = 2026Q2，最后一期必须是完整周期，
+  // 否则季度视图末尾会出现只含 1 个月的残缺柱，环比噪声盖过要说明的问题）
+  var DAILY = [
+    ["2025-01",13480],["2025-02",14100],["2025-03",12800],["2025-04",12350],
+    ["2025-05",13900],["2025-06",13240],["2025-07",13050],["2025-08",13610],
+    ["2025-09",12980],["2025-10",14420],["2025-11",13150],["2025-12",14760],
+    ["2026-01",14040],["2026-02",14820],["2026-03",13260],["2026-04",12940],
+    ["2026-05",13510],["2026-06",14180]
+  ];
+  // 专项开支：只在特定月份发生
+  var SPECIAL = {
+    "2025-10":118000,                                  // 换车
+    "2026-03":42000,"2026-04":68500,"2026-05":51200,"2026-06":24800  // 装修
+  };
+
+  var yuan = function(n){
+    var neg = n < 0; n = Math.abs(Math.round(n));
+    return (neg?"−¥":"¥") + n.toLocaleString("zh-CN");
+  };
+  var yuanK = function(n){
+    var neg = n < 0; var a = Math.abs(n);
+    if (a >= 10000) return (neg?"−":"") + "¥" + (a/10000).toFixed(1) + "万";
+    return yuan(n);
+  };
+
+  /* 按粒度构建序列：{label, daily, special} */
+  function series(gran){
+    if (gran === "month"){
+      return DAILY.map(function(r){
+        return {label:r[0], daily:r[1], special:SPECIAL[r[0]] || 0};
+      });
+    }
+    var byQ = {}, order = [];
+    DAILY.forEach(function(r){
+      var y = r[0].slice(0,4), m = parseInt(r[0].slice(5),10);
+      var key = y + "Q" + (Math.floor((m-1)/3)+1);
+      if (!byQ[key]){ byQ[key] = {label:key, daily:0, special:0}; order.push(key); }
+      byQ[key].daily += r[1];
+      byQ[key].special += SPECIAL[r[0]] || 0;
+    });
+    return order.map(function(k){ return byQ[k]; });
+  }
+
+  function valueOf(pt, scope){
+    if (scope === "daily")   return pt.daily;
+    if (scope === "special") return pt.special;
+    return pt.daily + pt.special;
+  }
+
+  /* ---------------- 状态 ---------------- */
+  var scope = "daily", gran = "quarter";
+
+  var SCOPE_HINT = {
+    daily:   "剔除专项，只看可比的日常开支 · 默认",
+    all:     "日常 + 专项，对应真实现金流",
+    special: "只看专项，用于核对项目进度"
+  };
+
+  /* ---------------- 柱状图 ---------------- */
+  function renderBars(){
+    var all = series(gran);
+    var show = gran === "month" ? 6 : 4;
+    var off  = gran === "month" ? 12 : 4;      // 同比回溯期数
+    var start = all.length - show;
+
+    var vals = [];
+    for (var i = start; i < all.length; i++) vals.push(valueOf(all[i], scope));
+    var max = Math.max.apply(null, vals.concat([1]));
+
+    var host = document.getElementById("bars");
+    host.textContent = "";
+
+    for (var j = start; j < all.length; j++){
+      var pt = all[j];
+      var total = valueOf(pt, scope);
+      var isLast = j === all.length - 1;
+
+      var bar = document.createElement("div");
+      bar.className = "bar" + (isLast ? " focus" : "");
+
+      var val = document.createElement("div");
+      val.className = "bar-val";
+      val.textContent = total ? yuanK(total) : "—";
+      bar.appendChild(val);
+
+      var track = document.createElement("div");
+      track.className = "bar-track";
+      // 叠放顺序：专项在上、日常在下
+      if (scope !== "daily" && pt.special > 0){
+        var sp = document.createElement("div");
+        sp.className = "bar-fill special";
+        sp.style.height = (pt.special / max * 100) + "%";
+        track.appendChild(sp);
+      }
+      if (scope !== "special"){
+        var dl = document.createElement("div");
+        dl.className = "bar-fill daily";
+        dl.style.height = (pt.daily / max * 100) + "%";
+        track.appendChild(dl);
+      }
+      bar.appendChild(track);
+
+      var lbl = document.createElement("div");
+      lbl.className = "bar-lbl";
+      lbl.textContent = pt.label;
+      bar.appendChild(lbl);
+
+      var cmp = document.createElement("div");
+      cmp.className = "bar-cmp";
+      cmp.appendChild(ratioEl("环", total, j-1   >= 0 ? valueOf(all[j-1], scope)   : null));
+      cmp.appendChild(ratioEl("同", total, j-off >= 0 ? valueOf(all[j-off], scope) : null));
+      bar.appendChild(cmp);
+
+      host.appendChild(bar);
+    }
+    renderVerdict(all, start, off);
+  }
+
+  function ratioEl(tag, cur, base){
+    var el = document.createElement("span");
+    el.className = "cmp flat";
+    var t = document.createElement("i");
+    t.className = "t"; t.textContent = tag;
+    el.appendChild(t);
+    var s = document.createElement("span");
+    if (base === null || base === 0){
+      s.textContent = "—";
+    } else {
+      var d = (cur - base) / base;
+      s.textContent = (d > 0 ? "+" : "") + (d*100).toFixed(1) + "%";
+      el.className = "cmp " + (d > 0.005 ? "up" : (d < -0.005 ? "down" : "flat"));
+    }
+    el.appendChild(s);
+    return el;
+  }
+
+  /* ---------------- 判定条 ----------------
+     锚定「视窗内专项占比最高的那一期」，而不是最后一期——
+     否则月度视图落在 2026-07（当期没有专项），文案与数字对不上。
+     锚定同一期，切换口径时就是同一个格子的数字在翻转。        */
+  function renderVerdict(all, start, off){
+    var fi = all.length-1, best = -1;
+    for (var i = start; i < all.length; i++){
+      if (all[i].special > best){ best = all[i].special; fi = i; }
+    }
+    var pt = all[fi];
+    var baseIdx = fi - off;
+
+    function yoyOf(sc){
+      if (baseIdx < 0) return null;
+      var b = valueOf(all[baseIdx], sc);
+      return b ? (valueOf(pt, sc) - b) / b : null;
+    }
+    function txt(v){ return v === null ? "—" : (v>0?"+":"") + (v*100).toFixed(1) + "%"; }
+
+    var box  = document.getElementById("verdict");
+    var mark = document.getElementById("verdictMark");
+    var head = document.getElementById("verdictHead");
+    var sub  = document.getElementById("verdictSub");
+    var baseLbl = baseIdx >= 0 ? all[baseIdx].label : "—";
+
+    if (scope === "special"){
+      var spTotal = all.reduce(function(a,p){ return a + p.special; }, 0);
+      box.className = "verdict neutral";
+      mark.textContent = "◆";
+      head.textContent = "专项口径 · 累计 " + yuanK(spTotal) + "（2 个项目）";
+      sub.innerHTML = "这是被摘出去的部分。它<b>没有消失</b>，只是不参与趋势比较——" +
+                      "在「专项管理」页按项目核对进度，在「季度报表」里照常计入支出合计。";
+      return;
+    }
+
+    if (scope === "all"){
+      box.className = "verdict bad";
+      mark.textContent = "!";
+      head.textContent = pt.label + " 全口径同比 " + txt(yoyOf("all")) + "，看起来支出失控";
+      sub.innerHTML = "但家庭开销并没有变——这一期里有 <b>" + yuanK(pt.special) +
+                      "</b> 是装修，占了 " + (pt.special/(pt.daily+pt.special)*100).toFixed(0) + "%（基期 " + baseLbl + " 没有专项）。" +
+                      "这种柱子会连续几期顶穿趋势线，也会把 AI 财报和摘要推送带偏，让它每次都提示「支出异常增长」。" +
+                      "<br>切到「日常」，同一期同比是 <b>" + txt(yoyOf("daily")) + "</b>。";
+    } else {
+      box.className = "verdict good";
+      mark.textContent = "✓";
+      head.textContent = pt.label + " 日常同比 " + txt(yoyOf("daily")) + "，实际平稳";
+      sub.innerHTML = "同一期在全口径下是 <b>" + txt(yoyOf("all")) + "</b>，剔除 " + yuanK(pt.special) +
+                      " 装修后回到 <b>" + txt(yoyOf("daily")) + "</b>——同比环比这才重新可读。" +
+                      "趋势图、预算执行、四笔钱诊断的「月均支出」、喂给 AI 的回溯数据，都应该默认走这个口径。";
+    }
+  }
+
+  /* ---------------- 报表 ---------------- */
+  var REPORT = {
+    income: [
+      ["工资收入", [["男主税后工资",66000],["女主工资收入",42000]]],
+      ["理财收入", [["房屋租金",10500],["存款/理财利息",3200]]]
+    ],
+    dailyExpense: [
+      ["固定刚性支出", [["子女教育",6000],["父母赡养",4500],["保险费用",2800],["居住成本",3600]]],
+      ["变动必要支出", [["餐饮食材",6900],["居家日常",2400],["交通出行",1850],["医疗健康",900]]],
+      ["自由裁量支出", [["购物消费",5100],["娱乐休闲",2300],["社交人情",1780],["旅游出行",1200]]],
+      ["家庭专项支出", [["子女成长",900],["父母医疗",400],["房屋维护",0]]]
+    ],
+    special: [["房屋维护（装修）",96000],["购物消费（家具家电）",38500],["居家日常（软装）",10000]]
+  };
+
+  function renderReport(){
+    var body = document.getElementById("reportBody");
+    body.textContent = "";
+
+    var totalIncome = 0;
+    REPORT.income.forEach(function(g){ g[1].forEach(function(r){ totalIncome += r[1]; }); });
+    var daily = 0, discretion = 0;
+    REPORT.dailyExpense.forEach(function(g){
+      g[1].forEach(function(r){ daily += r[1]; if (g[0] === "自由裁量支出") discretion += r[1]; });
+    });
+    var special = REPORT.special.reduce(function(a,r){ return a + r[1]; }, 0);
+    var totalExp = daily + special;
+
+    function row(name, amt, cls, base, indent){
+      var tr = document.createElement("tr");
+      if (cls) tr.className = cls;
+      var td1 = document.createElement("td");
+      td1.textContent = name;
+      if (indent) td1.style.paddingLeft = "28px";
+      var td2 = document.createElement("td");
+      td2.className = "num"; td2.textContent = yuan(amt);
+      var td3 = document.createElement("td");
+      td3.className = "num";
+      td3.textContent = base ? (amt/base*100).toFixed(1) + "%" : "";
+      td3.style.color = "var(--muted)";
+      tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
+      body.appendChild(tr);
+    }
+
+    row("收入合计", totalIncome, "grp", 0);
+    REPORT.income.forEach(function(g){
+      g[1].forEach(function(r){ row(r[0], r[1], "", totalIncome, true); });
+    });
+
+    row("日常支出", daily, "grp", 0);
+    REPORT.dailyExpense.forEach(function(g){
+      var sum = g[1].reduce(function(a,r){ return a + r[1]; }, 0);
+      row(g[0], sum, "", daily, true);
+    });
+
+    row("专项支出", special, "grp special-row", 0);
+    REPORT.special.forEach(function(r){ row(r[0] , r[1], "special-row", special, true); });
+
+    var tr = document.createElement("tr");
+    tr.className = "total";
+    var a = document.createElement("td"); a.textContent = "支出合计";
+    var b = document.createElement("td"); b.className = "num"; b.textContent = yuan(totalExp);
+    var c = document.createElement("td"); c.className = "num";
+    c.innerHTML = '<span class="sub-line">日常 ' + (daily/totalExp*100).toFixed(0) + '%</span>';
+    tr.appendChild(a); tr.appendChild(b); tr.appendChild(c);
+    body.appendChild(tr);
+
+    /* KPI */
+    var kd = discretion / daily, ka = discretion / totalExp;
+    var kpis = [
+      {cap:"结余（全口径）", val:yuan(totalIncome - totalExp), cls:"neg",
+       sub:"动用了存款——这是事实，报表必须显示"},
+      {cap:"结余（日常口径）", val:yuan(totalIncome - daily), cls:"pos",
+       sub:"结余率 " + ((totalIncome-daily)/totalIncome*100).toFixed(1) + "% · 家庭赚钱能力"},
+      {cap:"自由裁量占比", val:(kd*100).toFixed(1) + "%", cls:"",
+       sub:"以日常为分母 · 阈值 35% · 正常"},
+      {cap:"若用旧算法", val:(ka*100).toFixed(1) + "%", cls:"",
+       sub:"以支出合计为分母 → 被装修稀释，告警静默失效"}
+    ];
+    var host = document.getElementById("kpis");
+    host.textContent = "";
+    kpis.forEach(function(k, idx){
+      var d = document.createElement("div"); d.className = "kpi";
+      var cap = document.createElement("div"); cap.className = "kpi-cap"; cap.textContent = k.cap;
+      var val = document.createElement("div"); val.className = "kpi-val " + k.cls; val.textContent = k.val;
+      if (idx === 3){ val.style.color = "var(--muted)"; val.style.textDecoration = "line-through"; }
+      var sub = document.createElement("div"); sub.className = "kpi-sub"; sub.textContent = k.sub;
+      d.appendChild(cap); d.appendChild(val); d.appendChild(sub);
+      host.appendChild(d);
+    });
+  }
+
+  /* ---------------- 流水 ---------------- */
+  var PROJECTS = {reno:"2026 老房装修", car:"2025 换车"};
+  var TXS = [
+    {d:"05-08", who:"居然之家",     desc:"主材·瓷砖地板",   amt:28600, cat:"房屋维护", sp:"", batch:true},
+    {d:"05-11", who:"宏基装饰工程", desc:"人工费第二期",     amt:18000, cat:"房屋维护", sp:"", batch:true},
+    {d:"05-14", who:"盒马鲜生",     desc:"生鲜日用",         amt:286,   cat:"餐饮食材", sp:"", batch:false},
+    {d:"05-16", who:"顾家家居",     desc:"客厅沙发",         amt:12800, cat:"购物消费", sp:"", batch:true},
+    {d:"05-18", who:"中国石化",     desc:"加油",             amt:400,   cat:"交通出行", sp:"", batch:false},
+    {d:"05-20", who:"美的官方旗舰", desc:"立式空调柜机",     amt:5600,  cat:"购物消费", sp:"", batch:false},
+    {d:"05-22", who:"星巴克",       desc:"咖啡",             amt:68,    cat:"娱乐休闲", sp:"", batch:false},
+    {d:"05-25", who:"绿城物业",     desc:"二季度物业费",     amt:1200,  cat:"居住成本", sp:"", batch:false}
+  ];
+
+  function renderTx(){
+    var body = document.getElementById("txBody");
+    body.textContent = "";
+    var n = 0, sum = 0;
+
+    TXS.forEach(function(t, i){
+      if (t.sp){ n++; sum += t.amt; }
+      var tr = document.createElement("tr");
+      if (t.sp) tr.style.background = "var(--special-soft)";
+
+      var td0 = document.createElement("td");
+      td0.textContent = t.d;
+      td0.style.color = "var(--muted)";
+      td0.style.fontVariantNumeric = "tabular-nums";
+
+      var td1 = document.createElement("td");
+      var who = document.createElement("span");
+      who.textContent = t.who;
+      who.style.fontWeight = "500";
+      td1.appendChild(who);
+      td1.appendChild(document.createTextNode(" "));
+      var ds = document.createElement("span");
+      ds.className = "chip"; ds.textContent = t.desc;
+      td1.appendChild(ds);
+
+      var td2 = document.createElement("td");
+      td2.className = "num amt" + (t.amt >= 5000 ? " big" : "");
+      td2.textContent = yuan(t.amt);
+
+      var td3 = document.createElement("td");
+      var cc = document.createElement("span");
+      cc.className = "chip"; cc.textContent = t.cat;
+      td3.appendChild(cc);
+
+      var td4 = document.createElement("td");
+      var sel = document.createElement("select");
+      sel.setAttribute("aria-label", t.d + " " + t.who + " 归入专项");
+      [["", "— 无 —"]].concat(Object.keys(PROJECTS).map(function(k){ return [k, PROJECTS[k]]; }))
+        .forEach(function(o){
+          var op = document.createElement("option");
+          op.value = o[0]; op.textContent = o[1];
+          if (o[0] === t.sp) op.selected = true;
+          sel.appendChild(op);
+        });
+      if (t.sp) sel.className = "tagged";
+      sel.addEventListener("change", function(){
+        TXS[i].sp = sel.value;
+        renderTx();
+      });
+      td4.appendChild(sel);
+
+      [td0,td1,td2,td3,td4].forEach(function(td){ tr.appendChild(td); });
+      body.appendChild(tr);
+    });
+
+    document.getElementById("taggedCount").textContent = n;
+    document.getElementById("taggedSum").textContent = yuan(sum);
+  }
+
+  /* ---------------- 专项卡 ---------------- */
+  var PROJ_DATA = [
+    {
+      id:"reno", name:"2026 老房装修", live:true, range:"2026-03 → 进行中",
+      spent:186500, budget:200000,
+      split:[["房屋维护",121200],["购物消费",48800],["居家日常",16500]]
+    },
+    {
+      id:"car", name:"2025 换车", live:false, range:"2025-10 · 已结项",
+      spent:118000, budget:120000,
+      split:[["交通出行",112000],["保险费用",6000]]
+    }
+  ];
+
+  function renderProjects(){
+    var host = document.getElementById("projGrid");
+    host.textContent = "";
+    PROJ_DATA.forEach(function(p){
+      var card = document.createElement("div");
+      card.className = "proj" + (p.live ? " live" : "");
+
+      var top = document.createElement("div"); top.className = "proj-top";
+      var left = document.createElement("div");
+      var h = document.createElement("h4"); h.className = "proj-name"; h.textContent = p.name;
+      var meta = document.createElement("div"); meta.className = "proj-meta"; meta.textContent = p.range;
+      left.appendChild(h); left.appendChild(meta);
+      var chip = document.createElement("span");
+      chip.className = "chip" + (p.live ? " amber" : "");
+      chip.textContent = p.live ? "进行中" : "已结项";
+      top.appendChild(left); top.appendChild(chip);
+      card.appendChild(top);
+
+      var figs = document.createElement("div"); figs.className = "proj-figs";
+      [["已花费", yuanK(p.spent)], ["预算", yuanK(p.budget)], ["剩余", yuanK(p.budget - p.spent)]]
+        .forEach(function(f){
+          var w = document.createElement("div");
+          var c = document.createElement("div"); c.className = "fig-cap"; c.textContent = f[0];
+          var v = document.createElement("div"); v.className = "fig-val"; v.textContent = f[1];
+          if (f[0] === "剩余" && p.budget - p.spent < 0) v.style.color = "var(--negative)";
+          w.appendChild(c); w.appendChild(v); figs.appendChild(w);
+        });
+      card.appendChild(figs);
+
+      var pct = Math.min(p.spent / p.budget * 100, 100);
+      var prog = document.createElement("div");
+      prog.className = "prog" + (p.spent > p.budget ? " over" : "");
+      var fill = document.createElement("span"); fill.style.width = pct + "%";
+      prog.appendChild(fill);
+      card.appendChild(prog);
+
+      var pl = document.createElement("div");
+      pl.className = "proj-meta";
+      pl.textContent = "预算执行 " + (p.spent / p.budget * 100).toFixed(1) + "%";
+      card.appendChild(pl);
+
+      var split = document.createElement("div"); split.className = "split";
+      var cap = document.createElement("div");
+      cap.className = "fig-cap"; cap.textContent = "科目构成（跨科目）";
+      split.appendChild(cap);
+      var mx = Math.max.apply(null, p.split.map(function(s){ return s[1]; }));
+      p.split.forEach(function(s){
+        var r = document.createElement("div"); r.className = "split-row";
+        var nm = document.createElement("span"); nm.textContent = s[0];
+        var am = document.createElement("span"); am.className = "split-amt"; am.textContent = yuanK(s[1]);
+        var bw = document.createElement("div"); bw.className = "split-bar";
+        var bf = document.createElement("span"); bf.style.width = (s[1]/mx*100) + "%";
+        bw.appendChild(bf);
+        r.appendChild(nm); r.appendChild(am);
+        split.appendChild(r); split.appendChild(bw);
+      });
+      card.appendChild(split);
+      host.appendChild(card);
+    });
+  }
+
+  /* ---------------- 事件绑定 ---------------- */
+  document.querySelectorAll(".tabs button").forEach(function(b){
+    b.addEventListener("click", function(){
+      document.querySelectorAll(".tabs button").forEach(function(x){
+        x.setAttribute("aria-selected", String(x === b));
+      });
+      document.querySelectorAll(".screen").forEach(function(s){
+        s.classList.toggle("on", s.getAttribute("data-screen") === b.getAttribute("data-tab"));
+      });
+    });
+  });
+
+  document.querySelectorAll("#scopeSeg button").forEach(function(b){
+    b.addEventListener("click", function(){
+      scope = b.getAttribute("data-scope");
+      document.querySelectorAll("#scopeSeg button").forEach(function(x){
+        x.setAttribute("aria-pressed", String(x === b));
+      });
+      document.getElementById("scopeSeg").classList.toggle("amber", scope === "special");
+      document.getElementById("scopeHint").textContent = SCOPE_HINT[scope];
+      renderBars();
+    });
+  });
+
+  document.querySelectorAll("#granSeg button").forEach(function(b){
+    b.addEventListener("click", function(){
+      gran = b.getAttribute("data-gran");
+      document.querySelectorAll("#granSeg button").forEach(function(x){
+        x.setAttribute("aria-pressed", String(x === b));
+      });
+      renderBars();
+    });
+  });
+
+  document.getElementById("batchBtn").addEventListener("click", function(){
+    var v = document.getElementById("batchSel").value;
+    if (!v) return;
+    TXS.forEach(function(t){ if (t.batch) t.sp = v; });
+    renderTx();
+  });
+  document.getElementById("resetBtn").addEventListener("click", function(){
+    TXS.forEach(function(t){ t.sp = ""; });
+    document.getElementById("batchSel").value = "";
+    renderTx();
+  });
+
+  renderBars();
+  renderReport();
+  renderTx();
+  renderProjects();
+})();
+</script>
+</body>
+</html>
