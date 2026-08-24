@@ -242,7 +242,7 @@
         <button :class="direction==='expense' ? 'active' : ''" @click="setDirection('expense')">支出</button>
         <button :class="direction==='income'  ? 'active' : ''" @click="setDirection('income')">收入</button>
       </div>
-      <div class="seg" title="专项＝装修/购车这类一次性大额支出。构成随口径变化；对比条恒为日常口径，专项以斜纹段单独叠加">
+      <div class="seg" title="专项＝装修/购车这类一次性大额支出。构成、月度/季度对比条都随口径变化：全部口径下专项以斜纹段叠加在日常段之上，仅专项口径下只剩斜纹段">
         <button :class="scope==='daily'   ? 'active' : ''" @click="setScope('daily')">日常</button>
         <button :class="scope==='all'     ? 'active' : ''" @click="setScope('all')">全部</button>
         <button :class="scope==='special' ? 'active' : ''" @click="setScope('special')">仅专项</button>
@@ -339,7 +339,7 @@
 
       <div class="panel">
         <h3>
-          <span>月度对比 <span class="hint" style="margin-left:4px">近 6 个月 · 日常口径 · 点击切换当期</span></span>
+          <span>月度对比 <span class="hint" style="margin-left:4px" x-text="'近 6 个月 · ' + scopeLabel() + '口径 · 点击切换当期'"></span></span>
           <span class="special-legend" x-show="hasSpecial(view.monthlyCompare)"><i></i>专项</span>
           <span class="hint" x-text="'当期 ' + (focusMonth() || '—')"></span>
         </h3>
@@ -355,7 +355,7 @@
                     <span class="col-fill special" :title="'专项 ' + fmtYuan(b.special)"
                           :style="'height:' + normSpecial(b, view.monthlyCompare) + '%'"></span>
                   </template>
-                  <span class="col-fill" :style="'height:' + normBar(b.amount, view.monthlyCompare) + '%'"></span>
+                  <span class="col-fill" :style="'height:' + normBar(b.amount - (b.special || 0), view.monthlyCompare) + '%'"></span>
                 </span>
                 <span class="col-lbl" x-text="b.label"></span>
                 <span class="col-cmp">
@@ -374,7 +374,7 @@
 
       <div class="panel">
         <h3>
-          <span>季度对比 <span class="hint" style="margin-left:4px">近 4 季 · 日常口径 · 点击切换当期</span></span>
+          <span>季度对比 <span class="hint" style="margin-left:4px" x-text="'近 4 季 · ' + scopeLabel() + '口径 · 点击切换当期'"></span></span>
           <span class="special-legend" x-show="hasSpecial(view.quarterlyCompare)"><i></i>专项</span>
           <span class="hint" x-text="'当期 ' + (focusQuarter() || '—')"></span>
         </h3>
@@ -390,7 +390,7 @@
                     <span class="col-fill special" :title="'专项 ' + fmtYuan(b.special)"
                           :style="'height:' + normSpecial(b, view.quarterlyCompare) + '%'"></span>
                   </template>
-                  <span class="col-fill" :style="'height:' + normBar(b.amount, view.quarterlyCompare) + '%'"></span>
+                  <span class="col-fill" :style="'height:' + normBar(b.amount - (b.special || 0), view.quarterlyCompare) + '%'"></span>
                 </span>
                 <span class="col-lbl" x-text="b.label"></span>
                 <span class="col-cmp">

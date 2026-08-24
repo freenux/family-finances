@@ -135,13 +135,17 @@ function statsPage() {
     current() { return this.view; },
     hasData() { return !!this.view && this.view.total > 0; },
 
+    // 口径文案：daily/all/special → 日常/全部/仅专项。头部副标题和对比条面板标题共用。
+    scopeLabel() {
+      return { daily: '日常', all: '全部', special: '仅专项' }[this.scope] || '日常';
+    },
+
     // 头部副标题
     headSubtitle() {
       const gl = { month: '月度', quarter: '季度', year: '年度' }[this.granularity];
       const ac = { husband: '男主', wife: '女主', family: '家庭总账' }[this.account];
       const di = { expense: '支出', income: '收入' }[this.direction];
-      const sc = { daily: '日常', all: '全部', special: '仅专项' }[this.scope] || '日常';
-      return gl + ' · ' + ac + ' · ' + di + ' · ' + sc + ' · ' + this.periodKey;
+      return gl + ' · ' + ac + ' · ' + di + ' · ' + this.scopeLabel() + ' · ' + this.periodKey;
     },
 
     perDayLabel() {
@@ -183,25 +187,32 @@ function statsPage() {
       return (amount / max * 100).toFixed(1);
     },
 
-    // 对比条高度。柱子按「日常 + 专项」的总额归一，专项段叠在日常段之上，
-    // 否则专项一多就会把柱子顶出 track。
+    // 对比条高度。归一基准必须和柱子上显示的数字（amount）是同一个量，否则会出现
+    // "数字更大的柱子反而更矮"：amount 已经是当前口径下的完整金额（daily/all/special
+    // 三选一，取决于后端 scope），不能再额外加一次 special——那是 amount 里已经含着的一截。
     barMax(arr) {
-      const max = Math.max(...arr.map(x => x.amount + (x.special || 0)));
+      const max = Math.max(...arr.map(x => x.amount));
       return max > 0 ? max : 0;
     },
 
+    // 实心段：amount 里刨掉专项之后剩下的一截。仅专项口径下 special === amount，
+    // 这里自然算出 0，实心段不显示，只剩下面的斜纹段。
     normBar(amount, arr) {
       const max = this.barMax(arr);
       if (!max) return 0;
       return (amount / max * 100).toFixed(1);
     },
 
+    // 斜纹段：amount 里属于专项的一截。日常口径下后端给的 special 恒为 null，
+    // 这里恒为 0——不用在前端另外按 scope 判断一次。
     normSpecial(b, arr) {
       const max = this.barMax(arr);
       if (!max || !b.special) return 0;
       return (b.special / max * 100).toFixed(1);
     },
 
+    // 图例要不要显示"专项"：同样跟着后端给的 special 字段走；日常口径下每个桶的
+    // special 都是 null，这里自然是 false。
     hasSpecial(arr) {
       return Array.isArray(arr) && arr.some(x => x.special);
     },

@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -74,8 +75,14 @@ func (r *stubTxRepo) AggregateByCategory(_ context.Context, _ domain.Period, _ d
 
 func (r *stubTxRepo) SumByBuckets(_ context.Context, buckets []port.PeriodBucket, _ domain.Direction, _ domain.Account, scope domain.Scope) ([]port.PeriodBucket, error) {
 	r.bucketScopes = append(r.bucketScopes, scope)
+	// 与 AggregateByCategory 共用同一组 daily=1000 / special=8000，这样 QueryStats 按
+	// scope 拼出来的桶金额（all=daily+special=9000）也能在这层断言到，证明 wiring 是对的。
+	amounts := map[domain.Scope]int64{domain.ScopeDaily: 1000, domain.ScopeSpecial: 8000}
 	out := make([]port.PeriodBucket, len(buckets))
 	copy(out, buckets)
+	for i := range out {
+		out[i].Amount = amounts[scope]
+	}
 	return out, nil
 }
 
@@ -429,8 +436,9 @@ func TestStatsAPIScope(t *testing.T) {
 				t.Fatalf("total = %d; want %d（口径没有真的透传到聚合层）", view.Total, wantTotal[tt.wantScope])
 			}
 
-			// 对比条恒为日常口径 + 专项叠加段；Top 榜单恒为全口径。
-			// 这两条是刻意定死的，不跟随入参 scope。
+			// SumByBuckets 内部固定只查 daily + special 两组（不会因为请求的 scope 多查一遍
+			// all）——这是效率上的约定，query_stats_test.go 里有更完整的表驱动覆盖。
+			// Top 榜单恒为全口径，不跟随入参 scope（剔了大额榜单就没意义了）。
 			for _, s := range txRepo.bucketScopes {
 				if s != domain.ScopeDaily && s != domain.ScopeSpecial {
 					t.Fatalf("SumByBuckets 收到口径 %q; want daily 或 special", s)
@@ -439,8 +447,56 @@ func TestStatsAPIScope(t *testing.T) {
 			if len(txRepo.topScopes) != 1 || txRepo.topScopes[0] != domain.ScopeAll {
 				t.Fatalf("TopTransactions 收到口径 %v; want [all]", txRepo.topScopes)
 			}
+
+			// 对比条现在跟随 scope 了（这是本次修复的行为变更）：月度/季度展示桶的 Amount
+			// 应该和饼图总额同一套 daily=1000/all=9000/special=8000 口径对上，
+			// 不再像修复前那样恒等于 daily 的 1000。
+			wantBucket := wantTotal[tt.wantScope]
+			for _, b := range view.MonthlyCompare {
+				if b.Amount != wantBucket {
+					t.Fatalf("monthlyCompare[%s].amount = %d; want %d（对比条没有跟随 scope）", b.Label, b.Amount, wantBucket)
+				}
+			}
+			for _, b := range view.QuarterlyCompare {
+				if b.Amount != wantBucket {
+					t.Fatalf("quarterlyCompare[%s].amount = %d; want %d（对比条没有跟随 scope）", b.Label, b.Amount, wantBucket)
+				}
+			}
+
+			// Special 字段语义：daily 恒 nil；all 是专项那一截（8000）；special 等于 Amount 本身。
+			wantSpecial := map[domain.Scope]*int64{
+				domain.ScopeDaily:   nil,
+				domain.ScopeAll:     int64Ptr(8000),
+				domain.ScopeSpecial: int64Ptr(8000),
+			}[tt.wantScope]
+			for _, b := range view.MonthlyCompare {
+				assertSpecialPtr(t, "monthlyCompare["+b.Label+"]", b.Special, wantSpecial)
+			}
 		})
 	}
+}
+
+// int64Ptr 造一个 *int64，方便写期望值字面量。
+func int64Ptr(v int64) *int64 { return &v }
+
+// assertSpecialPtr 比较两个 *int64：都为 nil 或都非 nil 且值相等才算通过。
+func assertSpecialPtr(t *testing.T, label string, got, want *int64) {
+	t.Helper()
+	switch {
+	case got == nil && want == nil:
+		return
+	case got == nil || want == nil:
+		t.Fatalf("%s.special = %v; want %v", label, ptrStr(got), ptrStr(want))
+	case *got != *want:
+		t.Fatalf("%s.special = %d; want %d", label, *got, *want)
+	}
+}
+
+func ptrStr(p *int64) string {
+	if p == nil {
+		return "nil"
+	}
+	return fmt.Sprintf("%d", *p)
 }
 
 // TestStatsAPIInvalidPeriod 周期非法仍应 400（口径解析不能吞掉这个校验）
