@@ -95,6 +95,7 @@
           <select x-model="specialFilter">
             <option value="">全部</option>
             <option value="__none__">仅日常（不含专项）</option>
+            <option value="__any__">仅专项（任意）</option>
             <template x-for="s in specials" :key="s.id">
               <option :value="s.id" x-text="s.name"></option>
             </template>

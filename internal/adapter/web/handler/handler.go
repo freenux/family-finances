@@ -152,10 +152,13 @@ func (h *Handler) renderPartial(w http.ResponseWriter, name string, vm any) {
 	}
 }
 
-func parsePeriodFromQuery(r *http.Request) (domain.Period, error) {
+// parsePeriodFromQuery 从 querystring 解析 type/period。
+// URL 未显式指定（或指定的 period 跟 type 对不上）时，退回 defaultType 粒度下的默认周期——
+// 调用方按自己页面的粒度传入 defaultType，几个页面各自默认值不同，不能共用一个全局默认。
+func parsePeriodFromQuery(r *http.Request, defaultType domain.PeriodType) (domain.Period, error) {
 	typeStr := r.URL.Query().Get("type")
 	if typeStr == "" {
-		typeStr = string(domain.PeriodQuarterly)
+		typeStr = string(defaultType)
 	}
 	label := r.URL.Query().Get("period")
 	// 若 label 与 type 不匹配（例如切换季→年时旧 label 还是 2026Q1），退回到 type 的默认值
@@ -164,16 +167,37 @@ func parsePeriodFromQuery(r *http.Request) (domain.Period, error) {
 			(typeStr == string(domain.PeriodAnnual) && !strings.Contains(label, "Q") && !strings.Contains(label, "-")) ||
 			(typeStr == string(domain.PeriodMonthly) && strings.Contains(label, "-")))
 	if !labelMatchesType {
-		switch typeStr {
-		case string(domain.PeriodAnnual):
-			label = strconv.Itoa(time.Now().Year())
-		case string(domain.PeriodMonthly):
-			label = domain.CurrentMonth(time.Now()).Label
-		default:
-			label = domain.CurrentQuarter(time.Now()).Label
-		}
+		label = defaultPeriodFor(domain.PeriodType(typeStr), time.Now()).Label
 	}
 	return domain.ParsePeriod(label)
+}
+
+// defaultPeriodFor 返回给定粒度「上一个完整周期」的 Period，作为默认周期兜底：
+// 当期还没走完，数字有误导性（环比/同比都会失真），所以默认值统一取上一个完整周期，
+// 而不是当期——三个页面、StatsAPI 都靠这一个函数对齐口径，改阈值/规则只用改这一处。
+func defaultPeriodFor(t domain.PeriodType, now time.Time) domain.Period {
+	switch t {
+	case domain.PeriodAnnual:
+		return domain.CurrentYear(now).Previous()
+	case domain.PeriodMonthly:
+		return domain.CurrentMonth(now).Previous()
+	default: // domain.PeriodQuarterly，以及任何非法值一律按季度处理（与原逻辑一致）
+		return domain.CurrentQuarter(now).Previous()
+	}
+}
+
+// periodTypeFromGranularityAlias 把 StatsAPI 用的短别名（month/quarter/year）转成
+// domain.PeriodType，好复用 defaultPeriodFor——两处「粒度」词表不同纯粹是历史遗留，
+// 这里只做一次翻译，不改 StatsAPI 对外的 querystring 约定。
+func periodTypeFromGranularityAlias(gran string) domain.PeriodType {
+	switch gran {
+	case "month":
+		return domain.PeriodMonthly
+	case "year":
+		return domain.PeriodAnnual
+	default: // "quarter" 以及任何非法值
+		return domain.PeriodQuarterly
+	}
 }
 
 // parseAccountFromQuery 默认 family
@@ -197,7 +221,7 @@ type dashboardVM struct {
 }
 
 func (h *Handler) Dashboard(w http.ResponseWriter, r *http.Request) {
-	p, err := parsePeriodFromQuery(r)
+	p, err := parsePeriodFromQuery(r, domain.PeriodQuarterly)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -216,7 +240,7 @@ func (h *Handler) Dashboard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) PartialReport(w http.ResponseWriter, r *http.Request) {
-	p, err := parsePeriodFromQuery(r)
+	p, err := parsePeriodFromQuery(r, domain.PeriodQuarterly)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -278,14 +302,10 @@ func (h *Handler) StatsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	label := q.Get("period")
 	if label == "" {
-		switch gran {
-		case "month":
-			label = domain.CurrentMonth(time.Now()).Label
-		case "quarter":
-			label = domain.CurrentQuarter(time.Now()).Label
-		case "year":
-			label = strconv.Itoa(time.Now().Year())
-		}
+		// gran 用的是前端短别名（month/quarter/year），跟 parsePeriodFromQuery 的
+		// type（monthly/quarterly/annual）不是一套词表，这里转一下再复用同一份
+		// defaultPeriodFor，避免两处各写一份「默认取哪期」的逻辑。
+		label = defaultPeriodFor(periodTypeFromGranularityAlias(gran), time.Now()).Label
 	}
 	p, err := domain.ParsePeriod(label)
 	if err != nil {
@@ -639,7 +659,7 @@ func ruleJSONFromDomain(rule domain.CategoryRule, cats []domain.Category) ruleJS
 }
 
 func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
-	p, err := parsePeriodFromQuery(r)
+	p, err := parsePeriodFromQuery(r, domain.PeriodMonthly)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -739,7 +759,7 @@ func (h *Handler) listSpecialsJSON(ctx context.Context) ([]specialJSON, error) {
 // ListTransactionsAPI: GET /api/transactions?type=...&period=...&account=...
 // 返回与列表页 SSR 嵌入 JSON 相同的 txRowJSON 数组，供前端切换周期时客户端刷新。
 func (h *Handler) ListTransactionsAPI(w http.ResponseWriter, r *http.Request) {
-	p, err := parsePeriodFromQuery(r)
+	p, err := parsePeriodFromQuery(r, domain.PeriodMonthly)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

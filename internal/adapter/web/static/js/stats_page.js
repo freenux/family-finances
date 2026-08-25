@@ -87,6 +87,36 @@ function statsPage() {
       this.fetchFocusTop();
     },
 
+    // 双击月度/季度对比柱：把仪表盘自身的周期切到该柱代表的那一期。
+    // kind 是 'month'/'quarter'，与 granularity 同一套词表；label 是后端算好的桶 label
+    // （'2026-07' / '2026Q3'），跟 periodKey 格式完全一致，直接用，不用再拼一遍。
+    // 单击的 focusBar 行为不变；双击会先触发两次 click（focusBar 互相抵消或短暂聚焦），
+    // 但这里落地时统一 resetFocus()，最终状态只看这次调用，不受之前两次 click 影响。
+    jumpToPeriod(kind, label) {
+      if (this.granularity === kind && this.periodKey === label) return;
+      this.granularity = kind;
+      this.periodKey = label;
+      this.resetFocus();
+      this.expandTop = false;
+      this.fetchView();
+    },
+
+    // 双击「支出构成/收入构成」的科目行：带着当前仪表盘的筛选跳到流水页。
+    // 参数名与含义对齐流水页 tx_table.js 的 init()（同一套 URL 参数约定）。
+    goToTransactions(categoryID) {
+      const q = new URLSearchParams({
+        type:     periodTypeFromGranularity(this.granularity),
+        period:   this.periodKey,
+        account:  this.account,
+        direction: this.direction,
+        category: categoryID,
+      });
+      // scope=all 对应流水页"全部"（不传 special，走默认），daily/special 才需要显式带上
+      if (this.scope === 'daily')   q.set('special', '__none__');
+      if (this.scope === 'special') q.set('special', '__any__');
+      window.location.href = '/transactions?' + q.toString();
+    },
+
     // --- 远端请求 ---
     async fetchView() {
       this.loading = true;

@@ -68,11 +68,35 @@ function txTable() {
       this.granularity = granularityFromPeriodType(el.dataset.initialGranularity || 'monthly');
       this.periodKey = el.dataset.initialPeriod || defaultPeriodKey(this.granularity);
       this.account = el.dataset.initialAccount || 'family';
+      // 顶部账户与「账户」复选框保持一致：family 展开成两项都勾，单个账户只勾那一项
+      // （SSR 那批 rows 本来就已经按 account 过滤过了，这里只是让复选框 UI 别看着对不上）。
+      this.accountFilter = this.account === 'family' ? ['husband', 'wife'] : [this.account];
+
+      // 显式回到默认，避免上次遗留的筛选悄悄缩小结果集；下面按 rule_id / 仪表盘跳转参数按需覆盖。
+      this.keyword = '';
+      this.sourceFilter = ['alipay', 'wechat', 'manual', 'csv'];
+      this.statusFilter = ['pending_review', 'confirmed'];
+      this.memberFilter = '';
+      this.directionFilter = 'all';
+      this.categoryFilter = '';
+      this.specialFilter = '';
+
       if (this.activeRule) {
+        // 从「分类规则」页应用规则跳转过来（?rule_id=...）：按规则本身预筛
         this.keyword = this.activeRule.pattern || '';
         this.categoryFilter = '';
         this.statusFilter = ['pending_review', 'confirmed'];
+        return;
       }
+
+      // 从仪表盘「双击科目 / 双击柱子」跳转过来：按 URL 参数预设筛选状态。
+      // member 目前仪表盘还不会传，但先支持上，以后仪表盘加了成员维度直接能用。
+      const q = new URLSearchParams(window.location.search);
+      const dir = q.get('direction');
+      if (dir === 'income' || dir === 'expense') this.directionFilter = dir;
+      if (q.has('category')) this.categoryFilter = q.get('category');
+      if (q.has('special'))  this.specialFilter = q.get('special');
+      if (q.has('member'))   this.memberFilter = q.get('member');
     },
 
     setGranularity(g) {
@@ -140,6 +164,8 @@ function txTable() {
         }
         if (specialFilter === '__none__') {
           if (t.special_id) return false;
+        } else if (specialFilter === '__any__') {
+          if (!t.special_id) return false;
         } else if (specialFilter && t.special_id !== specialFilter) {
           return false;
         }

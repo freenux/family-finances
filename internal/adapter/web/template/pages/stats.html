@@ -90,6 +90,19 @@
     grid-template-columns: 14px 1fr auto auto;
     column-gap: 10px; align-items: center;
     font-size: 13px;
+    cursor: pointer;
+    padding: 3px 6px; margin: 0 -6px;
+    border-radius: 6px;
+    transition: background-color .15s ease;
+  }
+  /* 双击查看该科目流水：hover/focus 都给出可交互提示，键盘 Tab 到这一行也看得见焦点 */
+  .cat-row:hover,
+  .cat-row:focus-visible {
+    background: var(--bg-soft);
+  }
+  .cat-row:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
   }
   .cat-row .dot {
     width: 10px; height: 10px; border-radius: 2px;
@@ -126,6 +139,12 @@
     border: 0; background: transparent; cursor: pointer;
     padding: 0; display: flex; flex-direction: column; align-items: center;
     gap: 6px; font-family: inherit; color: inherit;
+    border-radius: 4px;
+  }
+  /* 单击切当期（focusBar）/ 双击切仪表盘周期（jumpToPeriod）；键盘聚焦时给出可见焦点环 */
+  .col-bar:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   .col-bar .col-val {
     font-family: var(--mono); font-size: 11px; color: var(--muted);
@@ -324,7 +343,13 @@
             </div>
             <div class="cat-list">
               <template x-for="(c, i) in view.categories" :key="c.name">
-                <div class="cat-row" :style="'color:' + c.color">
+                <div class="cat-row" :style="'color:' + c.color"
+                     tabindex="0" role="button"
+                     :aria-label="'查看「' + c.name + '」的流水'"
+                     title="双击查看该科目的流水"
+                     @dblclick="goToTransactions(c.category_id)"
+                     @keydown.enter.prevent="goToTransactions(c.category_id)"
+                     @keydown.space.prevent="goToTransactions(c.category_id)">
                   <span class="dot" :style="'background:' + c.color"></span>
                   <span class="name" style="color:var(--text)" x-text="c.name"></span>
                   <span class="pct" x-text="pctOf(c.amount)"></span>
@@ -339,7 +364,7 @@
 
       <div class="panel">
         <h3>
-          <span>月度对比 <span class="hint" style="margin-left:4px" x-text="'近 6 个月 · ' + scopeLabel() + '口径 · 点击切换当期'"></span></span>
+          <span>月度对比 <span class="hint" style="margin-left:4px" x-text="'近 6 个月 · ' + scopeLabel() + '口径 · 点击切换当期 · 双击切换仪表盘周期'"></span></span>
           <span class="special-legend" x-show="hasSpecial(view.monthlyCompare)"><i></i>专项</span>
           <span class="hint" x-text="'当期 ' + (focusMonth() || '—')"></span>
         </h3>
@@ -348,7 +373,10 @@
             <template x-for="b in view.monthlyCompare" :key="b.label">
               <button type="button" class="col-bar"
                       :class="b.label===focusMonth() ? 'active' : ''"
-                      @click="focusBar('month', b.label)">
+                      title="单击切换 Top 榜单当期 · 双击（或聚焦后 Shift+Enter）把仪表盘周期切到这一期"
+                      @click="focusBar('month', b.label)"
+                      @dblclick="jumpToPeriod('month', b.label)"
+                      @keydown.enter.shift.prevent="jumpToPeriod('month', b.label)">
                 <span class="col-val" x-text="fmtYuan(b.amount)"></span>
                 <span class="col-track">
                   <template x-if="b.special">
@@ -374,7 +402,7 @@
 
       <div class="panel">
         <h3>
-          <span>季度对比 <span class="hint" style="margin-left:4px" x-text="'近 4 季 · ' + scopeLabel() + '口径 · 点击切换当期'"></span></span>
+          <span>季度对比 <span class="hint" style="margin-left:4px" x-text="'近 4 季 · ' + scopeLabel() + '口径 · 点击切换当期 · 双击切换仪表盘周期'"></span></span>
           <span class="special-legend" x-show="hasSpecial(view.quarterlyCompare)"><i></i>专项</span>
           <span class="hint" x-text="'当期 ' + (focusQuarter() || '—')"></span>
         </h3>
@@ -383,7 +411,10 @@
             <template x-for="b in view.quarterlyCompare" :key="b.label">
               <button type="button" class="col-bar"
                       :class="b.label===focusQuarter() ? 'active' : ''"
-                      @click="focusBar('quarter', b.label)">
+                      title="单击切换 Top 榜单当期 · 双击（或聚焦后 Shift+Enter）把仪表盘周期切到这一期"
+                      @click="focusBar('quarter', b.label)"
+                      @dblclick="jumpToPeriod('quarter', b.label)"
+                      @keydown.enter.shift.prevent="jumpToPeriod('quarter', b.label)">
                 <span class="col-val" x-text="fmtYuan(b.amount)"></span>
                 <span class="col-track">
                   <template x-if="b.special">
