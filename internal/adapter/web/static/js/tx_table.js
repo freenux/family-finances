@@ -31,6 +31,19 @@ function txTable() {
   const catNameById = {};
   for (const c of catData) catNameById[c.id] = c.name;
 
+  // 筛选器默认值的唯一来源：初始 state 与「清空筛选」共用。
+  // 每次都返回新数组——sourceFilter 这些是 x-model 直接改的引用，共享一份会串味。
+  const defaultFilters = () => ({
+    keyword: '',
+    directionFilter: 'all',
+    memberFilter: '',
+    sourceFilter: ['alipay', 'wechat', 'manual', 'csv'],
+    accountFilter: ['husband', 'wife'],
+    statusFilter: ['pending_review', 'confirmed'],
+    categoryFilter: '',
+    specialFilter: '',
+  });
+
   return {
     rows: txData,
     groupedCategories: groups,
@@ -51,14 +64,7 @@ function txTable() {
     batchSpecialID: '',
     batching: false,
 
-    keyword: '',
-    directionFilter: 'all',
-    memberFilter: '',
-    sourceFilter: ['alipay', 'wechat', 'manual', 'csv'],
-    accountFilter: ['husband', 'wife'],
-    statusFilter: ['pending_review', 'confirmed'],
-    categoryFilter: '',
-    specialFilter: '',
+    ...defaultFilters(),
 
     sortKey: 'occurred_at',
     sortDir: 'desc',
@@ -72,20 +78,10 @@ function txTable() {
       // （SSR 那批 rows 本来就已经按 account 过滤过了，这里只是让复选框 UI 别看着对不上）。
       this.accountFilter = this.account === 'family' ? ['husband', 'wife'] : [this.account];
 
-      // 显式回到默认，避免上次遗留的筛选悄悄缩小结果集；下面按 rule_id / 仪表盘跳转参数按需覆盖。
-      this.keyword = '';
-      this.sourceFilter = ['alipay', 'wechat', 'manual', 'csv'];
-      this.statusFilter = ['pending_review', 'confirmed'];
-      this.memberFilter = '';
-      this.directionFilter = 'all';
-      this.categoryFilter = '';
-      this.specialFilter = '';
-
       if (this.activeRule) {
-        // 从「分类规则」页应用规则跳转过来（?rule_id=...）：按规则本身预筛
+        // 从「分类规则」页应用规则跳转过来（?rule_id=...）：按规则本身预筛，
+        // 其余筛选保持 defaultFilters() 的默认值
         this.keyword = this.activeRule.pattern || '';
-        this.categoryFilter = '';
-        this.statusFilter = ['pending_review', 'confirmed'];
         return;
       }
 
@@ -113,16 +109,35 @@ function txTable() {
       this.fetchTransactions();
     },
 
-    async fetchTransactions() {
-      this.loading = true;
-      this.errorMsg = '';
+    // apiParams 后端 /api/transactions 认得的参数，只有这几个
+    apiParams() {
       const q = new URLSearchParams({
         type:    periodTypeFromGranularity(this.granularity),
         period:  this.periodKey,
         account: this.account,
       });
       if (this.activeRule) q.set('rule_id', this.activeRule.id);
-      window.history.replaceState(null, '', window.location.pathname + '?' + q.toString());
+      return q;
+    },
+
+    // syncURL 把当前视图完整写回地址栏。除了后端参数，还要带上 direction / category /
+    // special / member 这几个纯前端的穿透筛选（init() 读的就是它们）——否则从仪表盘穿透
+    // 过来再点一次「上一期」，URL 就只剩周期，刷新或把链接发给别人时筛选全部回默认。
+    syncURL() {
+      const q = this.apiParams();
+      if (this.directionFilter !== 'all') q.set('direction', this.directionFilter);
+      if (this.categoryFilter) q.set('category', this.categoryFilter);
+      if (this.specialFilter)  q.set('special',  this.specialFilter);
+      if (this.memberFilter)   q.set('member',   this.memberFilter);
+      const s = q.toString();
+      window.history.replaceState(null, '', window.location.pathname + (s ? '?' + s : ''));
+    },
+
+    async fetchTransactions() {
+      this.loading = true;
+      this.errorMsg = '';
+      const q = this.apiParams();
+      this.syncURL();
       try {
         const r = await fetch('/api/transactions?' + q.toString());
         if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (await r.text()));
@@ -247,18 +262,10 @@ function txTable() {
     },
 
     resetFilters() {
-      this.keyword = '';
-      this.directionFilter = 'all';
-      this.memberFilter = '';
-      this.sourceFilter = ['alipay', 'wechat', 'manual', 'csv'];
-      this.accountFilter = ['husband', 'wife'];
-      this.statusFilter = ['pending_review', 'confirmed'];
-      this.categoryFilter = '';
-      this.specialFilter = '';
+      Object.assign(this, defaultFilters());
       this.activeRule = null;
-      const q = new URLSearchParams(window.location.search);
-      q.delete('rule_id');
-      window.history.replaceState(null, '', window.location.pathname + (q.toString() ? '?' + q.toString() : ''));
+      // 筛选清空了，URL 里的 rule_id / 穿透参数也要一起清掉，否则一刷新又被捡回来
+      this.syncURL();
     },
 
     ruleLabel() {
@@ -362,11 +369,15 @@ function txTable() {
       if (!ok) t.account = prev;
     },
 
-    // patchSpecial 行内改专项；选到「＋ 新建专项…」就跳去 /specials 建，
-    // 下拉先回滚到原值免得看起来像已经改掉了。
-    async patchSpecial(t, value) {
+    // patchSpecial 行内改专项（收 <select> 元素本身，因为 __new__ 分支要写回它的值）。
+    // 选到「＋ 新建专项…」就跳去 /specials 建，跳转前必须把下拉复位到这条流水的真实归属：
+    // t.special_id 压根没变，Alpine 的 :selected 不会重算，浏览器后退（含 bfcache）回来时
+    // 下拉会停在「＋ 新建专项…」，界面就在声称这条流水属于一个还不存在的专项。
+    async patchSpecial(t, el) {
+      const value = el.value;
       if (value === '__new__') {
-        this.$nextTick(() => { window.location.href = '/specials'; });
+        el.value = t.special_id || '';
+        window.location.href = '/specials';
         return;
       }
       if (value === t.special_id) return;

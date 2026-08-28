@@ -49,6 +49,18 @@ type fakeTransactionRepo struct {
 	// periodAgg / bucketAmts 是日常口径，全口径 = 两者之和。
 	specialAgg     map[string][]domain.CategoryAggregation
 	specialBuckets map[string]int64
+	// incomeBuckets 可选：收入方向的日常桶金额。不设时收入与支出共用 bucketAmts
+	// （老夹具的行为）；要测"结余率连胜"这类收入 ≠ 支出的场景才需要它。
+	incomeBuckets map[string]int64
+	// bucketCalls SumByBuckets 被调用的次数（一次返回日常+专项两组，不该按口径各查一遍）
+	bucketCalls int
+	// batchIDs / batchSpecialID 记录 SetSpecialForIDs 收到的入参
+	batchIDs       []string
+	batchSpecialID string
+	// tops / topScopes：TopTransactions 的返回值与收到的口径序列。
+	// tops 按口径分组，用来验"Top 榜单跟随 scope"。
+	tops      map[domain.Scope][]port.TopTransaction
+	topScopes []domain.Scope
 }
 
 // sumAggs 合并同科目金额，用于拼出全口径（日常 + 专项）
@@ -106,24 +118,38 @@ func (f *fakeTransactionRepo) AggregateByCategory(_ context.Context, p domain.Pe
 	}
 }
 
-func (f *fakeTransactionRepo) SumByBuckets(_ context.Context, buckets []port.PeriodBucket, _ domain.Direction, _ domain.Account, scope domain.Scope) ([]port.PeriodBucket, error) {
-	out := make([]port.PeriodBucket, len(buckets))
-	copy(out, buckets)
-	for i := range out {
-		switch scope {
-		case domain.ScopeSpecial:
-			out[i].Amount = f.specialBuckets[out[i].Label]
-		case domain.ScopeAll:
-			out[i].Amount = f.bucketAmts[out[i].Label] + f.specialBuckets[out[i].Label]
-		default: // ScopeDaily
-			out[i].Amount = f.bucketAmts[out[i].Label]
-		}
+// SumByBuckets 一次返回日常/专项两组同源桶，与真实 repo 的约定一致；
+// bucketCalls 记录被调用次数，好断言"月+季各一条查询、不会按口径各查一遍"。
+func (f *fakeTransactionRepo) SumByBuckets(_ context.Context, buckets []port.PeriodBucket, dir domain.Direction, _ domain.Account) (daily, special []port.PeriodBucket, err error) {
+	f.bucketCalls++
+	amts := f.bucketAmts
+	if dir == domain.DirectionIncome && f.incomeBuckets != nil {
+		amts = f.incomeBuckets
 	}
-	return out, nil
+	daily = make([]port.PeriodBucket, len(buckets))
+	special = make([]port.PeriodBucket, len(buckets))
+	copy(daily, buckets)
+	copy(special, buckets)
+	for i := range buckets {
+		daily[i].Amount = amts[buckets[i].Label]
+		special[i].Amount = f.specialBuckets[buckets[i].Label]
+	}
+	return daily, special, nil
 }
 
-func (f *fakeTransactionRepo) TopTransactions(context.Context, domain.Period, domain.Direction, domain.Account, domain.Scope, int) ([]port.TopTransaction, error) {
-	return nil, nil
+func (f *fakeTransactionRepo) SetSpecialForIDs(_ context.Context, ids []string, specialID string) (int, error) {
+	f.batchSpecialID = specialID
+	f.batchIDs = append(f.batchIDs, ids...)
+	return len(ids), nil
+}
+
+func (f *fakeTransactionRepo) TopTransactions(_ context.Context, _ domain.Period, _ domain.Direction, _ domain.Account, scope domain.Scope, limit int) ([]port.TopTransaction, error) {
+	f.topScopes = append(f.topScopes, scope)
+	rows := f.tops[scope]
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	return rows, nil
 }
 
 func (f *fakeTransactionRepo) ListAll(context.Context) ([]domain.Transaction, error) {
@@ -162,12 +188,15 @@ func (f *fakeTransactionRepo) ListForRecurring(_ context.Context, from, to time.
 // fakeSpecialProjectRepo 专项仓库替身。spent / inPeriod / breakdown 都直接给值，
 // 口径本身的正确性由 sqlite 层的真库测试负责，这里只验 usecase 的拼装逻辑。
 type fakeSpecialProjectRepo struct {
-	projects  []domain.SpecialProject
-	spent     map[string]int64            // 专项 id → 历史已花费
-	inPeriod  map[string]map[string]int64 // 周期 label → 专项 id → 金额
-	breakdown map[string][]domain.CategoryAggregation
-	deleted   []string
-	upserted  []domain.SpecialProject
+	projects []domain.SpecialProject
+	spent    map[string]int64            // 专项 id → 历史已花费（净额，简写夹具用）
+	inPeriod map[string]map[string]int64 // 周期 label → 专项 id → 金额
+	// spendDetail 需要显式给毛额/冲抵/条数时用；同 id 会覆盖 spent 折算出来的值
+	spendDetail    map[string]port.SpecialSpend
+	breakdown      map[string][]domain.CategoryAggregation
+	breakdownCalls int // SumByCategoryForAllProjects 被调用次数（钉住不再按专项 N+1）
+	deleted        []string
+	upserted       []domain.SpecialProject
 }
 
 func (f *fakeSpecialProjectRepo) ListAll(context.Context) ([]domain.SpecialProject, error) {
@@ -206,11 +235,22 @@ func (f *fakeSpecialProjectRepo) Delete(_ context.Context, id string) error {
 	return port.ErrNotFound
 }
 
-func (f *fakeSpecialProjectRepo) SumByProject(context.Context) (map[string]int64, error) {
-	if f.spent == nil {
-		return map[string]int64{}, nil
+func (f *fakeSpecialProjectRepo) SumByProject(context.Context) (map[string]port.SpecialSpend, error) {
+	out := make(map[string]port.SpecialSpend, len(f.spent))
+	for id, net := range f.spent {
+		// 夹具只给净额时，按"没有冲抵"补齐毛额与条数，保持 net = gross - offset
+		s := port.SpecialSpend{GrossSpentFen: net, NetSpentFen: net, TxCount: 1}
+		if extra, ok := f.spendDetail[id]; ok {
+			s = extra
+		}
+		out[id] = s
 	}
-	return f.spent, nil
+	for id, s := range f.spendDetail {
+		if _, ok := out[id]; !ok {
+			out[id] = s
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeSpecialProjectRepo) SumByProjectInPeriod(_ context.Context, p domain.Period, _ domain.Account) (map[string]int64, error) {
@@ -220,8 +260,9 @@ func (f *fakeSpecialProjectRepo) SumByProjectInPeriod(_ context.Context, p domai
 	return f.inPeriod[p.Label], nil
 }
 
-func (f *fakeSpecialProjectRepo) SumByCategoryForProject(_ context.Context, id string) ([]domain.CategoryAggregation, error) {
-	return f.breakdown[id], nil
+func (f *fakeSpecialProjectRepo) SumByCategoryForAllProjects(context.Context) (map[string][]domain.CategoryAggregation, error) {
+	f.breakdownCalls++
+	return f.breakdown, nil
 }
 
 var _ port.SpecialProjectRepo = (*fakeSpecialProjectRepo)(nil)

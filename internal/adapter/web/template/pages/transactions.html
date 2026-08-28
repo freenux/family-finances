@@ -227,8 +227,9 @@
                 </select>
               </td>
               <td>
+                {{/* 传 <select> 元素本身：选到「＋ 新建专项…」时要把它的值复位回真实归属 */}}
                 <select class="inline-select"
-                        @change="patchSpecial(t, $event.target.value)">
+                        @change="patchSpecial(t, $event.target)">
                   <option value="" :selected="!t.special_id">— 日常 —</option>
                   <template x-for="s in specials" :key="s.id">
                     <option :value="s.id" :selected="t.special_id === s.id" x-text="s.name"></option>

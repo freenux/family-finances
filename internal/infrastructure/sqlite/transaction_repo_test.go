@@ -117,8 +117,8 @@ func TestUpdateLeavesUnsetFieldsAlone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SumByProject() error = %v", err)
 	}
-	if sums[spReno] != 135000 {
-		t.Fatalf("专项 %s 净额 = %d; want 135000（补分类后这笔应计入）", spReno, sums[spReno])
+	if sums[spReno].NetSpentFen != 135000 {
+		t.Fatalf("专项 %s 净额 = %d; want 135000（补分类后这笔应计入）", spReno, sums[spReno].NetSpentFen)
 	}
 }
 
@@ -135,14 +135,11 @@ func TestSumByBuckets(t *testing.T) {
 	insertTestTx(t, repo, "a", time.Date(2026, 4, 15, 9, 0, 0, 0, loc), 100, domain.TxStatusConfirmed)
 	insertTestTx(t, repo, "b", time.Date(2026, 5, 1, 0, 0, 0, 0, loc), 200, domain.TxStatusConfirmed) // 桶边界起点，算 5 月
 	insertTestTx(t, repo, "c", time.Date(2026, 5, 31, 23, 59, 59, 0, loc), 300, domain.TxStatusConfirmed)
-	insertTestTx(t, repo, "d", time.Date(2026, 5, 20, 8, 0, 0, 0, loc), 999, domain.TxStatusExcluded)  // 非 confirmed 不计
+	insertTestTx(t, repo, "d", time.Date(2026, 5, 20, 8, 0, 0, 0, loc), 999, domain.TxStatusExcluded)   // 非 confirmed 不计
 	insertTestTx(t, repo, "e", time.Date(2026, 3, 31, 12, 0, 0, 0, loc), 888, domain.TxStatusConfirmed) // 范围外不计
 	insertTestTx(t, repo, "f", time.Date(2026, 7, 1, 0, 0, 0, 0, loc), 777, domain.TxStatusConfirmed)   // End 独占，不计
 
-	got, err := repo.SumByBuckets(context.Background(), buckets, domain.DirectionExpense, domain.AccountFamily, domain.ScopeAll)
-	if err != nil {
-		t.Fatalf("SumByBuckets() error = %v", err)
-	}
+	got := sumBucketsScope(t, repo, buckets, domain.DirectionExpense, domain.AccountFamily, domain.ScopeAll)
 	wantAmounts := []int64{100, 500, 0}
 	for i, w := range wantAmounts {
 		if got[i].Amount != w {
@@ -151,10 +148,7 @@ func TestSumByBuckets(t *testing.T) {
 	}
 
 	// 按账户过滤：wife 名下无流水
-	gotWife, err := repo.SumByBuckets(context.Background(), buckets, domain.DirectionExpense, domain.AccountWife, domain.ScopeAll)
-	if err != nil {
-		t.Fatalf("SumByBuckets(wife) error = %v", err)
-	}
+	gotWife := sumBucketsScope(t, repo, buckets, domain.DirectionExpense, domain.AccountWife, domain.ScopeAll)
 	for _, b := range gotWife {
 		if b.Amount != 0 {
 			t.Fatalf("wife bucket %s amount = %d; want 0", b.Label, b.Amount)
@@ -162,8 +156,8 @@ func TestSumByBuckets(t *testing.T) {
 	}
 
 	// 空桶列表
-	empty, err := repo.SumByBuckets(context.Background(), nil, domain.DirectionExpense, domain.AccountFamily, domain.ScopeAll)
-	if err != nil || len(empty) != 0 {
-		t.Fatalf("SumByBuckets(nil) = %v, %v; want empty, nil", empty, err)
+	empty, emptySpecial, err := repo.SumByBuckets(context.Background(), nil, domain.DirectionExpense, domain.AccountFamily)
+	if err != nil || len(empty) != 0 || len(emptySpecial) != 0 {
+		t.Fatalf("SumByBuckets(nil) = %v/%v, %v; want empty, nil", empty, emptySpecial, err)
 	}
 }

@@ -119,8 +119,8 @@ func TestSpecialProjectSumByProject(t *testing.T) {
 		t.Fatalf("SumByProject() = %v; want %v", got, want)
 	}
 	for id, w := range want {
-		if got[id] != w {
-			t.Fatalf("专项 %s 已花费 = %d; want %d（全部：%v）", id, got[id], w, got)
+		if got[id].NetSpentFen != w {
+			t.Fatalf("专项 %s 已花费 = %d; want %d（全部：%v）", id, got[id].NetSpentFen, w, got)
 		}
 	}
 }
@@ -169,8 +169,9 @@ func TestSpecialProjectSumByProjectInPeriod(t *testing.T) {
 	}
 }
 
-// TestSpecialProjectSumByCategoryForProject 一个装修横跨多个科目，按金额降序、只返回非零
-func TestSpecialProjectSumByCategoryForProject(t *testing.T) {
+// TestSpecialProjectSumByCategoryForAllProjects 一个装修横跨多个科目，按金额降序、只返回非零。
+// 一次查询取回全部专项，按 id 索引（/specials 页不再按专项逐个查）。
+func TestSpecialProjectSumByCategoryForAllProjects(t *testing.T) {
 	f := newScopeFixture(t)
 	ctx := context.Background()
 
@@ -194,12 +195,13 @@ func TestSpecialProjectSumByCategoryForProject(t *testing.T) {
 		},
 		{name: "不存在的专项返回空", project: "no-such", want: nil},
 	}
+	all, err := f.spRepo.SumByCategoryForAllProjects(ctx)
+	if err != nil {
+		t.Fatalf("SumByCategoryForAllProjects() error = %v", err)
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := f.spRepo.SumByCategoryForProject(ctx, tt.project)
-			if err != nil {
-				t.Fatalf("SumByCategoryForProject() error = %v", err)
-			}
+			got := all[tt.project]
 			if len(got) != len(tt.want) {
 				t.Fatalf("构成 = %+v; want %+v", got, tt.want)
 			}
@@ -219,10 +221,7 @@ func TestSpecialProjectDeleteReleasesTransactions(t *testing.T) {
 	f := newScopeFixture(t)
 	ctx := context.Background()
 
-	before, err := f.txRepo.SumByBuckets(ctx, f.buckets, domain.DirectionExpense, domain.AccountFamily, domain.ScopeDaily)
-	if err != nil {
-		t.Fatalf("SumByBuckets(before) error = %v", err)
-	}
+	before := sumBucketsScope(t, f.txRepo, f.buckets, domain.DirectionExpense, domain.AccountFamily, domain.ScopeDaily)
 	var beforeDaily int64
 	for _, b := range before {
 		beforeDaily += b.Amount
@@ -255,10 +254,7 @@ func TestSpecialProjectDeleteReleasesTransactions(t *testing.T) {
 	}
 
 	// 日常口径把 s1 / s2 算回来（e1 是 excluded，任何口径都不计）
-	after, err := f.txRepo.SumByBuckets(ctx, f.buckets, domain.DirectionExpense, domain.AccountFamily, domain.ScopeDaily)
-	if err != nil {
-		t.Fatalf("SumByBuckets(after) error = %v", err)
-	}
+	after := sumBucketsScope(t, f.txRepo, f.buckets, domain.DirectionExpense, domain.AccountFamily, domain.ScopeDaily)
 	var afterDaily int64
 	for _, b := range after {
 		afterDaily += b.Amount
@@ -272,7 +268,7 @@ func TestSpecialProjectDeleteReleasesTransactions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SumByProject() error = %v", err)
 	}
-	if len(sums) != 1 || sums[spCar] != 200000 {
+	if len(sums) != 1 || sums[spCar].NetSpentFen != 200000 {
 		t.Fatalf("SumByProject() = %v; want 只剩 %s=200000", sums, spCar)
 	}
 }
@@ -326,6 +322,20 @@ func assertSums(t *testing.T, got, want map[string]int64) {
 	}
 }
 
+// netByProject 把 SumByProject 的结果压成"专项 id → 净额"，好复用 assertSums
+func netByProject(t *testing.T, got map[string]port.SpecialSpend) map[string]int64 {
+	t.Helper()
+	out := make(map[string]int64, len(got))
+	for id, s := range got {
+		// 净额必须恒等于毛额减冲抵，否则页面上的"支出 − 冲抵 = 净"就是假的
+		if s.NetSpentFen != s.GrossSpentFen-s.OffsetFen {
+			t.Fatalf("专项 %s：净额 %d != 毛额 %d − 冲抵 %d", id, s.NetSpentFen, s.GrossSpentFen, s.OffsetFen)
+		}
+		out[id] = s.NetSpentFen
+	}
+	return out
+}
+
 // TestSpecialProjectSumByProjectNetsIncome 历史净额：退款抵扣，多退少补都如实算
 func TestSpecialProjectSumByProjectNetsIncome(t *testing.T) {
 	f := newNetFixture(t)
@@ -334,7 +344,7 @@ func TestSpecialProjectSumByProjectNetsIncome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SumByProject() error = %v", err)
 	}
-	assertSums(t, got, map[string]int64{
+	assertSums(t, netByProject(t, got), map[string]int64{
 		// 100000 + 30000 + 40000 - 20000（e1 excluded / r3 pending 都不算）
 		spReno: 150000,
 		// 200000 - 250000：卖旧车比买车花的还多，净额为负，不许 clamp 到 0
@@ -385,8 +395,8 @@ func TestSpecialProjectSumByProjectInPeriodNetsIncome(t *testing.T) {
 	}
 }
 
-// TestSpecialProjectSumByCategoryForProjectNetsIncome 构成表逐科目净额，负值排在最后
-func TestSpecialProjectSumByCategoryForProjectNetsIncome(t *testing.T) {
+// TestSpecialProjectSumByCategoryNetsIncome 构成表逐科目净额，负值排在最后
+func TestSpecialProjectSumByCategoryNetsIncome(t *testing.T) {
 	f := newNetFixture(t)
 	ctx := context.Background()
 
@@ -410,12 +420,13 @@ func TestSpecialProjectSumByCategoryForProjectNetsIncome(t *testing.T) {
 			},
 		},
 	}
+	all, err := f.spRepo.SumByCategoryForAllProjects(ctx)
+	if err != nil {
+		t.Fatalf("SumByCategoryForAllProjects() error = %v", err)
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := f.spRepo.SumByCategoryForProject(ctx, tt.project)
-			if err != nil {
-				t.Fatalf("SumByCategoryForProject() error = %v", err)
-			}
+			got := all[tt.project]
 			if len(got) != len(tt.want) {
 				t.Fatalf("构成 = %+v; want %+v", got, tt.want)
 			}
@@ -456,15 +467,20 @@ func TestSpecialProjectSumNetZero(t *testing.T) {
 	if !ok {
 		t.Fatalf("SumByProject() = %v; want 含 %s（有流水的专项应出现，哪怕净额为 0）", sums, spTV)
 	}
-	if got != 0 {
-		t.Fatalf("专项 %s 净额 = %d; want 0（买了又全额退了）", spTV, got)
+	if got.NetSpentFen != 0 {
+		t.Fatalf("专项 %s 净额 = %d; want 0（买了又全额退了）", spTV, got.NetSpentFen)
+	}
+	// 净额为 0 但确实挂了两笔：条数与毛额/冲抵要把这件事说清楚，
+	// 否则页面只能看到 0，会误报"还没有流水归入"
+	if got.TxCount != 2 || got.GrossSpentFen != 60000 || got.OffsetFen != 60000 {
+		t.Fatalf("专项 %s = %+v; want 条数 2 / 毛额 60000 / 冲抵 60000", spTV, got)
 	}
 
-	breakdown, err := f.spRepo.SumByCategoryForProject(ctx, spTV)
+	breakdowns, err := f.spRepo.SumByCategoryForAllProjects(ctx)
 	if err != nil {
-		t.Fatalf("SumByCategoryForProject() error = %v", err)
+		t.Fatalf("SumByCategoryForAllProjects() error = %v", err)
 	}
-	if len(breakdown) != 0 {
-		t.Fatalf("构成 = %+v; want 空（净额为 0 的科目被 HAVING 滤掉）", breakdown)
+	if len(breakdowns[spTV]) != 0 {
+		t.Fatalf("构成 = %+v; want 空（净额为 0 的科目被 HAVING 滤掉）", breakdowns[spTV])
 	}
 }

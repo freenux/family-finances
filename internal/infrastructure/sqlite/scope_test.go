@@ -130,6 +130,32 @@ func newScopeFixture(t *testing.T) *scopeFixture {
 	}
 }
 
+// sumBucketsScope 按口径取桶：SumByBuckets 一次返回「日常」「专项」两组同源桶，
+// "全部"口径就是两组逐桶相加。测试仍按三种口径断言，只是不再各查一遍库。
+func sumBucketsScope(t *testing.T, repo *TransactionRepo, buckets []port.PeriodBucket,
+	dir domain.Direction, account domain.Account, scope domain.Scope) []port.PeriodBucket {
+	t.Helper()
+	daily, special, err := repo.SumByBuckets(context.Background(), buckets, dir, account)
+	if err != nil {
+		t.Fatalf("SumByBuckets() error = %v", err)
+	}
+	if len(daily) != len(special) || len(daily) != len(buckets) {
+		t.Fatalf("两组桶长度 = %d/%d; want %d（必须与入参同源对齐）", len(daily), len(special), len(buckets))
+	}
+	switch scope {
+	case domain.ScopeDaily:
+		return daily
+	case domain.ScopeSpecial:
+		return special
+	}
+	out := make([]port.PeriodBucket, len(daily))
+	copy(out, daily)
+	for i := range out {
+		out[i].Amount += special[i].Amount
+	}
+	return out
+}
+
 // wantSum 按夹具算出期望值：给定账户 + 方向 + 口径，2026Q2 内 confirmed 流水的合计
 func wantSum(account domain.Account, dir domain.Direction, scope domain.Scope) int64 {
 	var total int64
@@ -287,7 +313,6 @@ func TestAggregateByCategoryScopeInvariant(t *testing.T) {
 
 func TestSumByBucketsScope(t *testing.T) {
 	f := newScopeFixture(t)
-	ctx := context.Background()
 
 	tests := []struct {
 		name    string
@@ -311,10 +336,7 @@ func TestSumByBucketsScope(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := f.txRepo.SumByBuckets(ctx, f.buckets, tt.dir, tt.account, tt.scope)
-			if err != nil {
-				t.Fatalf("SumByBuckets() error = %v", err)
-			}
+			got := sumBucketsScope(t, f.txRepo, f.buckets, tt.dir, tt.account, tt.scope)
 			if len(got) != len(tt.want) {
 				t.Fatalf("桶数 = %d; want %d", len(got), len(tt.want))
 			}
@@ -330,18 +352,13 @@ func TestSumByBucketsScope(t *testing.T) {
 // TestSumByBucketsScopeInvariant daily + special == all，逐桶逐账户成立
 func TestSumByBucketsScopeInvariant(t *testing.T) {
 	f := newScopeFixture(t)
-	ctx := context.Background()
 
 	for _, acc := range allAccounts {
 		for _, dir := range []domain.Direction{domain.DirectionExpense, domain.DirectionIncome} {
 			t.Run(string(acc)+"·"+string(dir), func(t *testing.T) {
 				sums := map[domain.Scope][]port.PeriodBucket{}
 				for _, s := range []domain.Scope{domain.ScopeDaily, domain.ScopeSpecial, domain.ScopeAll} {
-					got, err := f.txRepo.SumByBuckets(ctx, f.buckets, dir, acc, s)
-					if err != nil {
-						t.Fatalf("SumByBuckets(%s) error = %v", s, err)
-					}
-					sums[s] = got
+					sums[s] = sumBucketsScope(t, f.txRepo, f.buckets, dir, acc, s)
 				}
 				var totalAll int64
 				for i := range f.buckets {
@@ -545,10 +562,7 @@ func TestNonConfirmedExcludedFromEveryScope(t *testing.T) {
 				}
 
 				// SumByBuckets
-				bs, err := f.txRepo.SumByBuckets(ctx, f.buckets, domain.DirectionExpense, acc, scope)
-				if err != nil {
-					t.Fatalf("SumByBuckets() error = %v", err)
-				}
+				bs := sumBucketsScope(t, f.txRepo, f.buckets, domain.DirectionExpense, acc, scope)
 				var bucketTotal int64
 				for _, b := range bs {
 					bucketTotal += b.Amount
@@ -589,5 +603,46 @@ func TestNonConfirmedExcludedFromEveryScope(t *testing.T) {
 		if want := wantSum(domain.AccountFamily, domain.DirectionExpense, scope); total != want {
 			t.Fatalf("ListForRecurring(%s) 合计 = %d; want %d", scope, total, want)
 		}
+	}
+}
+
+// TestSumByBucketsReturnsBothGroupsInOneCall 一次调用就要拿到日常与专项两组：
+// 统计页两组都要用（"全部"=相加、斜纹段=专项那一截），按口径各查一遍等于把同一段范围
+// 重复扫描——实测 10 万行下月+季从 2 条查询变 4 条要多付 190ms/次。
+func TestSumByBucketsReturnsBothGroupsInOneCall(t *testing.T) {
+	f := newScopeFixture(t)
+
+	daily, special, err := f.txRepo.SumByBuckets(context.Background(), f.buckets,
+		domain.DirectionExpense, domain.AccountFamily)
+	if err != nil {
+		t.Fatalf("SumByBuckets() error = %v", err)
+	}
+
+	// 两组桶必须与入参同源：长度、顺序、Label 一一对应，调用方才能按下标对齐
+	if len(daily) != len(f.buckets) || len(special) != len(f.buckets) {
+		t.Fatalf("桶数 = %d/%d; want %d", len(daily), len(special), len(f.buckets))
+	}
+	for i, b := range f.buckets {
+		if daily[i].Label != b.Label || special[i].Label != b.Label {
+			t.Fatalf("第 %d 个桶 label = %q/%q; want %q", i, daily[i].Label, special[i].Label, b.Label)
+		}
+	}
+
+	wantDaily := []int64{1000, 2000, 500}         // d1 / d2 / d3
+	wantSpecial := []int64{100000, 30000, 200000} // s1 / s2 / s3
+	for i := range f.buckets {
+		if daily[i].Amount != wantDaily[i] {
+			t.Fatalf("桶 %s 日常 = %d; want %d", daily[i].Label, daily[i].Amount, wantDaily[i])
+		}
+		if special[i].Amount != wantSpecial[i] {
+			t.Fatalf("桶 %s 专项 = %d; want %d", special[i].Label, special[i].Amount, wantSpecial[i])
+		}
+	}
+
+	// 两个切片必须互相独立：调用方（scopeAmountSeries）会就地改 amount 拼"全部"口径，
+	// 共享底层数组会让专项那一截被写坏
+	daily[0].Amount += 12345
+	if special[0].Amount != wantSpecial[0] {
+		t.Fatal("改动 daily 影响到了 special：两组桶共用了底层数组")
 	}
 }

@@ -48,7 +48,9 @@ func (h *Handler) Reports(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	label := q.Get("period")
 	if label == "" {
-		label = domain.CurrentQuarter(time.Now()).Label
+		// 与现金流表/流水页/StatsAPI 同一套默认：上一个完整季度。
+		// 各页面各自默认会让"现金流表看 2026Q2、点进财报却默认 2026Q3"。
+		label = defaultPeriodFor(domain.PeriodQuarterly, time.Now()).Label
 	}
 	p, err := domain.ParsePeriod(label)
 	if err != nil || (p.Type != domain.PeriodQuarterly && p.Type != domain.PeriodAnnual) {
@@ -156,7 +158,9 @@ func reportLabel(period string, pt domain.PeriodType) string {
 	return period + " 季度财报"
 }
 
-// reportPeriodOptions 给期间下拉用：当前季度往前 3 季 + 当前年度，并确保 selected 一定在列表里
+// reportPeriodOptions 给期间下拉用。第一项是页面默认周期（上一个完整季度），
+// 与 Reports 的缺省选中保持一致；再往前 3 季，然后补上仍在进行中的当前季度/当前年度
+// （未走完，数字有误导性，所以排在后面但仍可选），最后确保 selected 一定在列表里。
 func reportPeriodOptions(now time.Time, selected string) []string {
 	seen := map[string]bool{}
 	var opts []string
@@ -166,13 +170,14 @@ func reportPeriodOptions(now time.Time, selected string) []string {
 			opts = append(opts, label)
 		}
 	}
-	cur := domain.CurrentQuarter(now)
-	add(cur.Label)
-	p := cur
+	p := defaultPeriodFor(domain.PeriodQuarterly, now)
+	add(p.Label)
 	for i := 0; i < 3; i++ {
 		p = p.Previous()
 		add(p.Label)
 	}
+	add(domain.CurrentQuarter(now).Label)
+	add(defaultPeriodFor(domain.PeriodAnnual, now).Label)
 	add(strconv.Itoa(now.Year()))
 	add(selected)
 	return opts

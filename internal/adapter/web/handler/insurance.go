@@ -107,12 +107,8 @@ func policyFromForm(r *http.Request) (domain.InsurancePolicy, error) {
 	if p.AnnualPremium, err = parseNonNegativeYuan(r.FormValue("annual_premium"), "年缴保费"); err != nil {
 		return p, err
 	}
-	if raw := strings.TrimSpace(r.FormValue("renewal_date")); raw != "" {
-		t, err := time.ParseInLocation("2006-01-02", raw, time.Local)
-		if err != nil {
-			return p, fmt.Errorf("续期日格式应为 YYYY-MM-DD")
-		}
-		p.RenewalDate = t
+	if p.RenewalDate, err = parseOptionalDate(r.FormValue("renewal_date"), "续期日"); err != nil {
+		return p, err
 	}
 	p.Notes = strings.TrimSpace(r.FormValue("notes"))
 	return p, nil

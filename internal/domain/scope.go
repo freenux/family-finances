@@ -26,30 +26,3 @@ func ParseScope(s string) Scope {
 		return ScopeDaily
 	}
 }
-
-// Label 给 UI 展示用
-func (s Scope) Label() string {
-	switch s {
-	case ScopeAll:
-		return "全部"
-	case ScopeSpecial:
-		return "仅专项"
-	case ScopeDaily:
-		return "日常"
-	}
-	return string(s)
-}
-
-// SQLFilter 生成拼在 WHERE/ON 后面的口径片段，col 是流水表里专项外键列
-// （带表别名时传 "t.special_id"）。集中在这里，避免每个 repo 方法各写各的。
-// col 只来自仓库内部常量，不接受外部输入。
-func (s Scope) SQLFilter(col string) string {
-	switch s {
-	case ScopeDaily:
-		return " AND " + col + " IS NULL"
-	case ScopeSpecial:
-		return " AND " + col + " IS NOT NULL"
-	default: // ScopeAll
-		return ""
-	}
-}

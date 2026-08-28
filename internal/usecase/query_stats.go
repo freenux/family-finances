@@ -17,7 +17,7 @@ type StatsView struct {
 	Granularity      string             `json:"granularity"` // month|quarter|year
 	Direction        string             `json:"direction"`   // income|expense
 	Account          string             `json:"account"`     // husband|wife|family
-	Scope            string             `json:"scope"`       // daily|all|special；饼图/构成/对比条都跟随它变化，Top 榜单例外（恒为全口径）
+	Scope            string             `json:"scope"`       // daily|all|special；饼图/构成/对比条/Top 榜单全部跟随它变化
 	Total            int64              `json:"total"`
 	Categories       []StatsCategorySeg `json:"categories"`
 	MonthlyCompare   []StatsBucket      `json:"monthlyCompare"`
@@ -80,7 +80,8 @@ func NewQueryStats(tx port.TransactionRepo, cat port.CategoryRepo) *QueryStats {
 //   - 饼图/构成跟随 scope；
 //   - 月/季对比条也跟随 scope——Amount/Chain/YoY 都基于该口径重算；Special 字段是
 //     "Amount 里的专项那一截"，供前端叠斜纹段（语义见 StatsBucket 注释）；
-//   - Top 流水恒为全口径（剔了大额榜单没意义），不跟随 scope。
+//   - Top 流水同样跟随 scope：选了"日常"却在大额榜首看到装修款，等于告诉用户
+//     筛选没生效——想看装修就切到"仅专项/全部"。
 func (uc *QueryStats) Execute(ctx context.Context, p domain.Period, dir domain.Direction, account domain.Account, scope domain.Scope, topLimit int) (StatsView, error) {
 	if topLimit <= 0 {
 		topLimit = 10
@@ -137,23 +138,16 @@ func (uc *QueryStats) Execute(ctx context.Context, p domain.Period, dir domain.D
 		monthShow = 6
 		quartShow = 4
 	)
-	//    不管请求的 scope 是什么，桶固定只查 daily + special 这两组、不会再多查一遍 all；
-	//    展示用的 Amount/Special 序列由 scopeAmountSeries 按 scope 在内存里拼出来。
+	//    不管请求的 scope 是什么，月桶、季桶各只查一次，一次同时拿回 daily + special
+	//    两组（见 port.TransactionRepo.SumByBuckets）；展示用的 Amount/Special 序列
+	//    由 scopeAmountSeries 按 scope 在内存里拼出来。
 	monthlyAll := buildMonthBuckets(p, monthShow+12)
 	quarterlyAll := buildQuarterBuckets(p, quartShow+4)
-	monthlyDaily, err := uc.txRepo.SumByBuckets(ctx, monthlyAll, dir, account, domain.ScopeDaily)
+	monthlyDaily, monthlySpecial, err := uc.txRepo.SumByBuckets(ctx, monthlyAll, dir, account)
 	if err != nil {
 		return StatsView{}, err
 	}
-	monthlySpecial, err := uc.txRepo.SumByBuckets(ctx, monthlyAll, dir, account, domain.ScopeSpecial)
-	if err != nil {
-		return StatsView{}, err
-	}
-	quarterlyDaily, err := uc.txRepo.SumByBuckets(ctx, quarterlyAll, dir, account, domain.ScopeDaily)
-	if err != nil {
-		return StatsView{}, err
-	}
-	quarterlySpecial, err := uc.txRepo.SumByBuckets(ctx, quarterlyAll, dir, account, domain.ScopeSpecial)
+	quarterlyDaily, quarterlySpecial, err := uc.txRepo.SumByBuckets(ctx, quarterlyAll, dir, account)
 	if err != nil {
 		return StatsView{}, err
 	}
@@ -164,8 +158,8 @@ func (uc *QueryStats) Execute(ctx context.Context, p domain.Period, dir domain.D
 	attachSpecial(monthly, monthlySpecialSeg)
 	attachSpecial(quarterly, quarterlySpecialSeg)
 
-	// 3. Top 流水：恒为全口径，剔掉专项后"大额榜单"就没意义了
-	tops, err := uc.txRepo.TopTransactions(ctx, p, dir, account, domain.ScopeAll, topLimit)
+	// 3. Top 流水：跟随入参 scope，与饼图/对比条同口径
+	tops, err := uc.txRepo.TopTransactions(ctx, p, dir, account, scope, topLimit)
 	if err != nil {
 		return StatsView{}, err
 	}

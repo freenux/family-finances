@@ -146,6 +146,20 @@ func parseNonNegativeYuan(s, field string) (int64, error) {
 	return int64(f*100 + 0.5), nil
 }
 
+// parseOptionalDate 解析 <input type="date"> 的值；空串 → 零值（表示"未填"/"进行中"）。
+// 专项的开始/结束日期与保单续期日共用，label 用于拼中文报错。
+func parseOptionalDate(v, label string) (time.Time, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.ParseInLocation("2006-01-02", v, time.Local)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%s格式应为 YYYY-MM-DD", label)
+	}
+	return t, nil
+}
+
 // fenToYuanInput 分 → 元字符串（整数元省略小数）
 func fenToYuanInput(fen int64) string {
 	if fen == 0 {

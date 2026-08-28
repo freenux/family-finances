@@ -49,7 +49,6 @@ type Handler struct {
 	digestSvc    *usecase.DigestService
 	digestSender usecase.DigestSender
 	templateRepo port.ImportTemplateRepo
-	specialRepo  port.SpecialProjectRepo
 	specialView  *usecase.SpecialView
 	log          *slog.Logger
 	flash        *flashStore
@@ -83,7 +82,6 @@ type Deps struct {
 	DigestSvc    *usecase.DigestService
 	DigestSender usecase.DigestSender
 	TemplateRepo port.ImportTemplateRepo
-	SpecialRepo  port.SpecialProjectRepo
 	SpecialView  *usecase.SpecialView
 	Log          *slog.Logger
 	AuthKey      string
@@ -116,7 +114,6 @@ func New(d Deps) *Handler {
 		digestSvc:    d.DigestSvc,
 		digestSender: d.DigestSender,
 		templateRepo: d.TemplateRepo,
-		specialRepo:  d.SpecialRepo,
 		specialView:  d.SpecialView,
 		log:          d.Log,
 		flash:        newFlashStore(),
@@ -328,7 +325,7 @@ func (h *Handler) StatsAPI(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, view)
 }
 
-// StatsTopAPI: GET /api/stats/top?granularity=&period=&direction=&account=&limit=
+// StatsTopAPI: GET /api/stats/top?granularity=&period=&direction=&account=&scope=&limit=
 // 独立端点让"点柱状图切 Top"走轻量查询，不用重跑全套聚合
 func (h *Handler) StatsTopAPI(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
@@ -342,13 +339,15 @@ func (h *Handler) StatsTopAPI(w http.ResponseWriter, r *http.Request) {
 		dir = domain.DirectionExpense
 	}
 	acc := parseAccountFromQuery(r)
+	// 缺省 daily，与 /api/stats 一致：用户选了"日常"，Top 榜单就不该出现装修流水
+	scope := domain.ParseScope(q.Get("scope"))
 	limit := 10
 	if l, err := strconv.Atoi(q.Get("limit")); err == nil && l > 0 && l <= 200 {
 		limit = l
 	}
 
-	// 与 QueryStats 的 Top 榜单同口径：恒为全口径，剔了大额就不叫大额榜单了
-	tops, err := h.txRepo.TopTransactions(r.Context(), p, dir, acc, domain.ScopeAll, limit)
+	// 与 QueryStats 的 Top 榜单同口径：跟随请求的 scope
+	tops, err := h.txRepo.TopTransactions(r.Context(), p, dir, acc, scope, limit)
 	if err != nil {
 		h.serverError(w, err)
 		return
@@ -658,8 +657,25 @@ func ruleJSONFromDomain(rule domain.CategoryRule, cats []domain.Category) ruleJS
 	}
 }
 
+// txListPeriod 解析流水页的周期。平时默认「上个月」（当期没走完，数字有误导性）；
+// 但从「分类规则」页点「查看流水」跳过来（?rule_id=…，URL 里既没有 type 也没有 period）时，
+// 默认改成**当前季度**。
+//
+// 注意这里不能复用 defaultPeriodFor：它给的是"上一个完整周期"，季度粒度下就是上季度，
+// 照样盖不住当月。规则要核对的恰恰是"这条规则命中了哪些流水"，而刚导入、待处理的那批
+// 就落在当下——窗口不覆盖今天，页面就会告诉用户"这条规则没匹配到任何流水"。
+// 当前季度是能盖住当月、又不至于把整年流水塞进首屏 JSON 的最小窗口。
+// URL 显式给了 type 或 period 时一律以显式为准（前端切周期、翻页都走这条路）。
+func txListPeriod(r *http.Request) (domain.Period, error) {
+	q := r.URL.Query()
+	if strings.TrimSpace(q.Get("rule_id")) != "" && q.Get("period") == "" && q.Get("type") == "" {
+		return domain.CurrentQuarter(time.Now()), nil
+	}
+	return parsePeriodFromQuery(r, domain.PeriodMonthly)
+}
+
 func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
-	p, err := parsePeriodFromQuery(r, domain.PeriodMonthly)
+	p, err := txListPeriod(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -740,12 +756,16 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 	h.renderPage(w, http.StatusOK, "transactions", vm)
 }
 
+// specialsEnabled 专项功能是否可用。main.go 里无条件注入，只有裁剪过依赖的
+// 测试/嵌入场景会为 nil——这时整块专项功能降级而不是 panic。
+func (h *Handler) specialsEnabled() bool { return h.specialView != nil }
+
 // listSpecialsJSON 专项下拉选项（进行中的排前面，由 repo 的排序保证）
 func (h *Handler) listSpecialsJSON(ctx context.Context) ([]specialJSON, error) {
-	if h.specialRepo == nil {
+	if !h.specialsEnabled() {
 		return []specialJSON{}, nil
 	}
-	projects, err := h.specialRepo.ListAll(ctx)
+	projects, err := h.specialView.ListAll(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -759,7 +779,7 @@ func (h *Handler) listSpecialsJSON(ctx context.Context) ([]specialJSON, error) {
 // ListTransactionsAPI: GET /api/transactions?type=...&period=...&account=...
 // 返回与列表页 SSR 嵌入 JSON 相同的 txRowJSON 数组，供前端切换周期时客户端刷新。
 func (h *Handler) ListTransactionsAPI(w http.ResponseWriter, r *http.Request) {
-	p, err := parsePeriodFromQuery(r, domain.PeriodMonthly)
+	p, err := txListPeriod(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -793,16 +813,10 @@ func (h *Handler) ensureSpecial(ctx context.Context, id string) error {
 	if id == "" {
 		return nil
 	}
-	if h.specialRepo == nil {
+	if !h.specialsEnabled() {
 		return fmt.Errorf("专项功能未启用")
 	}
-	if _, err := h.specialRepo.Get(ctx, id); err != nil {
-		if errors.Is(err, port.ErrNotFound) {
-			return fmt.Errorf("专项不存在")
-		}
-		return err
-	}
-	return nil
+	return h.specialView.Ensure(ctx, id)
 }
 
 func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
@@ -918,21 +932,19 @@ func (h *Handler) BatchUpdateTransactions(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	patch := port.TransactionUpdate{SpecialID: &specialID}
-	updated := 0
+	ids := make([]string, 0, len(req.IDs))
 	for _, id := range req.IDs {
-		if id == "" {
-			continue
+		if id != "" {
+			ids = append(ids, id)
 		}
-		if err := h.txRepo.Update(r.Context(), id, patch); err != nil {
-			// 单条不存在不算整体失败（前端列表可能已过期），继续处理剩下的
-			if errors.Is(err, port.ErrNotFound) {
-				continue
-			}
-			h.serverError(w, err)
-			return
-		}
-		updated++
+	}
+	// 一个事务里一次写完：逐条 Update 会开上千个隐式事务（1000 条 332ms vs 18ms），
+	// 而且中途失败时前面已提交的部分回滚不掉，用户会拿到一个说不清改了多少的半成品。
+	// 不存在的 id 由 repo 静默跳过（前端列表可能已过期），不算整体失败。
+	updated, err := h.txRepo.SetSpecialForIDs(r.Context(), ids, specialID)
+	if err != nil {
+		h.serverError(w, err)
+		return
 	}
 	writeJSON(w, map[string]any{"updated": updated})
 }
@@ -1022,7 +1034,14 @@ func transactionsRedirectURL(acc domain.Account, occurredAt time.Time) string {
 	if !occurredAt.IsZero() {
 		q.Set("type", string(domain.PeriodMonthly))
 		q.Set("period", occurredAt.Format("2006-01"))
+		return "/transactions?" + q.Encode()
 	}
+	// 没有可定位的月份（整份账单都是重复/被规则跳过）时不能空着参数走：
+	// 流水页的默认周期是"上个月"，用户会看到一个空列表，以为导入把数据弄丢了。
+	// 退回当前季度——盖得住当月，也盖得住刚导入的那批。
+	cur := domain.CurrentQuarter(time.Now())
+	q.Set("type", string(cur.Type))
+	q.Set("period", cur.Label)
 	return "/transactions?" + q.Encode()
 }
 

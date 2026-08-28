@@ -1,5 +1,13 @@
 // Alpine 组件：统计页。数据来自 GET /api/stats 与 /api/stats/top，后端直接聚合真实流水。
 // 依赖 period_utils.js 提供的 defaultPeriodKey / shiftPeriodKey。
+// 统计口径的唯一一份定义：切换按钮的文案、头部副标题、对比条标题都从这里取。
+// 顺序即按钮顺序；第一项是缺省口径（与后端 domain.ParseScope 的兜底保持一致）。
+const SCOPES = [
+  { key: 'daily',   label: '日常' },
+  { key: 'all',     label: '全部' },
+  { key: 'special', label: '仅专项' },
+];
+
 function statsPage() {
   const DAYS_IN = { month: 30, quarter: 90, year: 365 };
 
@@ -147,6 +155,9 @@ function statsPage() {
         period: this.focusKey,
         direction: this.direction,
         account: this.account,
+        // 与 /api/stats 一样必须带口径：不带的话后端落到缺省 daily，
+        // 用户切到"全部/仅专项"再点柱子，榜单还是那份日常流水
+        scope: this.scope,
         limit: '10',
       });
       try {
@@ -165,9 +176,14 @@ function statsPage() {
     current() { return this.view; },
     hasData() { return !!this.view && this.view.total > 0; },
 
+    // 口径选项：切换按钮（stats.html 用 x-for 渲染）与文案（scopeLabel）共用这一份，
+    // 避免"日常/全部/仅专项"在模板和 JS 里各留一份、改一处忘一处。
+    scopes: SCOPES,
+
     // 口径文案：daily/all/special → 日常/全部/仅专项。头部副标题和对比条面板标题共用。
     scopeLabel() {
-      return { daily: '日常', all: '全部', special: '仅专项' }[this.scope] || '日常';
+      const hit = SCOPES.find((s) => s.key === this.scope);
+      return hit ? hit.label : SCOPES[0].label;
     },
 
     // 头部副标题
@@ -225,26 +241,25 @@ function statsPage() {
       return max > 0 ? max : 0;
     },
 
-    // 实心段：amount 里刨掉专项之后剩下的一截。仅专项口径下 special === amount，
-    // 这里自然算出 0，实心段不显示，只剩下面的斜纹段。
+    // 两段共用同一个归一化：实心段传 dailyPart(b)、斜纹段传 b.special，
+    // 参数形状一致，改归一化语义时只有这一处，不会出现两段用上不同基准。
     normBar(amount, arr) {
       const max = this.barMax(arr);
-      if (!max) return 0;
+      if (!max || !(amount > 0)) return 0;
       return (amount / max * 100).toFixed(1);
     },
 
-    // 斜纹段：amount 里属于专项的一截。日常口径下后端给的 special 恒为 null，
-    // 这里恒为 0——不用在前端另外按 scope 判断一次。
-    normSpecial(b, arr) {
-      const max = this.barMax(arr);
-      if (!max || !b.special) return 0;
-      return (b.special / max * 100).toFixed(1);
+    // 实心段的金额：amount 里刨掉专项之后剩下的一截（斜纹段那截是 b.special）。
+    // 仅专项口径下 special === amount，这里自然是 0，模板据此不渲染实心段。
+    // 日常口径下后端给的 special 恒为 null，这里就是整个 amount。
+    dailyPart(b) {
+      return (b.amount || 0) - (b.special || 0);
     },
 
     // 图例要不要显示"专项"：同样跟着后端给的 special 字段走；日常口径下每个桶的
-    // special 都是 null，这里自然是 false。
+    // special 都是 null，这里自然是 false。与柱子的渲染条件保持一致（> 0 才算）。
     hasSpecial(arr) {
-      return Array.isArray(arr) && arr.some(x => x.special);
+      return Array.isArray(arr) && arr.some(x => x.special > 0);
     },
 
     focusMonth() {

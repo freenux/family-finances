@@ -3,21 +3,31 @@
   <div class="kpi-card">
     <div class="label">💰 收入合计 (A)</div>
     <div class="value positive">{{yuan .Report.KPI.TotalIncome}}</div>
-    <div class="sub">{{.Period.Label}}</div>
+    {{if .Report.KPI.SpecialIncome}}
+      <div class="sub">{{.Period.Label}} · 日常 {{yuan .Report.KPI.DailyIncome}} ＋ 专项 {{yuan .Report.KPI.SpecialIncome}}</div>
+    {{else}}
+      <div class="sub">{{.Period.Label}}</div>
+    {{end}}
   </div>
   <div class="kpi-card">
     <div class="label">💸 支出合计 (B)</div>
     <div class="value negative">{{yuan .Report.KPI.TotalExpense}}</div>
-    <div class="sub">{{.Period.Label}}</div>
+    {{if .Report.KPI.SpecialExpense}}
+      <div class="sub">{{.Period.Label}} · 日常 {{yuan .Report.KPI.DailyExpense}} ＋ 专项 {{yuan .Report.KPI.SpecialExpense}}</div>
+    {{else}}
+      <div class="sub">{{.Period.Label}} · 全部为日常支出 {{yuan .Report.KPI.DailyExpense}}</div>
+    {{end}}
   </div>
   <div class="kpi-card">
     <div class="label">🏆 结余 (A−B)</div>
     <div class="value {{if gt .Report.KPI.Surplus 0}}positive{{else}}negative{{end}}">{{yuan .Report.KPI.Surplus}}</div>
-    <div class="sub">结余率 {{pct .Report.KPI.SurplusRate}}</div>
+    <div class="sub">全口径结余率 {{pct .Report.KPI.SurplusRate}}：本期真实进出多少钱</div>
+    <div class="sub">日常结余 {{yuan .Report.KPI.DailySurplus}} · 日常结余率 {{pct .Report.KPI.DailySurplusRate}}：剔除专项后的攒钱能力</div>
   </div>
   <div class="kpi-card {{if .Report.KPI.DiscretionWarning}}warning{{end}}">
-    <div class="label">⚡ 自由裁量占比</div>
+    <div class="label">⚡ 自由裁量占日常支出</div>
     <div class="value">{{pct .Report.KPI.DiscretionRatio}}</div>
+    <div class="sub">分母＝日常支出 {{yuan .Report.KPI.DailyExpense}}（不含专项）</div>
     <div class="sub">建议控制在 35% 以内 {{if .Report.KPI.DiscretionWarning}}<span class="badge warn">超标</span>{{end}}</div>
   </div>
 </div>

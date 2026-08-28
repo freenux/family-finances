@@ -19,6 +19,17 @@
             </tr>
           {{end}}
         {{end}}
+        {{/* 专项里也可能有收入（换车专项里的旧车折价）：拆出来，否则"日常结余"没法反推 */}}
+        {{if .Report.KPI.SpecialIncome}}
+          <tr>
+            <td>其中：日常收入</td>
+            <td class="amount {{if gt .Report.KPI.DailyIncome 0}}positive{{else}}zero{{end}}">{{yuan .Report.KPI.DailyIncome}}</td>
+          </tr>
+          <tr>
+            <td>其中：专项收入</td>
+            <td class="amount {{if gt .Report.KPI.SpecialIncome 0}}positive{{else}}zero{{end}}">{{yuan .Report.KPI.SpecialIncome}}</td>
+          </tr>
+        {{end}}
         <tr class="subtotal">
           <td>收入合计 (A)</td>
           <td class="amount positive">{{yuan .Report.KPI.TotalIncome}}</td>
@@ -45,6 +56,36 @@
               <td class="amount {{if gt .Amount 0}}negative{{else}}zero{{end}}">{{yuan .Amount}}</td>
             </tr>
           {{end}}
+        {{end}}
+        {{/* 装修/购车这类一次性大额支出与科目正交：上面按科目已经算进去了，
+             这里再按口径拆一次，让"日常支出"这个基线数（也是自由裁量占比的分母）
+             能直接读到，并且和支出合计对得上账 */}}
+        {{if .Report.KPI.SpecialExpense}}
+          <tr>
+            <td>其中：日常支出</td>
+            <td class="amount {{if gt .Report.KPI.DailyExpense 0}}negative{{else}}zero{{end}}">{{yuan .Report.KPI.DailyExpense}}</td>
+          </tr>
+          <tr>
+            <td>
+              {{if .Report.SpecialByProject}}
+                <details>
+                  <summary style="cursor:pointer">其中：专项支出</summary>
+                  <div style="margin-top:6px">
+                    {{range .Report.SpecialByProject}}
+                      <div style="display:flex;justify-content:space-between;gap:12px;padding:2px 0;color:var(--text-secondary)">
+                        <a href="/specials?edit={{.SpecialID}}#special-form">{{.Name}}</a>
+                        <span style="font-variant-numeric:tabular-nums">{{yuan .Amount}}</span>
+                      </div>
+                    {{end}}
+                    <div style="font-size:11px;color:var(--muted);margin-top:4px">按专项列的是净额（该专项内的收入已抵扣）</div>
+                  </div>
+                </details>
+              {{else}}
+                其中：专项支出
+              {{end}}
+            </td>
+            <td class="amount negative">{{yuan .Report.KPI.SpecialExpense}}</td>
+          </tr>
         {{end}}
         <tr class="subtotal">
           <td>支出合计 (B)</td>

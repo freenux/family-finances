@@ -43,6 +43,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	// 统计信息喂给代价优化器（详见 sqlite.Analyze）。失败不致命：没有统计只是查询计划变差。
+	if err := sqlite.Analyze(db); err != nil {
+		log.Warn("analyze", "err", err)
+	}
+
 	txRepo := sqlite.NewTransactionRepo(db)
 	catRepo := sqlite.NewCategoryRepo(db)
 	assetRepo := sqlite.NewAssetSnapshotRepo(db)
@@ -119,7 +124,6 @@ func main() {
 		DigestSvc:    digestSvc,
 		DigestSender: digestSender,
 		TemplateRepo: templateRepo,
-		SpecialRepo:  specialRepo,
 		SpecialView:  specialView,
 		Log:          log,
 		AuthKey:      cfg.AuthKey,

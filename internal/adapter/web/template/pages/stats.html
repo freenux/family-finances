@@ -163,6 +163,8 @@
     opacity: .55;
     border-radius: 4px 4px 0 0;
     transition: height .35s ease, opacity .2s ease;
+    /* 极小值也要看得见；金额为 0 的段由模板直接不渲染，
+       否则这 2px 会在"仅专项"口径下把每根柱子都垫出一条假的日常支出 */
     min-height: 2px;
   }
   .col-bar:hover .col-fill { opacity: .8; }
@@ -170,8 +172,11 @@
   .col-bar .col-fill.special {
     background: repeating-linear-gradient(45deg, #ea2261 0 4px, #f96bee 4px 8px);
   }
-  /* 只有最上面那段留圆角：有专项时它是专项段，没有时是日常段 */
-  .col-bar .col-track .col-fill:not(:first-child) { border-radius: 0; }
+  /* 只有最上面那段留圆角：有专项时它是专项段（在上），日常段紧随其下不要圆角。
+     不能用 :first-child / :not(:first-child) —— Alpine 的 x-if 会把 <template>
+     留在 DOM 里占住 col-track 的第一个子节点，实心段永远不是 first-child。
+     用 ~ 而不是 +，中间还隔着实心段自己的 <template>。 */
+  .col-bar .col-track .col-fill.special ~ .col-fill { border-radius: 0; }
   .special-legend {
     display: inline-flex; align-items: center; gap: 5px;
     font-size: 11px; color: var(--muted);
@@ -262,9 +267,10 @@
         <button :class="direction==='income'  ? 'active' : ''" @click="setDirection('income')">收入</button>
       </div>
       <div class="seg" title="专项＝装修/购车这类一次性大额支出。构成、月度/季度对比条都随口径变化：全部口径下专项以斜纹段叠加在日常段之上，仅专项口径下只剩斜纹段">
-        <button :class="scope==='daily'   ? 'active' : ''" @click="setScope('daily')">日常</button>
-        <button :class="scope==='all'     ? 'active' : ''" @click="setScope('all')">全部</button>
-        <button :class="scope==='special' ? 'active' : ''" @click="setScope('special')">仅专项</button>
+        {{/* 按钮文案来自 stats_page.js 的 SCOPES，与 scopeLabel() 同一份定义，不在这里再抄一遍 */}}
+        <template x-for="s in scopes" :key="s.key">
+          <button :class="scope===s.key ? 'active' : ''" @click="setScope(s.key)" x-text="s.label"></button>
+        </template>
       </div>
       <div class="seg">
         <button :class="granularity==='month'   ? 'active' : ''" @click="setGranularity('month')">月度</button>
@@ -379,11 +385,16 @@
                       @keydown.enter.shift.prevent="jumpToPeriod('month', b.label)">
                 <span class="col-val" x-text="fmtYuan(b.amount)"></span>
                 <span class="col-track">
-                  <template x-if="b.special">
+                  {{/* 金额为 0 的段一律不渲染：min-height 会把它撑成 2px，
+                       读图上等于凭空多出一截并不存在的支出 */}}
+                  <template x-if="b.special > 0">
                     <span class="col-fill special" :title="'专项 ' + fmtYuan(b.special)"
-                          :style="'height:' + normSpecial(b, view.monthlyCompare) + '%'"></span>
+                          :style="'height:' + normBar(b.special, view.monthlyCompare) + '%'"></span>
                   </template>
-                  <span class="col-fill" :style="'height:' + normBar(b.amount - (b.special || 0), view.monthlyCompare) + '%'"></span>
+                  <template x-if="dailyPart(b) > 0">
+                    <span class="col-fill" :title="'日常 ' + fmtYuan(dailyPart(b))"
+                          :style="'height:' + normBar(dailyPart(b), view.monthlyCompare) + '%'"></span>
+                  </template>
                 </span>
                 <span class="col-lbl" x-text="b.label"></span>
                 <span class="col-cmp">
@@ -417,11 +428,16 @@
                       @keydown.enter.shift.prevent="jumpToPeriod('quarter', b.label)">
                 <span class="col-val" x-text="fmtYuan(b.amount)"></span>
                 <span class="col-track">
-                  <template x-if="b.special">
+                  {{/* 金额为 0 的段一律不渲染：min-height 会把它撑成 2px，
+                       读图上等于凭空多出一截并不存在的支出 */}}
+                  <template x-if="b.special > 0">
                     <span class="col-fill special" :title="'专项 ' + fmtYuan(b.special)"
-                          :style="'height:' + normSpecial(b, view.quarterlyCompare) + '%'"></span>
+                          :style="'height:' + normBar(b.special, view.quarterlyCompare) + '%'"></span>
                   </template>
-                  <span class="col-fill" :style="'height:' + normBar(b.amount - (b.special || 0), view.quarterlyCompare) + '%'"></span>
+                  <template x-if="dailyPart(b) > 0">
+                    <span class="col-fill" :title="'日常 ' + fmtYuan(dailyPart(b))"
+                          :style="'height:' + normBar(dailyPart(b), view.quarterlyCompare) + '%'"></span>
+                  </template>
                 </span>
                 <span class="col-lbl" x-text="b.label"></span>
                 <span class="col-cmp">

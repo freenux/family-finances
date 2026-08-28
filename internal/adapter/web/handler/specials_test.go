@@ -29,8 +29,11 @@ type stubTxRepo struct {
 	existing     map[string]bool                     // 存在的流水 id
 	patches      map[string][]port.TransactionUpdate // id → 收到的 patch 序列
 	aggScope     domain.Scope                        // 最后一次 AggregateByCategory 收到的口径
-	bucketScopes []domain.Scope                      // SumByBuckets 收到的口径序列
+	bucketCalls  int                                 // SumByBuckets 被调用次数（一次拿两组，不按口径各查一遍）
 	topScopes    []domain.Scope                      // TopTransactions 收到的口径序列
+	listPeriods  []domain.Period                     // List 收到的周期序列（验默认周期）
+	batchIDs     []string                            // SetSpecialForIDs 收到的 id
+	batchSpecial string                              // SetSpecialForIDs 收到的专项 id
 }
 
 func newStubTxRepo(ids ...string) *stubTxRepo {
@@ -57,7 +60,8 @@ func (r *stubTxRepo) Update(_ context.Context, id string, patch port.Transaction
 func (r *stubTxRepo) Get(context.Context, string) (domain.Transaction, error) {
 	return domain.Transaction{}, port.ErrNotFound
 }
-func (r *stubTxRepo) List(context.Context, domain.Period, domain.Account) ([]domain.Transaction, error) {
+func (r *stubTxRepo) List(_ context.Context, p domain.Period, _ domain.Account) ([]domain.Transaction, error) {
+	r.listPeriods = append(r.listPeriods, p)
 	return nil, nil
 }
 func (r *stubTxRepo) ListPendingCategory(context.Context, int) ([]domain.Transaction, error) {
@@ -73,17 +77,37 @@ func (r *stubTxRepo) AggregateByCategory(_ context.Context, _ domain.Period, _ d
 	}, nil
 }
 
-func (r *stubTxRepo) SumByBuckets(_ context.Context, buckets []port.PeriodBucket, _ domain.Direction, _ domain.Account, scope domain.Scope) ([]port.PeriodBucket, error) {
-	r.bucketScopes = append(r.bucketScopes, scope)
+func (r *stubTxRepo) SumByBuckets(_ context.Context, buckets []port.PeriodBucket, _ domain.Direction, _ domain.Account) (daily, special []port.PeriodBucket, err error) {
+	r.bucketCalls++
 	// 与 AggregateByCategory 共用同一组 daily=1000 / special=8000，这样 QueryStats 按
 	// scope 拼出来的桶金额（all=daily+special=9000）也能在这层断言到，证明 wiring 是对的。
-	amounts := map[domain.Scope]int64{domain.ScopeDaily: 1000, domain.ScopeSpecial: 8000}
-	out := make([]port.PeriodBucket, len(buckets))
-	copy(out, buckets)
-	for i := range out {
-		out[i].Amount = amounts[scope]
+	daily = make([]port.PeriodBucket, len(buckets))
+	special = make([]port.PeriodBucket, len(buckets))
+	copy(daily, buckets)
+	copy(special, buckets)
+	for i := range buckets {
+		daily[i].Amount = 1000
+		special[i].Amount = 8000
 	}
-	return out, nil
+	return daily, special, nil
+}
+
+// SetSpecialForIDs 只统计"存在的 id"，与真实 repo 的 UPDATE ... WHERE id IN (...) 一致：
+// 重复 id 只算一次，不存在的 id 不计入。
+func (r *stubTxRepo) SetSpecialForIDs(_ context.Context, ids []string, specialID string) (int, error) {
+	r.batchIDs = append(r.batchIDs, ids...)
+	r.batchSpecial = specialID
+	seen := map[string]bool{}
+	n := 0
+	for _, id := range ids {
+		if !r.existing[id] || seen[id] {
+			continue
+		}
+		seen[id] = true
+		r.patches[id] = append(r.patches[id], port.TransactionUpdate{SpecialID: &specialID})
+		n++
+	}
+	return n, nil
 }
 
 func (r *stubTxRepo) TopTransactions(_ context.Context, _ domain.Period, _ domain.Direction, _ domain.Account, scope domain.Scope, _ int) ([]port.TopTransaction, error) {
@@ -118,13 +142,13 @@ func (r *stubSpecialRepo) Get(_ context.Context, id string) (domain.SpecialProje
 }
 func (r *stubSpecialRepo) Upsert(context.Context, *domain.SpecialProject) error { return nil }
 func (r *stubSpecialRepo) Delete(context.Context, string) error                 { return nil }
-func (r *stubSpecialRepo) SumByProject(context.Context) (map[string]int64, error) {
-	return map[string]int64{}, nil
+func (r *stubSpecialRepo) SumByProject(context.Context) (map[string]port.SpecialSpend, error) {
+	return map[string]port.SpecialSpend{}, nil
 }
 func (r *stubSpecialRepo) SumByProjectInPeriod(context.Context, domain.Period, domain.Account) (map[string]int64, error) {
 	return map[string]int64{}, nil
 }
-func (r *stubSpecialRepo) SumByCategoryForProject(context.Context, string) ([]domain.CategoryAggregation, error) {
+func (r *stubSpecialRepo) SumByCategoryForAllProjects(context.Context) (map[string][]domain.CategoryAggregation, error) {
 	return nil, nil
 }
 
@@ -159,7 +183,7 @@ func newSpecialTestHandler(txRepo *stubTxRepo, projects ...domain.SpecialProject
 	return &Handler{
 		txRepo:      txRepo,
 		catRepo:     stubCatRepo{},
-		specialRepo: &stubSpecialRepo{projects: projects},
+		specialView: usecase.NewSpecialView(&stubSpecialRepo{projects: projects}),
 		queryStats:  usecase.NewQueryStats(txRepo, stubCatRepo{}),
 		log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
@@ -254,7 +278,7 @@ func TestUpdateTransactionSpecialID(t *testing.T) {
 	}
 }
 
-// TestUpdateTransactionSpecialWithoutRepo 专项仓库没注入时应给 400 而不是 panic
+// TestUpdateTransactionSpecialWithoutRepo 专项用例没注入时应给 400 而不是 panic
 func TestUpdateTransactionSpecialWithoutRepo(t *testing.T) {
 	txRepo := newStubTxRepo("tx-1")
 	h := &Handler{txRepo: txRepo, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
@@ -276,10 +300,12 @@ func strptr(s string) *string { return &s }
 func TestBatchUpdateTransactions(t *testing.T) {
 	const reno = "sp-reno"
 
+	// manyIDs 造 n 条互不相同的 id：批量端点走的是一条 UPDATE ... WHERE id IN (...)，
+	// 重复 id 只会被改一次，所以"1000 条全部命中"必须靠 1000 个不同的 id 来验。
 	manyIDs := func(n int) []string {
 		out := make([]string, 0, n)
 		for i := 0; i < n; i++ {
-			out = append(out, "tx-1")
+			out = append(out, fmt.Sprintf("bulk-%04d", i))
 		}
 		return out
 	}
@@ -294,6 +320,7 @@ func TestBatchUpdateTransactions(t *testing.T) {
 	tests := []struct {
 		name        string
 		body        string
+		extraExist  []string // 除 tx-1/tx-2/tx-3 外，库里还存在的流水 id
 		wantStatus  int
 		wantBody    string
 		wantUpdated int // 200 时响应里的 updated
@@ -336,7 +363,13 @@ func TestBatchUpdateTransactions(t *testing.T) {
 		{
 			name:       "恰好 1000 条 → 放行",
 			body:       mustJSON(map[string]any{"ids": manyIDs(maxBatchTxIDs), "special_id": reno}),
+			extraExist: manyIDs(maxBatchTxIDs),
 			wantStatus: http.StatusOK, wantUpdated: maxBatchTxIDs,
+		},
+		{
+			name:       "同一条流水重复出现只算一次（一条 UPDATE ... IN 的语义）",
+			body:       `{"ids":["tx-1","tx-1","tx-1"],"special_id":"sp-reno"}`,
+			wantStatus: http.StatusOK, wantUpdated: 1,
 		},
 		{
 			name:       "缺 special_id → 400",
@@ -357,7 +390,7 @@ func TestBatchUpdateTransactions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			txRepo := newStubTxRepo("tx-1", "tx-2", "tx-3")
+			txRepo := newStubTxRepo(append([]string{"tx-1", "tx-2", "tx-3"}, tt.extraExist...)...)
 			h := newSpecialTestHandler(txRepo, domain.SpecialProject{ID: reno, Name: "2026 老房装修"})
 
 			req := httptest.NewRequest(http.MethodPatch, "/api/transactions/batch", strings.NewReader(tt.body))
@@ -374,7 +407,19 @@ func TestBatchUpdateTransactions(t *testing.T) {
 				if len(txRepo.patches) != 0 {
 					t.Fatalf("请求被拒绝却仍写了 %d 条流水", len(txRepo.patches))
 				}
+				if len(txRepo.batchIDs) != 0 {
+					t.Fatalf("请求被拒绝却仍下发了批量写入 %v", txRepo.batchIDs)
+				}
 				return
+			}
+			// 空串 id 必须在进 SQL 前就被滤掉，不能塞进 IN (...) 里
+			for _, id := range txRepo.batchIDs {
+				if id == "" {
+					t.Fatal("空字符串 id 被下发到 repo；want 在 handler 层滤掉")
+				}
+			}
+			if txRepo.batchSpecial != specialIDFromBody(t, tt.body) {
+				t.Fatalf("repo 收到专项 id %q; want %q", txRepo.batchSpecial, specialIDFromBody(t, tt.body))
 			}
 			var resp struct {
 				Updated int `json:"updated"`
@@ -387,6 +432,18 @@ func TestBatchUpdateTransactions(t *testing.T) {
 			}
 		})
 	}
+}
+
+// specialIDFromBody 从请求体里取出 special_id，用来断言它原样传到了 repo
+func specialIDFromBody(t *testing.T, body string) string {
+	t.Helper()
+	var req struct {
+		SpecialID *string `json:"special_id"`
+	}
+	if err := json.Unmarshal([]byte(body), &req); err != nil || req.SpecialID == nil {
+		t.Fatalf("测试用例的 body 里没有 special_id: %s", body)
+	}
+	return strings.TrimSpace(*req.SpecialID)
 }
 
 // ---- E3. GET /api/stats?scope= ----
@@ -436,16 +493,16 @@ func TestStatsAPIScope(t *testing.T) {
 				t.Fatalf("total = %d; want %d（口径没有真的透传到聚合层）", view.Total, wantTotal[tt.wantScope])
 			}
 
-			// SumByBuckets 内部固定只查 daily + special 两组（不会因为请求的 scope 多查一遍
-			// all）——这是效率上的约定，query_stats_test.go 里有更完整的表驱动覆盖。
-			// Top 榜单恒为全口径，不跟随入参 scope（剔了大额榜单就没意义了）。
-			for _, s := range txRepo.bucketScopes {
-				if s != domain.ScopeDaily && s != domain.ScopeSpecial {
-					t.Fatalf("SumByBuckets 收到口径 %q; want daily 或 special", s)
-				}
+			// 月桶、季桶各查一次就够：一条查询同时拿回 daily + special 两组，
+			// 不会因为请求的 scope 再多查一遍——这是效率上的约定，
+			// query_stats_test.go 里有更完整的表驱动覆盖。
+			if txRepo.bucketCalls != 2 {
+				t.Fatalf("SumByBuckets 被调用 %d 次; want 2（月桶、季桶各一次）", txRepo.bucketCalls)
 			}
-			if len(txRepo.topScopes) != 1 || txRepo.topScopes[0] != domain.ScopeAll {
-				t.Fatalf("TopTransactions 收到口径 %v; want [all]", txRepo.topScopes)
+			// Top 榜单跟随入参 scope：选了「日常」却在大额榜首看到装修款，
+			// 等于告诉用户筛选没生效（用户实测报告的 bug）。
+			if len(txRepo.topScopes) != 1 || txRepo.topScopes[0] != tt.wantScope {
+				t.Fatalf("TopTransactions 收到口径 %v; want [%s]", txRepo.topScopes, tt.wantScope)
 			}
 
 			// 对比条现在跟随 scope 了（这是本次修复的行为变更）：月度/季度展示桶的 Amount
@@ -566,7 +623,6 @@ func TestSpecialsPageEditPrefill(t *testing.T) {
 	}}}
 	h := &Handler{
 		render:      renderer,
-		specialRepo: repo,
 		specialView: usecase.NewSpecialView(repo),
 		flash:       newFlashStore(),
 		log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -607,6 +663,93 @@ func TestSpecialsPageEditPrefill(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
 			h.Specials(rec, httptest.NewRequest(http.MethodGet, tt.url, nil))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d; want 200", rec.Code)
+			}
+			body := rec.Body.String()
+			for _, want := range tt.wantHTML {
+				if !strings.Contains(body, want) {
+					t.Fatalf("页面缺少 %q", want)
+				}
+			}
+			for _, no := range tt.notHTML {
+				if strings.Contains(body, no) {
+					t.Fatalf("页面不该出现 %q", no)
+				}
+			}
+		})
+	}
+}
+
+// ---- E4b. /specials 页对"净额为 0"的两种成因分开说 ----
+
+// specialSpendRepo 一个能给出完整花费拆解的专项仓库替身
+type specialSpendRepo struct {
+	stubSpecialRepo
+	spend map[string]port.SpecialSpend
+}
+
+func (r *specialSpendRepo) SumByProject(context.Context) (map[string]port.SpecialSpend, error) {
+	return r.spend, nil
+}
+
+// TestSpecialsPageEmptyBreakdownCopy 构成表为空有两种成因，页面必须分开说：
+//   - 条数为 0 → 真的没挂账，引导去批量归入；
+//   - 条数 > 0 但净额被冲平 → 已经挂了 N 笔，绝不能说"还没有流水归入"，
+//     那会诱导用户把同一批账再挂一遍（用户实测踩到的就是这个）。
+//
+// 顺带钉住「支出 − 冲抵 = 净」那行：只在真有冲抵时出现。
+func TestSpecialsPageEmptyBreakdownCopy(t *testing.T) {
+	renderer, err := web.NewRenderer()
+	if err != nil {
+		t.Fatalf("NewRenderer() error = %v", err)
+	}
+	const sp = "sp-reno"
+
+	tests := []struct {
+		name     string
+		spend    port.SpecialSpend
+		wantHTML []string
+		notHTML  []string
+	}{
+		{
+			name:  "挂了两笔但被全额退款冲平：说清是冲平，不是没挂账",
+			spend: port.SpecialSpend{GrossSpentFen: 60000, OffsetFen: 60000, NetSpentFen: 0, TxCount: 2},
+			wantHTML: []string{
+				"已归入 2 笔流水",
+				"不要再挂一遍",
+				"支出 ¥600.00 − 冲抵 ¥600.00 = 净 ¥0.00",
+			},
+			notHTML: []string{"还没有流水归入该专项"},
+		},
+		{
+			name:     "真的没有流水：引导去批量归入",
+			spend:    port.SpecialSpend{},
+			wantHTML: []string{"还没有流水归入该专项", "批量归入专项"},
+			notHTML:  []string{"已归入", "− 冲抵 ¥"},
+		},
+		{
+			name:     "有支出没冲抵：不显示那行算式（没有可对的账）",
+			spend:    port.SpecialSpend{GrossSpentFen: 60000, NetSpentFen: 60000, TxCount: 1},
+			wantHTML: []string{"已归入 1 笔流水"},
+			notHTML:  []string{"− 冲抵 ¥", "还没有流水归入该专项"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &specialSpendRepo{
+				stubSpecialRepo: stubSpecialRepo{projects: []domain.SpecialProject{{ID: sp, Name: "2026 老房装修"}}},
+				spend:           map[string]port.SpecialSpend{sp: tt.spend},
+			}
+			h := &Handler{
+				render:      renderer,
+				specialView: usecase.NewSpecialView(repo),
+				flash:       newFlashStore(),
+				log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+			}
+			rec := httptest.NewRecorder()
+			h.Specials(rec, httptest.NewRequest(http.MethodGet, "/specials", nil))
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status = %d; want 200", rec.Code)
 			}

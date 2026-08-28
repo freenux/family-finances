@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"sort"
 	"strings"
 
 	"family-finances/internal/domain"
@@ -57,15 +58,17 @@ func (uc *QueryReport) Execute(ctx context.Context, p domain.Period, account dom
 	}
 
 	income, expense := buildCategoryGroups(cats, allMap)
-	_, dailyExpense := buildCategoryGroups(cats, dailyMap)
+	dailyIncome, dailyExpense := buildCategoryGroups(cats, dailyMap)
 	_, specialExpense := buildCategoryGroups(cats, specialMap)
 
 	data := domain.ReportData{
-		Period:        p,
-		IncomeGroups:  income,
-		ExpenseGroups: expense,
-		SpecialGroups: nonZeroGroups(specialExpense),
-		KPI:           computeKPI(income, expense, dailyExpense),
+		Period:             p,
+		IncomeGroups:       income,
+		ExpenseGroups:      expense,
+		DailyIncomeGroups:  dailyIncome,
+		DailyExpenseGroups: dailyExpense,
+		SpecialGroups:      nonZeroGroups(specialExpense),
+		KPI:                computeKPI(income, expense, dailyIncome, dailyExpense),
 	}
 	if uc.specialRepo != nil {
 		byProject, err := uc.specialByProject(ctx, p, account)
@@ -77,8 +80,9 @@ func (uc *QueryReport) Execute(ctx context.Context, p domain.Period, account dom
 	return data, nil
 }
 
-// specialByProject 本期各专项花费：专项名 → 金额
-func (uc *QueryReport) specialByProject(ctx context.Context, p domain.Period, account domain.Account) (map[string]int64, error) {
+// specialByProject 本期各专项的净花费，按金额降序（同额时按名称、再按 id 定序，
+// 保证渲染与 prompt 稳定）。以专项 id 为身份：同名专项不合并。
+func (uc *QueryReport) specialByProject(ctx context.Context, p domain.Period, account domain.Account) ([]domain.SpecialAggregation, error) {
 	sums, err := uc.specialRepo.SumByProjectInPeriod(ctx, p, account)
 	if err != nil {
 		return nil, err
@@ -94,14 +98,23 @@ func (uc *QueryReport) specialByProject(ctx context.Context, p domain.Period, ac
 	for _, sp := range projects {
 		nameByID[sp.ID] = sp.Name
 	}
-	out := make(map[string]int64, len(sums))
+	out := make([]domain.SpecialAggregation, 0, len(sums))
 	for id, amt := range sums {
 		name := nameByID[id]
 		if name == "" {
-			name = id
+			name = id // 专项已被删除：退回 id，至少还能对上账
 		}
-		out[name] += amt
+		out = append(out, domain.SpecialAggregation{SpecialID: id, Name: name, Amount: amt})
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Amount != out[j].Amount {
+			return out[i].Amount > out[j].Amount
+		}
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].SpecialID < out[j].SpecialID
+	})
 	return out, nil
 }
 
@@ -163,9 +176,11 @@ func nonZeroGroups(groups []domain.CategoryGroupAggregation) []domain.CategoryGr
 	return out
 }
 
-// computeKPI 汇总 KPI。income/expense 是全口径分组，dailyExpense 是剔除专项后的支出分组。
+// computeKPI 汇总 KPI。income/expense 是全口径分组，dailyIncome/dailyExpense 是剔除专项后的分组。
 // 自由裁量占比的分子分母都取日常口径，否则装修落在"购物消费"里会让比值失真甚至超过 1。
-func computeKPI(income, expense, dailyExpense []domain.CategoryGroupAggregation) domain.ReportKPI {
+// 日常结余同样两侧都取日常口径：换车专项里的旧车折价收入若算进分子，
+// 花掉 25 万的那个季度反而会显得更会存钱。
+func computeKPI(income, expense, dailyIncome, dailyExpense []domain.CategoryGroupAggregation) domain.ReportKPI {
 	var k domain.ReportKPI
 	for _, g := range income {
 		k.TotalIncome += g.Subtotal
@@ -173,16 +188,22 @@ func computeKPI(income, expense, dailyExpense []domain.CategoryGroupAggregation)
 	for _, g := range expense {
 		k.TotalExpense += g.Subtotal
 	}
+	for _, g := range dailyIncome {
+		k.DailyIncome += g.Subtotal
+	}
 	for _, g := range dailyExpense {
 		k.DailyExpense += g.Subtotal
 	}
+	k.SpecialIncome = k.TotalIncome - k.DailyIncome
 	k.SpecialExpense = k.TotalExpense - k.DailyExpense
 
 	k.Surplus = k.TotalIncome - k.TotalExpense
-	k.DailySurplus = k.TotalIncome - k.DailyExpense
+	k.DailySurplus = k.DailyIncome - k.DailyExpense
 	if k.TotalIncome > 0 {
 		k.SurplusRate = float64(k.Surplus) / float64(k.TotalIncome)
-		k.DailySurplusRate = float64(k.DailySurplus) / float64(k.TotalIncome)
+	}
+	if k.DailyIncome > 0 {
+		k.DailySurplusRate = float64(k.DailySurplus) / float64(k.DailyIncome)
 	}
 	for _, g := range dailyExpense {
 		// 分母是日常支出：一次装修把全口径分母从 4 万抬到 18.5 万，

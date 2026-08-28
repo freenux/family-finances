@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"family-finances/internal/domain"
+	"family-finances/internal/port"
 )
 
 // bucketByLabel 从展示桶里按 label 找一条；调用方保证桶里一定有这个 label。
@@ -186,5 +187,101 @@ func TestQueryStatsChainFollowsScope(t *testing.T) {
 	// 意外引入的 +Inf 或者被错误地当成"无穷增长"处理。这条老语义不能因为本次改动被破坏。
 	if specialAug.Chain != nil {
 		t.Fatalf("special[2026-08].Chain = %v; want nil（基期 7 月专项额为 0）", *specialAug.Chain)
+	}
+}
+
+// TestQueryStatsTopFollowsScope 缺陷 1（用户实测报告的 bug）：Top 榜单曾经写死
+// domain.ScopeAll，用户选了「日常」，大额榜首照样是那笔装修款——等于告诉用户筛选没生效。
+func TestQueryStatsTopFollowsScope(t *testing.T) {
+	dailyTop := port.TopTransaction{ID: "tx-daily", Counterparty: "山姆会员店", Amount: 120000}
+	specialTop := port.TopTransaction{ID: "tx-special", Counterparty: "装修公司", Amount: 8000000, SpecialName: "老房装修"}
+
+	tests := []struct {
+		name    string
+		scope   domain.Scope
+		wantIDs []string
+	}{
+		{"日常：装修流水必须被剔掉", domain.ScopeDaily, []string{"tx-daily"}},
+		{"仅专项：只剩装修流水", domain.ScopeSpecial, []string{"tx-special"}},
+		{"全部：两笔都在，专项在前", domain.ScopeAll, []string{"tx-special", "tx-daily"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			txRepo := &fakeTransactionRepo{tops: map[domain.Scope][]port.TopTransaction{
+				domain.ScopeDaily:   {dailyTop},
+				domain.ScopeSpecial: {specialTop},
+				domain.ScopeAll:     {specialTop, dailyTop},
+			}}
+			uc := NewQueryStats(txRepo, &fakeCategoryRepo{cats: testCategories()})
+			p, err := domain.ParsePeriod("2026Q2")
+			if err != nil {
+				t.Fatalf("ParsePeriod: %v", err)
+			}
+
+			view, err := uc.Execute(context.Background(), p, domain.DirectionExpense, domain.AccountFamily, tt.scope, 10)
+			if err != nil {
+				t.Fatalf("Execute(%s): %v", tt.scope, err)
+			}
+
+			if len(txRepo.topScopes) != 1 || txRepo.topScopes[0] != tt.scope {
+				t.Fatalf("TopTransactions 收到口径 %v; want [%s]", txRepo.topScopes, tt.scope)
+			}
+			gotIDs := make([]string, 0, len(view.TopTransactions))
+			for _, top := range view.TopTransactions {
+				gotIDs = append(gotIDs, top.ID)
+			}
+			if len(gotIDs) != len(tt.wantIDs) {
+				t.Fatalf("topTransactions = %v; want %v", gotIDs, tt.wantIDs)
+			}
+			for i := range tt.wantIDs {
+				if gotIDs[i] != tt.wantIDs[i] {
+					t.Fatalf("topTransactions = %v; want %v", gotIDs, tt.wantIDs)
+				}
+			}
+		})
+	}
+}
+
+// TestQueryStatsTopRespectsLimit 顺带钉住 limit 仍然透传（scope 改动别把它带偏）
+func TestQueryStatsTopRespectsLimit(t *testing.T) {
+	rows := []port.TopTransaction{{ID: "a", Amount: 3}, {ID: "b", Amount: 2}, {ID: "c", Amount: 1}}
+	txRepo := &fakeTransactionRepo{tops: map[domain.Scope][]port.TopTransaction{domain.ScopeDaily: rows}}
+	uc := NewQueryStats(txRepo, &fakeCategoryRepo{cats: testCategories()})
+	p, _ := domain.ParsePeriod("2026Q2")
+
+	view, err := uc.Execute(context.Background(), p, domain.DirectionExpense, domain.AccountFamily, domain.ScopeDaily, 2)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(view.TopTransactions) != 2 {
+		t.Fatalf("topTransactions 条数 = %d; want 2", len(view.TopTransactions))
+	}
+}
+
+// TestQueryStatsQueriesBucketsOnce 月桶、季桶各查一次就够：一条 SQL 同时返回
+// 日常与专项两组，Go 侧按 scope 拼展示序列。改动前按口径各查一遍 → 4 条查询，
+// 实测 10 万行下 /api/stats 的桶部分多付 190ms，而切月份/账户/方向每次都要重来。
+func TestQueryStatsQueriesBucketsOnce(t *testing.T) {
+	p, err := domain.ParsePeriod("2026Q2")
+	if err != nil {
+		t.Fatalf("parse period: %v", err)
+	}
+	scopes := []domain.Scope{domain.ScopeDaily, domain.ScopeAll, domain.ScopeSpecial}
+	for _, scope := range scopes {
+		t.Run(string(scope), func(t *testing.T) {
+			txRepo := &fakeTransactionRepo{
+				bucketAmts:     map[string]int64{},
+				specialBuckets: map[string]int64{},
+			}
+			uc := NewQueryStats(txRepo, &fakeCategoryRepo{cats: testCategories()})
+			if _, err := uc.Execute(context.Background(), p, domain.DirectionExpense,
+				domain.AccountFamily, scope, 10); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			if txRepo.bucketCalls != 2 {
+				t.Fatalf("SumByBuckets 被调用 %d 次; want 2（月桶、季桶各一次，与 scope 无关）", txRepo.bucketCalls)
+			}
+		})
 	}
 }

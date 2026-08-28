@@ -153,7 +153,7 @@ func startOfWeek(now time.Time) time.Time {
 func (uc *DigestService) sumExpense(ctx context.Context, p domain.Period) (int64, error) {
 	buckets := []port.PeriodBucket{{Label: p.Label, Start: p.Start, End: p.End}}
 	// 日常口径：摘要要避免"这周花了 12 万"这种一次性专项造成的误报警
-	out, err := uc.txRepo.SumByBuckets(ctx, buckets, domain.DirectionExpense, domain.AccountFamily, domain.ScopeDaily)
+	out, _, err := uc.txRepo.SumByBuckets(ctx, buckets, domain.DirectionExpense, domain.AccountFamily)
 	if err != nil {
 		return 0, err
 	}

@@ -80,11 +80,11 @@ func (uc *GoalView) avgMonthlySurplus(ctx context.Context, now time.Time) (int64
 	end := domain.CurrentQuarter(now).End
 	buckets := trailingQuarterBuckets(end, 4)
 	// 日常口径：攒钱能力看的是日常结余，不该被一次装修判成"没有储蓄能力"
-	income, err := uc.txRepo.SumByBuckets(ctx, buckets, domain.DirectionIncome, domain.AccountFamily, domain.ScopeDaily)
+	income, _, err := uc.txRepo.SumByBuckets(ctx, buckets, domain.DirectionIncome, domain.AccountFamily)
 	if err != nil {
 		return 0, err
 	}
-	expense, err := uc.txRepo.SumByBuckets(ctx, buckets, domain.DirectionExpense, domain.AccountFamily, domain.ScopeDaily)
+	expense, _, err := uc.txRepo.SumByBuckets(ctx, buckets, domain.DirectionExpense, domain.AccountFamily)
 	if err != nil {
 		return 0, err
 	}

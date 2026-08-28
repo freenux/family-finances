@@ -41,11 +41,16 @@
         </div>
         <div class="rc-body">
           <div class="stat-chips">
-            <span class="chip">收入 <b>¥{{yuan $vm.Income.TotalFen}}</b></span>
-            <span class="chip">支出 <b>¥{{yuan $vm.Expense.TotalFen}}</b></span>
-            <span class="chip">结余率 <b>{{pct $vm.KPI.SavingsRate}}</b></span>
-            <span class="chip">自由裁量占比 <b>{{pct $vm.KPI.DiscretionRatio}}</b></span>
+            <span class="chip">日常收入 <b>¥{{yuan $vm.Income.TotalFen}}</b></span>
+            <span class="chip">日常支出 <b>¥{{yuan $vm.Expense.TotalFen}}</b></span>
+            <span class="chip">日常结余率 <b>{{pct $vm.KPI.SavingsRate}}</b></span>
+            {{if $vm.KPI.SavingsRateAllScope}}<span class="chip">全口径结余率 <b>{{pct $vm.KPI.SavingsRateAllScope}}</b></span>{{end}}
+            <span class="chip">自由裁量占日常支出 <b>{{pct $vm.KPI.DiscretionRatio}}</b></span>
             {{if $vm.Snapshot}}<span class="chip">净资产 <b>¥{{yuan $vm.Snapshot.NetWorthFen}}</b></span>{{end}}
+          </div>
+          <div class="hint" style="margin-top:6px">
+            口径：以上收支明细与结余率均为<b>日常口径</b>（已剔除装修/购车这类专项开支）；
+            全口径结余率才是本期真实现金流。上下文包里专项单列一节，AI 两边都能看到。
           </div>
 
           <h4><span class="dot" style="background:#2a78d6"></span>摘要</h4>
@@ -122,7 +127,8 @@
     </div>
     <div class="note-strip">
       <b>隐私边界</b> · 上下文包只含聚合数与快照科目余额，不发交易对手方与单笔明细。<br>
-      <b>可信边界</b> · 金额、比例、环比均由系统确定性计算；AI 只做解释，且每条结论标注了数据依据。
+      <b>可信边界</b> · 金额、比例、环比均由系统确定性计算；AI 只做解释，且每条结论标注了数据依据。<br>
+      <b>口径边界</b> · 包内收支明细、KPI、环比统一为日常口径，专项单列一节；两者相加才是全口径现金流。
     </div>
   </div>
 </div>

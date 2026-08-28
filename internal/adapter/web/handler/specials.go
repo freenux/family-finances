@@ -52,8 +52,8 @@ func specialFormFromProject(p domain.SpecialProject) specialFormVM {
 // ?edit=<id> 把该专项填进右侧表单（编辑入口是 SSR 的，不引额外 JS）。
 func (h *Handler) Specials(w http.ResponseWriter, r *http.Request) {
 	var form specialFormVM
-	if id := strings.TrimSpace(r.URL.Query().Get("edit")); id != "" && h.specialRepo != nil {
-		p, err := h.specialRepo.Get(r.Context(), id)
+	if id := strings.TrimSpace(r.URL.Query().Get("edit")); id != "" {
+		p, err := h.specialView.Get(r.Context(), id)
 		if err != nil && !errors.Is(err, port.ErrNotFound) {
 			h.serverError(w, err)
 			return
@@ -152,17 +152,4 @@ func specialFormFromRequest(r *http.Request) specialFormVM {
 		Note:      strings.TrimSpace(r.FormValue("note")),
 		Editing:   id != "",
 	}
-}
-
-// parseOptionalDate 空串 → 零值（表示"未填"/"进行中"）
-func parseOptionalDate(v, label string) (time.Time, error) {
-	v = strings.TrimSpace(v)
-	if v == "" {
-		return time.Time{}, nil
-	}
-	t, err := time.ParseInLocation("2006-01-02", v, time.Local)
-	if err != nil {
-		return time.Time{}, errors.New(label + "格式应为 YYYY-MM-DD")
-	}
-	return t, nil
 }

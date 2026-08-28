@@ -140,7 +140,7 @@ func (e *BucketEngine) LoadInputs(ctx context.Context) (BucketInputs, error) {
 	quarterEnd := domain.CurrentQuarter(e.now()).End
 	buckets := trailingQuarterBuckets(quarterEnd, 4)
 	// 日常口径：一次装修会把"月均支出"抬上去，活钱覆盖月数直接腰斩，纯误报
-	summed, err := e.txRepo.SumByBuckets(ctx, buckets, domain.DirectionExpense, domain.AccountFamily, domain.ScopeDaily)
+	summed, _, err := e.txRepo.SumByBuckets(ctx, buckets, domain.DirectionExpense, domain.AccountFamily)
 	if err != nil {
 		return in, fmt.Errorf("sum trailing expense: %w", err)
 	}

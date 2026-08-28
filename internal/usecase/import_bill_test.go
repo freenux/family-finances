@@ -112,8 +112,12 @@ func (r *captureTransactionRepo) AggregateByCategory(context.Context, domain.Per
 	return nil, nil
 }
 
-func (r *captureTransactionRepo) SumByBuckets(context.Context, []port.PeriodBucket, domain.Direction, domain.Account, domain.Scope) ([]port.PeriodBucket, error) {
-	return nil, nil
+func (r *captureTransactionRepo) SumByBuckets(context.Context, []port.PeriodBucket, domain.Direction, domain.Account) ([]port.PeriodBucket, []port.PeriodBucket, error) {
+	return nil, nil, nil
+}
+
+func (r *captureTransactionRepo) SetSpecialForIDs(context.Context, []string, string) (int, error) {
+	return 0, nil
 }
 
 func (r *captureTransactionRepo) TopTransactions(context.Context, domain.Period, domain.Direction, domain.Account, domain.Scope, int) ([]port.TopTransaction, error) {

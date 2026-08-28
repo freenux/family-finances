@@ -18,11 +18,27 @@ func TestImportRedirectURLUsesEarliestImportedMonth(t *testing.T) {
 	}
 }
 
-func TestImportRedirectURLWithoutImportedRowsFallsBackToDefaultPeriod(t *testing.T) {
+// TestImportRedirectURLWithoutImportedRowsFallsBackToCurrentQuarter
+// 整份账单都是重复/被规则跳过时没有可定位的月份。此时不能只带 account 就跳走：
+// 流水页的默认周期是"上个月"，用户会看到一个空列表，以为导入把数据弄丢了。
+// 退回当前季度——盖得住当月，也盖得住刚导入的那批。
+func TestImportRedirectURLWithoutImportedRowsFallsBackToCurrentQuarter(t *testing.T) {
+	cur := domain.CurrentQuarter(time.Now())
 	got := importRedirectURL(domain.AccountHusband, port.ImportResult{})
-	want := "/transactions?account=husband"
+	want := "/transactions?account=husband&period=" + cur.Label + "&type=quarterly"
 	if got != want {
 		t.Fatalf("importRedirectURL() = %q; want %q", got, want)
+	}
+
+	// 关键性质（而不只是字面量）：跳转过去的周期必须覆盖"现在"，
+	// 否则刚导入的流水又被默认周期挡在外面。
+	p, err := domain.ParsePeriod(cur.Label)
+	if err != nil {
+		t.Fatalf("ParsePeriod(%q): %v", cur.Label, err)
+	}
+	now := time.Now()
+	if now.Before(p.Start) || !now.Before(p.End) {
+		t.Fatalf("兜底周期 %s [%s, %s) 不覆盖当前时刻", p.Label, p.Start, p.End)
 	}
 }
 
