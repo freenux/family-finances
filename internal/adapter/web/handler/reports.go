@@ -31,6 +31,47 @@ type reportViewModel struct {
 	Findings    []usecase.Finding
 	FindingText map[string]string
 	Content     usecase.AIReportContent
+	// Labels 按这份存档自己的口径选好的 chip 文案（见 scopeLabelsFor）
+	Labels reportScopeLabels
+	// ShowAllScopeRate 是否额外给一档「全口径结余率」。只有日常口径的存档才需要：
+	// 全口径存档的主结余率本身就是全口径，再挂一个同名 chip 是重复；而它的
+	// kpi_data 里也根本没有 savings_rate_all_scope 这个键（解出来恒为 0）。
+	ShowAllScopeRate bool
+}
+
+// reportScopeLabels 一份存档的口径文案。历史存档是口径拆分之前生成的、数字为全口径，
+// 用新的「日常」文案渲染就等于把全口径数字标成日常口径——存量数据被误标。
+type reportScopeLabels struct {
+	Income      string // 收入 chip 前缀
+	Expense     string // 支出 chip 前缀
+	SavingsRate string // 结余率 chip 前缀
+	Discretion  string // 自由裁量占比 chip 前缀
+	Note        string // chips 下面那句口径说明
+	Legacy      bool   // 全口径旧存档：模板据此提示"生成于口径拆分之前"
+}
+
+// scopeLabelsFor 按存档口径选文案。daily 之外的一切（含空值）都按全口径处理，
+// 与 sqlite.storedScope 的读取口径保持一致。
+func scopeLabelsFor(s domain.Scope) reportScopeLabels {
+	if s == domain.ScopeDaily {
+		return reportScopeLabels{
+			Income:      "日常收入",
+			Expense:     "日常支出",
+			SavingsRate: "日常结余率",
+			Discretion:  "自由裁量占日常支出",
+			Note: "以上收支明细与结余率均为日常口径（已剔除装修/购车这类专项开支）；" +
+				"全口径结余率才是本期真实现金流。上下文包里专项单列一节，AI 两边都能看到。",
+		}
+	}
+	return reportScopeLabels{
+		Income:      "收入",
+		Expense:     "支出",
+		SavingsRate: "结余率",
+		Discretion:  "自由裁量占比",
+		Note: "本报告生成于口径拆分之前，数字为全口径（含装修/购车这类专项开支），" +
+			"所以标签没有「日常」二字；与新报告的日常口径不可直接对比。",
+		Legacy: true,
+	}
 }
 
 type reportsVM struct {
@@ -148,6 +189,9 @@ func buildReportViewModel(rep domain.AIReport) reportViewModel {
 		Findings:    kpiEnv.Findings,
 		FindingText: findingText,
 		Content:     content,
+		// 按存档自己的口径渲染，而不是按"现在的生成口径"
+		Labels:           scopeLabelsFor(rep.DataScope),
+		ShowAllScopeRate: rep.DataScope == domain.ScopeDaily && kpiEnv.KPI.SavingsRateAllScope != 0,
 	}
 }
 

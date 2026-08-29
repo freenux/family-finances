@@ -65,6 +65,11 @@ func TestGenerateReportDropsInvalidRefs(t *testing.T) {
 	if rep.Period != "2026Q2" || rep.Status != "final" || rep.AIModel != "test-model" {
 		t.Fatalf("unexpected report meta: %+v", rep)
 	}
+	// 新报告必须自报口径：包里 income/expense/kpi/compare 都是日常口径，
+	// 不标上就会被页面当成口径拆分之前的全口径旧存档来渲染
+	if rep.DataScope != domain.ScopeDaily {
+		t.Fatalf("DataScope = %q; want %q", rep.DataScope, domain.ScopeDaily)
+	}
 
 	var content AIReportContent
 	if err := json.Unmarshal([]byte(rep.AIAnalysis), &content); err != nil {

@@ -203,12 +203,14 @@ func TestMigration014Down(t *testing.T) {
 		t.Fatalf("insert tx: %v", err)
 	}
 
+	// DownTo(13) 而不是 Down()：Down 只回滚最后一个迁移，后面每加一版就会让这里
+	// 测的不再是 014。回滚到 013 才是这个用例真正要断言的状态。
 	goose.SetBaseFS(embeddedMigrations)
 	if err := goose.SetDialect("sqlite3"); err != nil {
 		t.Fatalf("set dialect: %v", err)
 	}
-	if err := goose.Down(db, "migrations"); err != nil {
-		t.Fatalf("goose down: %v", err)
+	if err := goose.DownTo(db, "migrations", 13); err != nil {
+		t.Fatalf("goose down to 013: %v", err)
 	}
 
 	if tableExists(t, db, "special_projects") {

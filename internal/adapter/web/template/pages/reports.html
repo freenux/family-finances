@@ -40,17 +40,18 @@
           <span class="meta">生成于 {{$vm.Report.GeneratedAt.Format "2006-01-02 15:04"}} · {{$vm.Report.AIModel}} · 存档回看，不再调用 LLM</span>
         </div>
         <div class="rc-body">
+          {{/* chip 文案跟着存档自己的口径走：旧存档存的是全口径数字，
+               套上「日常」文案就等于把存量数据误标（见 handler 的 scopeLabelsFor） */}}
           <div class="stat-chips">
-            <span class="chip">日常收入 <b>¥{{yuan $vm.Income.TotalFen}}</b></span>
-            <span class="chip">日常支出 <b>¥{{yuan $vm.Expense.TotalFen}}</b></span>
-            <span class="chip">日常结余率 <b>{{pct $vm.KPI.SavingsRate}}</b></span>
-            {{if $vm.KPI.SavingsRateAllScope}}<span class="chip">全口径结余率 <b>{{pct $vm.KPI.SavingsRateAllScope}}</b></span>{{end}}
-            <span class="chip">自由裁量占日常支出 <b>{{pct $vm.KPI.DiscretionRatio}}</b></span>
+            <span class="chip">{{$vm.Labels.Income}} <b>¥{{yuan $vm.Income.TotalFen}}</b></span>
+            <span class="chip">{{$vm.Labels.Expense}} <b>¥{{yuan $vm.Expense.TotalFen}}</b></span>
+            <span class="chip">{{$vm.Labels.SavingsRate}} <b>{{pct $vm.KPI.SavingsRate}}</b></span>
+            {{if $vm.ShowAllScopeRate}}<span class="chip">全口径结余率 <b>{{pct $vm.KPI.SavingsRateAllScope}}</b></span>{{end}}
+            <span class="chip">{{$vm.Labels.Discretion}} <b>{{pct $vm.KPI.DiscretionRatio}}</b></span>
             {{if $vm.Snapshot}}<span class="chip">净资产 <b>¥{{yuan $vm.Snapshot.NetWorthFen}}</b></span>{{end}}
           </div>
-          <div class="hint" style="margin-top:6px">
-            口径：以上收支明细与结余率均为<b>日常口径</b>（已剔除装修/购车这类专项开支）；
-            全口径结余率才是本期真实现金流。上下文包里专项单列一节，AI 两边都能看到。
+          <div class="hint" style="margin-top:6px{{if $vm.Labels.Legacy}};color:var(--warning){{end}}">
+            口径：{{$vm.Labels.Note}}
           </div>
 
           <h4><span class="dot" style="background:#2a78d6"></span>摘要</h4>

@@ -120,11 +120,13 @@ func (uc *GenerateAdvice) Execute(ctx context.Context) (domain.AIReport, error) 
 		ExpenseData: string(expenseJSON),
 		KPIData:     string(sysJSON),
 		Comparison:  string(compareJSON),
-		AIPrompt:    system + "\n\n" + user,
-		AIAnalysis:  string(analysisJSON),
-		AIModel:     uc.modelName,
-		Status:      "final",
-		CreatedAt:   now,
+		// 与财报同源：income/expense/compare 都取自 ContextPack，即日常口径
+		DataScope:  domain.ScopeDaily,
+		AIPrompt:   system + "\n\n" + user,
+		AIAnalysis: string(analysisJSON),
+		AIModel:    uc.modelName,
+		Status:     "final",
+		CreatedAt:  now,
 	}
 	if err := uc.reportRepo.Upsert(ctx, &report); err != nil {
 		return domain.AIReport{}, fmt.Errorf("落库建议失败: %w", err)

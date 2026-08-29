@@ -110,12 +110,15 @@ func (uc *GenerateReport) Execute(ctx context.Context, p domain.Period) (domain.
 		ExpenseData: string(expenseJSON),
 		KPIData:     string(kpiJSON),
 		Comparison:  string(compareJSON),
-		AIPrompt:    system + "\n\n" + user,
-		AIAnalysis:  string(analysisJSON),
-		AIModel:     uc.modelName,
-		Status:      "final",
-		IsFrozen:    false,
-		CreatedAt:   now,
+		// 存档口径：包里 income/expense/kpi/compare 统一是日常口径（见 ContextPack 的口径约定），
+		// 落库时一并标注，页面才能把它和口径拆分之前的全口径旧存档区分开。
+		DataScope:  domain.ScopeDaily,
+		AIPrompt:   system + "\n\n" + user,
+		AIAnalysis: string(analysisJSON),
+		AIModel:    uc.modelName,
+		Status:     "final",
+		IsFrozen:   false,
+		CreatedAt:  now,
 	}
 	if err := uc.reportRepo.Upsert(ctx, &report); err != nil {
 		return domain.AIReport{}, fmt.Errorf("落库财报失败: %w", err)
