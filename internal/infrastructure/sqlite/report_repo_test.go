@@ -74,6 +74,114 @@ func TestReportRepoUpsertOverwritesSamePeriodAndType(t *testing.T) {
 	}
 }
 
+// TestReportRepoDataScopeRoundTrip 存档口径的读写往返。
+// 未知/空口径一律读成 all——015 之前落库的行没有这一列，而它们恰恰是全口径生成的。
+func TestReportRepoDataScopeRoundTrip(t *testing.T) {
+	tests := []struct {
+		name  string
+		write domain.Scope
+		want  domain.Scope
+	}{
+		{"新报告写日常口径", domain.ScopeDaily, domain.ScopeDaily},
+		{"显式全口径", domain.ScopeAll, domain.ScopeAll},
+		{"仅专项口径", domain.ScopeSpecial, domain.ScopeSpecial},
+		{"零值（未设置）归一到全口径", domain.Scope(""), domain.ScopeAll},
+		{"未知值归一到全口径", domain.Scope("bogus"), domain.ScopeAll},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newTestReportRepo(t)
+			ctx := context.Background()
+			rep := domain.AIReport{
+				ID: "rep-1", Period: "2026Q2", PeriodType: domain.PeriodQuarterly,
+				GeneratedAt: time.Now(), DataScope: tt.write, Status: "final", CreatedAt: time.Now(),
+			}
+			if err := repo.Upsert(ctx, &rep); err != nil {
+				t.Fatalf("Upsert() error = %v", err)
+			}
+
+			got, err := repo.GetByPeriod(ctx, "2026Q2", domain.PeriodQuarterly)
+			if err != nil {
+				t.Fatalf("GetByPeriod() error = %v", err)
+			}
+			if got.DataScope != tt.want {
+				t.Fatalf("GetByPeriod().DataScope = %q; want %q", got.DataScope, tt.want)
+			}
+
+			all, err := repo.ListAll(ctx)
+			if err != nil {
+				t.Fatalf("ListAll() error = %v", err)
+			}
+			if len(all) != 1 || all[0].DataScope != tt.want {
+				t.Fatalf("ListAll()[0].DataScope = %v; want %q", all, tt.want)
+			}
+		})
+	}
+}
+
+// TestReportRepoLegacyRowReadsAsAllScope 直接按 015 之前的写法插一行（不带 data_scope），
+// 读出来必须是全口径。用旧存档的真实数字标成「日常收入」正是这个字段要防的事。
+func TestReportRepoLegacyRowReadsAsAllScope(t *testing.T) {
+	repo := newTestReportRepo(t)
+	ctx := context.Background()
+
+	if _, err := repo.db.ExecContext(ctx, `
+INSERT INTO reports (id, period, period_type, generated_at, kpi_data, status, created_at)
+VALUES ('rep-legacy', '2026Q1', 'quarterly', ?, '{"kpi":{"savings_rate":0.25}}', 'final', ?)`,
+		time.Now(), time.Now()); err != nil {
+		t.Fatalf("insert legacy row: %v", err)
+	}
+
+	got, err := repo.GetByPeriod(ctx, "2026Q1", domain.PeriodQuarterly)
+	if err != nil {
+		t.Fatalf("GetByPeriod() error = %v", err)
+	}
+	if got.DataScope != domain.ScopeAll {
+		t.Fatalf("旧存档 DataScope = %q; want %q", got.DataScope, domain.ScopeAll)
+	}
+
+	// 列被手工写空时同样按全口径读（COALESCE + storedScope 的防御路径）
+	if _, err := repo.db.ExecContext(ctx, `UPDATE reports SET data_scope = '' WHERE id = 'rep-legacy'`); err != nil {
+		t.Fatalf("blank data_scope: %v", err)
+	}
+	got, err = repo.GetByPeriod(ctx, "2026Q1", domain.PeriodQuarterly)
+	if err != nil {
+		t.Fatalf("GetByPeriod() error = %v", err)
+	}
+	if got.DataScope != domain.ScopeAll {
+		t.Fatalf("空 data_scope 读出 %q; want %q", got.DataScope, domain.ScopeAll)
+	}
+}
+
+// TestReportRepoUpsertOverwritesDataScope 同期覆盖时口径也必须跟着更新：
+// 旧存档所在的期重新生成一次，就该从全口径翻成日常口径。
+func TestReportRepoUpsertOverwritesDataScope(t *testing.T) {
+	repo := newTestReportRepo(t)
+	ctx := context.Background()
+
+	old := domain.AIReport{
+		ID: "rep-1", Period: "2026Q2", PeriodType: domain.PeriodQuarterly,
+		GeneratedAt: time.Now(), DataScope: domain.ScopeAll, Status: "final", CreatedAt: time.Now(),
+	}
+	if err := repo.Upsert(ctx, &old); err != nil {
+		t.Fatalf("Upsert(old) error = %v", err)
+	}
+	fresh := old
+	fresh.ID = "rep-2"
+	fresh.DataScope = domain.ScopeDaily
+	if err := repo.Upsert(ctx, &fresh); err != nil {
+		t.Fatalf("Upsert(fresh) error = %v", err)
+	}
+
+	got, err := repo.GetByPeriod(ctx, "2026Q2", domain.PeriodQuarterly)
+	if err != nil {
+		t.Fatalf("GetByPeriod() error = %v", err)
+	}
+	if got.DataScope != domain.ScopeDaily {
+		t.Fatalf("覆盖后 DataScope = %q; want %q", got.DataScope, domain.ScopeDaily)
+	}
+}
+
 func TestReportRepoQuarterAndAnnualCoexistForSamePeriodLabel(t *testing.T) {
 	repo := newTestReportRepo(t)
 	ctx := context.Background()

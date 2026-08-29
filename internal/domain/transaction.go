@@ -68,6 +68,7 @@ type Transaction struct {
 	Direction        Direction
 	Status           TxStatus
 	CategoryID       string
+	SpecialID        string // 所属专项（空 = 日常开支）
 	RawRow           string
 	CreatedAt        time.Time
 	UpdatedAt        time.Time

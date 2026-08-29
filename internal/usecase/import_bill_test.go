@@ -108,15 +108,19 @@ func (r *captureTransactionRepo) ListPendingCategory(context.Context, int) ([]do
 	return nil, nil
 }
 
-func (r *captureTransactionRepo) AggregateByCategory(context.Context, domain.Period, domain.Account) ([]domain.CategoryAggregation, error) {
+func (r *captureTransactionRepo) AggregateByCategory(context.Context, domain.Period, domain.Account, domain.Scope) ([]domain.CategoryAggregation, error) {
 	return nil, nil
 }
 
-func (r *captureTransactionRepo) SumByBuckets(context.Context, []port.PeriodBucket, domain.Direction, domain.Account) ([]port.PeriodBucket, error) {
-	return nil, nil
+func (r *captureTransactionRepo) SumByBuckets(context.Context, []port.PeriodBucket, domain.Direction, domain.Account) ([]port.PeriodBucket, []port.PeriodBucket, error) {
+	return nil, nil, nil
 }
 
-func (r *captureTransactionRepo) TopTransactions(context.Context, domain.Period, domain.Direction, domain.Account, int) ([]port.TopTransaction, error) {
+func (r *captureTransactionRepo) SetSpecialForIDs(context.Context, []string, string) (int, error) {
+	return 0, nil
+}
+
+func (r *captureTransactionRepo) TopTransactions(context.Context, domain.Period, domain.Direction, domain.Account, domain.Scope, int) ([]port.TopTransaction, error) {
 	return nil, nil
 }
 
@@ -132,7 +136,7 @@ func (r *captureTransactionRepo) ListMembers(context.Context) ([]string, error) 
 	return nil, nil
 }
 
-func (r *captureTransactionRepo) ListForRecurring(context.Context, time.Time, time.Time) ([]domain.Transaction, error) {
+func (r *captureTransactionRepo) ListForRecurring(context.Context, time.Time, time.Time, domain.Scope) ([]domain.Transaction, error) {
 	return nil, nil
 }
 

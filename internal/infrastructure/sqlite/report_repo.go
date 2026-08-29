@@ -21,8 +21,8 @@ func (r *ReportRepo) Upsert(ctx context.Context, rep *domain.AIReport) error {
 	_, err := r.db.ExecContext(ctx, `
 INSERT INTO reports
   (id, period, period_type, generated_at, income_data, expense_data, kpi_data, comparison,
-   ai_prompt, ai_analysis, ai_model, status, is_frozen, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+   data_scope, ai_prompt, ai_analysis, ai_model, status, is_frozen, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(period, period_type) DO UPDATE SET
   id           = excluded.id,
   generated_at = excluded.generated_at,
@@ -30,15 +30,32 @@ ON CONFLICT(period, period_type) DO UPDATE SET
   expense_data = excluded.expense_data,
   kpi_data     = excluded.kpi_data,
   comparison   = excluded.comparison,
+  data_scope   = excluded.data_scope,
   ai_prompt    = excluded.ai_prompt,
   ai_analysis  = excluded.ai_analysis,
   ai_model     = excluded.ai_model,
   status       = excluded.status,
   is_frozen    = excluded.is_frozen`,
 		rep.ID, rep.Period, string(rep.PeriodType), rep.GeneratedAt,
-		rep.IncomeData, rep.ExpenseData, rep.KPIData, rep.Comparison,
+		rep.IncomeData, rep.ExpenseData, rep.KPIData, rep.Comparison, string(storedScope(rep.DataScope)),
 		rep.AIPrompt, rep.AIAnalysis, rep.AIModel, rep.Status, boolInt(rep.IsFrozen), rep.CreatedAt)
 	return err
+}
+
+// storedScope 存档口径的归一化：空值/未知值一律当作全口径。
+//
+// 这里刻意不用 domain.ParseScope——那个是给查询入参用的，空串退回 daily（默认视图要干净）；
+// 存档反过来：015 之前落库的行没有这一列，而它们恰恰是全口径生成的，退回 daily
+// 就等于把全口径数字标成「日常」，正是这个字段要解决的问题。
+func storedScope(s domain.Scope) domain.Scope {
+	switch s {
+	case domain.ScopeDaily:
+		return domain.ScopeDaily
+	case domain.ScopeSpecial:
+		return domain.ScopeSpecial
+	default:
+		return domain.ScopeAll
+	}
 }
 
 // GetByPeriod 未找到时返回 port.ErrNotFound
@@ -75,20 +92,23 @@ ORDER BY generated_at DESC`)
 
 const selectReportSQL = `
 SELECT id, period, period_type, generated_at, COALESCE(income_data,''), COALESCE(expense_data,''),
-       COALESCE(kpi_data,''), COALESCE(comparison,''), COALESCE(ai_prompt,''), COALESCE(ai_analysis,''),
-       COALESCE(ai_model,''), status, is_frozen, created_at
+       COALESCE(kpi_data,''), COALESCE(comparison,''), COALESCE(data_scope,''), COALESCE(ai_prompt,''),
+       COALESCE(ai_analysis,''), COALESCE(ai_model,''), status, is_frozen, created_at
 FROM reports`
 
 func scanReport(s scanner) (domain.AIReport, error) {
 	var rep domain.AIReport
 	var periodType string
+	var dataScope string
 	var isFrozen int
 	if err := s.Scan(&rep.ID, &rep.Period, &periodType, &rep.GeneratedAt, &rep.IncomeData, &rep.ExpenseData,
-		&rep.KPIData, &rep.Comparison, &rep.AIPrompt, &rep.AIAnalysis, &rep.AIModel, &rep.Status,
+		&rep.KPIData, &rep.Comparison, &dataScope, &rep.AIPrompt, &rep.AIAnalysis, &rep.AIModel, &rep.Status,
 		&isFrozen, &rep.CreatedAt); err != nil {
 		return domain.AIReport{}, err
 	}
 	rep.PeriodType = domain.PeriodType(periodType)
+	// 空值防御：手工写库或将来某次迁移留下的空 data_scope 一律按全口径读
+	rep.DataScope = storedScope(domain.Scope(dataScope))
 	rep.IsFrozen = isFrozen == 1
 	return rep, nil
 }

@@ -87,6 +87,13 @@ func CurrentQuarter(now time.Time) Period {
 	return p
 }
 
+// CurrentYear 返回当前年度的 Period
+func CurrentYear(now time.Time) Period {
+	label := strconv.Itoa(now.Year())
+	p, _ := ParsePeriod(label)
+	return p
+}
+
 // PreviousPeriod 返回上一期
 func (p Period) Previous() Period {
 	switch p.Type {

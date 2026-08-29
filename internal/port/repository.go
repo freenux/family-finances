@@ -18,6 +18,7 @@ type TransactionUpdate struct {
 	Status     *domain.TxStatus
 	Account    *domain.Account
 	Member     *string
+	SpecialID  *string // nil 表示不修改；空字符串表示清空（归回日常）
 }
 
 // ImportResult 一次账单导入的结果
@@ -48,6 +49,8 @@ type TopTransaction struct {
 	Account      domain.Account
 	CategoryID   string
 	CategoryName string
+	SpecialID    string // 空 = 日常开支
+	SpecialName  string
 }
 
 // PeriodBucket 单个周期（月或季）的聚合点，用于月度/季度对比条
@@ -65,12 +68,21 @@ type TransactionRepo interface {
 	Get(ctx context.Context, id string) (domain.Transaction, error)
 	List(ctx context.Context, p domain.Period, account domain.Account) ([]domain.Transaction, error)
 	ListPendingCategory(ctx context.Context, limit int) ([]domain.Transaction, error)
-	AggregateByCategory(ctx context.Context, p domain.Period, account domain.Account) ([]domain.CategoryAggregation, error)
+	// AggregateByCategory 按二级科目聚合；scope 决定算不算专项开支
+	// （daily 剔除专项、special 只看专项、all 全口径）。
+	AggregateByCategory(ctx context.Context, p domain.Period, account domain.Account, scope domain.Scope) ([]domain.CategoryAggregation, error)
 	// SumByBuckets 按给定的周期桶返回 [{label, amount}]，方向过滤，状态='confirmed'。
 	// 桶必须按时间升序且互不重叠（实现依赖此约定做单次扫描归桶）。
-	SumByBuckets(ctx context.Context, buckets []PeriodBucket, direction domain.Direction, account domain.Account) ([]PeriodBucket, error)
+	//
+	// 一次调用同时给出两组同源桶：daily（未挂专项）与 special（挂了专项），长度、顺序、
+	// Label 与入参一致，可按下标对齐；"全部"口径 = 两者逐桶相加。只要日常基线的调用方
+	// 取第一个返回值即可——分两次按 scope 查等于把同一段范围扫两遍。
+	SumByBuckets(ctx context.Context, buckets []PeriodBucket, direction domain.Direction, account domain.Account) (daily, special []PeriodBucket, err error)
+	// SetSpecialForIDs 批量把一组流水归入专项（specialID 空串 = 归回日常），
+	// 必须在单个事务里一次写完；返回真正被改到的行数，不存在的 id 静默跳过。
+	SetSpecialForIDs(ctx context.Context, ids []string, specialID string) (int, error)
 	// TopTransactions 周期内按 |amount| desc 的前 N 条；account=family 合并统计
-	TopTransactions(ctx context.Context, p domain.Period, direction domain.Direction, account domain.Account, limit int) ([]TopTransaction, error)
+	TopTransactions(ctx context.Context, p domain.Period, direction domain.Direction, account domain.Account, scope domain.Scope, limit int) ([]TopTransaction, error)
 	// ListAll 全量流水，按 occurred_at 升序；供 /export 使用
 	ListAll(ctx context.Context) ([]domain.Transaction, error)
 	// ListAllImportBatches 全量导入批次；供 /export 使用
@@ -79,8 +91,44 @@ type TransactionRepo interface {
 	ListMembers(ctx context.Context) ([]string, error)
 	// ListForRecurring 周期识别专用精简查询：direction='expense' AND status='confirmed'，
 	// 只取 occurred_at / counterparty / description / amount 必要列（不拉 raw_row 等大字段），
-	// 返回的 Transaction 仅这四个字段 + Direction/Status 有值。
-	ListForRecurring(ctx context.Context, from, to time.Time) ([]domain.Transaction, error)
+	// 返回的 Transaction 仅这四个字段 + Direction/Status 有值。scope 同上。
+	ListForRecurring(ctx context.Context, from, to time.Time, scope domain.Scope) ([]domain.Transaction, error)
+}
+
+// SpecialProjectRepo 专项开支项目（special_projects 表）
+type SpecialProjectRepo interface {
+	ListAll(ctx context.Context) ([]domain.SpecialProject, error)
+	// Get 未找到时返回 ErrNotFound
+	Get(ctx context.Context, id string) (domain.SpecialProject, error)
+	// Upsert 按 id 覆盖写入
+	Upsert(ctx context.Context, p *domain.SpecialProject) error
+	Delete(ctx context.Context, id string) error
+	// 下面三个求和一律是「净额」口径：挂在专项上的收入（退款、退货返现、卖旧车抵扣换车）
+	// 从支出里减掉，而不是加进已花费。净额可能为负（退款大于支出），实现不得 clamp 到 0。
+
+	// SumByProject 每个专项的花费统计（专项 id → SpecialSpend），只算 status='confirmed'；
+	// 有流水的专项一定出现在返回值里，哪怕净额被冲平成 0
+	SumByProject(ctx context.Context) (map[string]SpecialSpend, error)
+	// SumByProjectInPeriod 周期内每个专项的净花费（专项 id → 分），供季/年报拆行；
+	// account 为非存储值（family）时不做账户过滤
+	SumByProjectInPeriod(ctx context.Context, p domain.Period, account domain.Account) (map[string]int64, error)
+	// SumByCategoryForAllProjects 全部专项内部的跨科目构成（净额），专项 id → 构成表，
+	// 每张表按金额降序、只含净额非零的科目——被全额退款冲平的科目不再列出。
+	// 一次 GROUP BY (special_id, category_id) 取回全部，不要退化成按专项逐个查。
+	SumByCategoryForAllProjects(ctx context.Context) (map[string][]domain.CategoryAggregation, error)
+}
+
+// SpecialSpend 单个专项的花费统计。满足 NetSpentFen = GrossSpentFen - OffsetFen。
+type SpecialSpend struct {
+	// GrossSpentFen 支出毛额：挂在专项上的 direction='expense' 流水合计
+	GrossSpentFen int64
+	// OffsetFen 冲抵额：挂在专项上的 direction='income' 流水合计（退款、退货返现、卖旧车）
+	OffsetFen int64
+	// NetSpentFen 净额 = 毛额 − 冲抵，可能为负（退回的比花掉的多），不得 clamp 到 0
+	NetSpentFen int64
+	// TxCount 归入该专项的 confirmed 流水条数（收支都算）。
+	// 页面靠它区分"真的没有流水"和"有流水但净额被冲平为 0"——只看金额零值分不出这两种。
+	TxCount int
 }
 
 type CategoryRepo interface {

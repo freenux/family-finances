@@ -13,15 +13,16 @@ import (
 
 // StatsView 给 /api/stats 返回的结构，和前端 statsPage() 使用的叶子结构对齐。
 type StatsView struct {
-	Period          string             `json:"period"`
-	Granularity     string             `json:"granularity"` // month|quarter|year
-	Direction       string             `json:"direction"`   // income|expense
-	Account         string             `json:"account"`     // husband|wife|family
-	Total           int64              `json:"total"`
-	Categories      []StatsCategorySeg `json:"categories"`
-	MonthlyCompare  []StatsBucket      `json:"monthlyCompare"`
-	QuarterlyCompare []StatsBucket     `json:"quarterlyCompare"`
-	TopTransactions []StatsTopTx       `json:"topTransactions"`
+	Period           string             `json:"period"`
+	Granularity      string             `json:"granularity"` // month|quarter|year
+	Direction        string             `json:"direction"`   // income|expense
+	Account          string             `json:"account"`     // husband|wife|family
+	Scope            string             `json:"scope"`       // daily|all|special；饼图/构成/对比条/Top 榜单全部跟随它变化
+	Total            int64              `json:"total"`
+	Categories       []StatsCategorySeg `json:"categories"`
+	MonthlyCompare   []StatsBucket      `json:"monthlyCompare"`
+	QuarterlyCompare []StatsBucket      `json:"quarterlyCompare"`
+	TopTransactions  []StatsTopTx       `json:"topTransactions"`
 }
 
 type StatsCategorySeg struct {
@@ -32,20 +33,28 @@ type StatsCategorySeg struct {
 }
 
 type StatsBucket struct {
-	Label  string   `json:"label"`
+	Label string `json:"label"`
+	// Amount 该请求口径下的金额：daily→日常额；all→日常+专项；special→专项额。
+	// Chain/YoY 也是基于这个同一口径重算的，不是恒定日常——切到"全部"或"仅专项"时数值会跟着变。
 	Amount int64    `json:"amount"`
-	Chain  *float64 `json:"chain"` // 环比：相对上一期的增长率，小数（0.12 = +12%）；基期金额为 0 时为 nil
-	YoY    *float64 `json:"yoy"`   // 同比：相对去年同期的增长率，小数；基期金额为 0 时为 nil
+	Chain  *float64 `json:"chain"` // 环比：相对上一期（同口径）的增长率，小数（0.12 = +12%）；基期金额为 0 时为 nil
+	YoY    *float64 `json:"yoy"`   // 同比：相对去年同期（同口径）的增长率，小数；基期金额为 0 时为 nil
+	// Special 语义统一为"Amount 里属于专项的那一截"，三种口径下含义不同：
+	//   daily   → nil（日常口径下没有专项部分，前端不画斜纹）
+	//   all     → 专项金额（该期无专项时为 nil）
+	//   special → 等于 Amount（前端：实心段 = Amount－Special，斜纹段 = Special，仅专项口径下实心段自然为 0）
+	Special *int64 `json:"special"`
 }
 
 type StatsTopTx struct {
 	ID       string `json:"id"`
-	Date     string `json:"date"`      // "05-08"
-	Who      string `json:"who"`       // counterparty
-	Desc     string `json:"desc"`      // description + note 组合
+	Date     string `json:"date"` // "05-08"
+	Who      string `json:"who"`  // counterparty
+	Desc     string `json:"desc"` // description + note 组合
 	Amount   int64  `json:"amount"`
 	Category string `json:"category"` // 二级科目名
 	Account  string `json:"account"`
+	Special  string `json:"special"` // 所属专项名；空 = 日常开支
 }
 
 // 分类颜色：稳定分配，前端用它画饼图 + 分类列表（Stripe 品牌色系，见 DESIGN.md）
@@ -64,9 +73,16 @@ func NewQueryStats(tx port.TransactionRepo, cat port.CategoryRepo) *QueryStats {
 	return &QueryStats{txRepo: tx, catRepo: cat}
 }
 
-// Execute 聚合一个周期（月/季/年）×方向×账户的完整统计视图。
+// Execute 聚合一个周期（月/季/年）×方向×账户×口径的完整统计视图。
 // topLimit 传 <=0 时默认 10。
-func (uc *QueryStats) Execute(ctx context.Context, p domain.Period, dir domain.Direction, account domain.Account, topLimit int) (StatsView, error) {
+//
+// 各部分口径：
+//   - 饼图/构成跟随 scope；
+//   - 月/季对比条也跟随 scope——Amount/Chain/YoY 都基于该口径重算；Special 字段是
+//     "Amount 里的专项那一截"，供前端叠斜纹段（语义见 StatsBucket 注释）；
+//   - Top 流水同样跟随 scope：选了"日常"却在大额榜首看到装修款，等于告诉用户
+//     筛选没生效——想看装修就切到"仅专项/全部"。
+func (uc *QueryStats) Execute(ctx context.Context, p domain.Period, dir domain.Direction, account domain.Account, scope domain.Scope, topLimit int) (StatsView, error) {
 	if topLimit <= 0 {
 		topLimit = 10
 	}
@@ -74,8 +90,8 @@ func (uc *QueryStats) Execute(ctx context.Context, p domain.Period, dir domain.D
 		return StatsView{}, fmt.Errorf("invalid direction: %s", dir)
 	}
 
-	// 1. 分类聚合
-	aggs, err := uc.txRepo.AggregateByCategory(ctx, p, account)
+	// 1. 分类聚合（跟随入参 scope）
+	aggs, err := uc.txRepo.AggregateByCategory(ctx, p, account, scope)
 	if err != nil {
 		return StatsView{}, err
 	}
@@ -122,21 +138,28 @@ func (uc *QueryStats) Execute(ctx context.Context, p domain.Period, dir domain.D
 		monthShow = 6
 		quartShow = 4
 	)
+	//    不管请求的 scope 是什么，月桶、季桶各只查一次，一次同时拿回 daily + special
+	//    两组（见 port.TransactionRepo.SumByBuckets）；展示用的 Amount/Special 序列
+	//    由 scopeAmountSeries 按 scope 在内存里拼出来。
 	monthlyAll := buildMonthBuckets(p, monthShow+12)
 	quarterlyAll := buildQuarterBuckets(p, quartShow+4)
-	monthlySummed, err := uc.txRepo.SumByBuckets(ctx, monthlyAll, dir, account)
+	monthlyDaily, monthlySpecial, err := uc.txRepo.SumByBuckets(ctx, monthlyAll, dir, account)
 	if err != nil {
 		return StatsView{}, err
 	}
-	quarterlySummed, err := uc.txRepo.SumByBuckets(ctx, quarterlyAll, dir, account)
+	quarterlyDaily, quarterlySpecial, err := uc.txRepo.SumByBuckets(ctx, quarterlyAll, dir, account)
 	if err != nil {
 		return StatsView{}, err
 	}
-	monthly := bucketsToStatsWithCompare(monthlySummed, monthShow, 12)
-	quarterly := bucketsToStatsWithCompare(quarterlySummed, quartShow, 4)
+	monthlyAmount, monthlySpecialSeg := scopeAmountSeries(monthlyDaily, monthlySpecial, scope)
+	quarterlyAmount, quarterlySpecialSeg := scopeAmountSeries(quarterlyDaily, quarterlySpecial, scope)
+	monthly := bucketsToStatsWithCompare(monthlyAmount, monthShow, 12)
+	quarterly := bucketsToStatsWithCompare(quarterlyAmount, quartShow, 4)
+	attachSpecial(monthly, monthlySpecialSeg)
+	attachSpecial(quarterly, quarterlySpecialSeg)
 
-	// 3. Top 流水
-	tops, err := uc.txRepo.TopTransactions(ctx, p, dir, account, topLimit)
+	// 3. Top 流水：跟随入参 scope，与饼图/对比条同口径
+	tops, err := uc.txRepo.TopTransactions(ctx, p, dir, account, scope, topLimit)
 	if err != nil {
 		return StatsView{}, err
 	}
@@ -162,6 +185,7 @@ func (uc *QueryStats) Execute(ctx context.Context, p domain.Period, dir domain.D
 			Amount:   t.Amount,
 			Category: catName,
 			Account:  string(t.Account),
+			Special:  t.SpecialName,
 		})
 	}
 
@@ -170,6 +194,7 @@ func (uc *QueryStats) Execute(ctx context.Context, p domain.Period, dir domain.D
 		Granularity:      granLabel(p.Type),
 		Direction:        string(dir),
 		Account:          string(account),
+		Scope:            string(scope),
 		Total:            total,
 		Categories:       segs,
 		MonthlyCompare:   monthly,
@@ -225,6 +250,39 @@ func buildQuarterBuckets(p domain.Period, n int) []port.PeriodBucket {
 	return out
 }
 
+// scopeAmountSeries 把"日常""专项"两组同源桶（同一批 buildXxxBuckets 输出查出来的，
+// 长度、顺序、Label 完全一致，因此按下标对齐即可，不必再按 Label 匹配）按请求口径
+// 拼成两条序列：
+//
+//   - amount：展示用的金额序列，也是 bucketsToStatsWithCompare 算环比/同比的输入；
+//
+//   - specialSeg：喂给 attachSpecial 的"专项段"序列，语义 = amount 里属于专项的那一截。
+//
+//     daily   → amount=daily；specialSeg=nil（没有专项段，前端不画斜纹）
+//     all     → amount=daily+special；specialSeg=special
+//     special → amount=special；specialSeg=amount 本身（这样 Special 字段等于 Amount）
+func scopeAmountSeries(daily, special []port.PeriodBucket, scope domain.Scope) (amount, specialSeg []port.PeriodBucket) {
+	switch scope {
+	case domain.ScopeSpecial:
+		out := make([]port.PeriodBucket, len(special))
+		copy(out, special)
+		return out, out
+	case domain.ScopeAll:
+		out := make([]port.PeriodBucket, len(daily))
+		copy(out, daily)
+		for i := range out {
+			if i < len(special) {
+				out[i].Amount += special[i].Amount
+			}
+		}
+		return out, special
+	default: // domain.ScopeDaily
+		out := make([]port.PeriodBucket, len(daily))
+		copy(out, daily)
+		return out, nil
+	}
+}
+
 // bucketsToStatsWithCompare 从完整序列（长度 = show + yoyOffset）末尾取 show 条，
 // 并为每条计算环比（相对前一桶）、同比（相对 yoyOffset 桶之前）。
 // 基期金额为 0 时对应的比率为 nil，避免除零与“无穷增长”误导。
@@ -248,6 +306,22 @@ func bucketsToStatsWithCompare(bs []port.PeriodBucket, show, yoyOffset int) []St
 		out[i] = seg
 	}
 	return out
+}
+
+// attachSpecial 把"专项段"序列（语义由调用方 scopeAmountSeries 决定）贴到已算好
+// 同比环比的展示桶上（按 label 对齐，两边用的是同一批桶，长度可能不同——展示桶只取了
+// 末尾 show 条）。金额为 0 时留 nil，前端就不用画那段斜纹。
+func attachSpecial(out []StatsBucket, special []port.PeriodBucket) {
+	byLabel := make(map[string]int64, len(special))
+	for _, b := range special {
+		byLabel[b.Label] = b.Amount
+	}
+	for i := range out {
+		if amt, ok := byLabel[out[i].Label]; ok && amt != 0 {
+			v := amt
+			out[i].Special = &v
+		}
+	}
 }
 
 // pctDelta 返回 (cur-base)/base，base 为 0 时返回 nil。

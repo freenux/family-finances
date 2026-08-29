@@ -9,9 +9,11 @@ import (
 
 // findingsInput 是 computeFindings 的输入，全部是已经算好的确定性数据（铁律 1）。
 type findingsInput struct {
-	Period            domain.Period
-	KPI               domain.ReportKPI
-	SavingsStreak     int // 含当期，结余率连续达标的期数；0 表示当期未达标
+	Period        domain.Period
+	KPI           domain.ReportKPI
+	SavingsStreak int // 含当期，日常口径结余率连续达标的期数；0 表示当期未达标
+	// CurExpenseGroups / PrevExpenseGroups 日常口径支出分组（剔除专项）：
+	// 类目环比若混进装修/购车，每期都会指着被专项顶起来的那个科目喊涨。
 	CurExpenseGroups  []domain.CategoryGroupAggregation
 	PrevExpenseGroups []domain.CategoryGroupAggregation
 	CurSnapshot       *domain.AssetSnapshot
@@ -25,10 +27,16 @@ type findingsInput struct {
 func computeFindings(in findingsInput) []Finding {
 	var out []Finding
 
-	if in.KPI.TotalIncome > 0 {
-		text := fmt.Sprintf("本期结余率 %s", pctString(in.KPI.SurplusRate))
+	// 结余率一律用日常口径：连胜的历史桶（savingsRateStreak）算的就是日常口径，
+	// 当期若混用全口径，等于拿 N−1 个日常期跟 1 个全口径当期比。
+	// 专项存在时把全口径（真实现金流）那一档也写出来，免得读者以为装修没花钱。
+	if in.KPI.DailyIncome > 0 {
+		text := fmt.Sprintf("本期日常结余率 %s（剔除专项）", pctString(in.KPI.DailySurplusRate))
 		if in.SavingsStreak >= 2 {
-			text = fmt.Sprintf("结余率连续 %d 期 ≥30%%（本期 %s）", in.SavingsStreak, pctString(in.KPI.SurplusRate))
+			text = fmt.Sprintf("日常结余率连续 %d 期 ≥30%%（本期 %s）", in.SavingsStreak, pctString(in.KPI.DailySurplusRate))
+		}
+		if in.KPI.SpecialExpense != 0 || in.KPI.SpecialIncome != 0 {
+			text += fmt.Sprintf("；含专项的全口径结余率 %s", pctString(in.KPI.SurplusRate))
 		}
 		out = append(out, Finding{Key: "savings_rate", Text: text})
 	}
@@ -37,8 +45,11 @@ func computeFindings(in findingsInput) []Finding {
 		out = append(out, f)
 	}
 
-	if in.KPI.TotalExpense > 0 {
-		text := fmt.Sprintf("可自由支配支出占比 %s", pctString(in.KPI.DiscretionRatio))
+	// 守卫跟着分母走：比值的分母是 DailyExpense，本期支出若全部归入专项
+	// （DailyExpense == 0 而 TotalExpense > 0），比值恒为 0，不能当成"占比 0.0%"
+	// 的确定性结论发给 LLM——那会直接进 refs 白名单。
+	if in.KPI.DailyExpense > 0 {
+		text := fmt.Sprintf("可自由支配支出占日常支出 %s", pctString(in.KPI.DiscretionRatio))
 		if in.KPI.DiscretionWarning {
 			text += "，超过 35% 警戒线"
 		}

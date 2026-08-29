@@ -6,6 +6,11 @@ function txTable() {
   const catData = JSON.parse(document.getElementById('data-categories').textContent || '[]');
   const ruleEl = document.getElementById('data-rule');
   const ruleData = ruleEl ? JSON.parse(ruleEl.textContent || 'null') : null;
+  const specialEl = document.getElementById('data-specials');
+  const specialData = specialEl ? JSON.parse(specialEl.textContent || '[]') : [];
+
+  const specialNameById = {};
+  for (const s of specialData) specialNameById[s.id] = s.name;
 
   // 按一级分组组装二级科目，给下拉用
   const groups = [];
@@ -26,10 +31,25 @@ function txTable() {
   const catNameById = {};
   for (const c of catData) catNameById[c.id] = c.name;
 
+  // 筛选器默认值的唯一来源：初始 state 与「清空筛选」共用。
+  // 每次都返回新数组——sourceFilter 这些是 x-model 直接改的引用，共享一份会串味。
+  const defaultFilters = () => ({
+    keyword: '',
+    directionFilter: 'all',
+    memberFilter: '',
+    sourceFilter: ['alipay', 'wechat', 'manual', 'csv'],
+    accountFilter: ['husband', 'wife'],
+    statusFilter: ['pending_review', 'confirmed'],
+    categoryFilter: '',
+    specialFilter: '',
+  });
+
   return {
     rows: txData,
     groupedCategories: groups,
     catNameById,
+    specials: specialData,
+    specialNameById,
 
     // 周期状态
     granularity: 'month',
@@ -40,13 +60,11 @@ function txTable() {
     activeRule:  ruleData,
     applyingRule: false,
 
-    keyword: '',
-    directionFilter: 'all',
-    memberFilter: '',
-    sourceFilter: ['alipay', 'wechat', 'manual', 'csv'],
-    accountFilter: ['husband', 'wife'],
-    statusFilter: ['pending_review', 'confirmed'],
-    categoryFilter: '',
+    // 批量归入专项
+    batchSpecialID: '',
+    batching: false,
+
+    ...defaultFilters(),
 
     sortKey: 'occurred_at',
     sortDir: 'desc',
@@ -56,11 +74,25 @@ function txTable() {
       this.granularity = granularityFromPeriodType(el.dataset.initialGranularity || 'monthly');
       this.periodKey = el.dataset.initialPeriod || defaultPeriodKey(this.granularity);
       this.account = el.dataset.initialAccount || 'family';
+      // 顶部账户与「账户」复选框保持一致：family 展开成两项都勾，单个账户只勾那一项
+      // （SSR 那批 rows 本来就已经按 account 过滤过了，这里只是让复选框 UI 别看着对不上）。
+      this.accountFilter = this.account === 'family' ? ['husband', 'wife'] : [this.account];
+
       if (this.activeRule) {
+        // 从「分类规则」页应用规则跳转过来（?rule_id=...）：按规则本身预筛，
+        // 其余筛选保持 defaultFilters() 的默认值
         this.keyword = this.activeRule.pattern || '';
-        this.categoryFilter = '';
-        this.statusFilter = ['pending_review', 'confirmed'];
+        return;
       }
+
+      // 从仪表盘「双击科目 / 双击柱子」跳转过来：按 URL 参数预设筛选状态。
+      // member 目前仪表盘还不会传，但先支持上，以后仪表盘加了成员维度直接能用。
+      const q = new URLSearchParams(window.location.search);
+      const dir = q.get('direction');
+      if (dir === 'income' || dir === 'expense') this.directionFilter = dir;
+      if (q.has('category')) this.categoryFilter = q.get('category');
+      if (q.has('special'))  this.specialFilter = q.get('special');
+      if (q.has('member'))   this.memberFilter = q.get('member');
     },
 
     setGranularity(g) {
@@ -77,16 +109,35 @@ function txTable() {
       this.fetchTransactions();
     },
 
-    async fetchTransactions() {
-      this.loading = true;
-      this.errorMsg = '';
+    // apiParams 后端 /api/transactions 认得的参数，只有这几个
+    apiParams() {
       const q = new URLSearchParams({
         type:    periodTypeFromGranularity(this.granularity),
         period:  this.periodKey,
         account: this.account,
       });
       if (this.activeRule) q.set('rule_id', this.activeRule.id);
-      window.history.replaceState(null, '', window.location.pathname + '?' + q.toString());
+      return q;
+    },
+
+    // syncURL 把当前视图完整写回地址栏。除了后端参数，还要带上 direction / category /
+    // special / member 这几个纯前端的穿透筛选（init() 读的就是它们）——否则从仪表盘穿透
+    // 过来再点一次「上一期」，URL 就只剩周期，刷新或把链接发给别人时筛选全部回默认。
+    syncURL() {
+      const q = this.apiParams();
+      if (this.directionFilter !== 'all') q.set('direction', this.directionFilter);
+      if (this.categoryFilter) q.set('category', this.categoryFilter);
+      if (this.specialFilter)  q.set('special',  this.specialFilter);
+      if (this.memberFilter)   q.set('member',   this.memberFilter);
+      const s = q.toString();
+      window.history.replaceState(null, '', window.location.pathname + (s ? '?' + s : ''));
+    },
+
+    async fetchTransactions() {
+      this.loading = true;
+      this.errorMsg = '';
+      const q = this.apiParams();
+      this.syncURL();
       try {
         const r = await fetch('/api/transactions?' + q.toString());
         if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (await r.text()));
@@ -106,6 +157,7 @@ function txTable() {
       const accounts = new Set(this.accountFilter);
       const statuses = new Set(this.statusFilter);
       const catFilter = this.categoryFilter;
+      const specialFilter = this.specialFilter;
 
       const memberFilter = this.memberFilter;
       let out = this.rows.filter((t) => {
@@ -123,6 +175,13 @@ function txTable() {
         if (catFilter === '__none__') {
           if (t.category_id) return false;
         } else if (catFilter && t.category_id !== catFilter) {
+          return false;
+        }
+        if (specialFilter === '__none__') {
+          if (t.special_id) return false;
+        } else if (specialFilter === '__any__') {
+          if (!t.special_id) return false;
+        } else if (specialFilter && t.special_id !== specialFilter) {
           return false;
         }
         if (kw) {
@@ -145,6 +204,9 @@ function txTable() {
         if (key === 'category_id') {
           av = catNameById[av] || '';
           bv = catNameById[bv] || '';
+        } else if (key === 'special_id') {
+          av = specialNameById[av] || '';
+          bv = specialNameById[bv] || '';
         }
         if (av == null) av = '';
         if (bv == null) bv = '';
@@ -200,17 +262,10 @@ function txTable() {
     },
 
     resetFilters() {
-      this.keyword = '';
-      this.directionFilter = 'all';
-      this.memberFilter = '';
-      this.sourceFilter = ['alipay', 'wechat', 'manual', 'csv'];
-      this.accountFilter = ['husband', 'wife'];
-      this.statusFilter = ['pending_review', 'confirmed'];
-      this.categoryFilter = '';
+      Object.assign(this, defaultFilters());
       this.activeRule = null;
-      const q = new URLSearchParams(window.location.search);
-      q.delete('rule_id');
-      window.history.replaceState(null, '', window.location.pathname + (q.toString() ? '?' + q.toString() : ''));
+      // 筛选清空了，URL 里的 rule_id / 穿透参数也要一起清掉，否则一刷新又被捡回来
+      this.syncURL();
     },
 
     ruleLabel() {
@@ -312,6 +367,63 @@ function txTable() {
       t.account = value;
       const ok = await this._patch(t.id, { account: value });
       if (!ok) t.account = prev;
+    },
+
+    // patchSpecial 行内改专项（收 <select> 元素本身，因为 __new__ 分支要写回它的值）。
+    // 选到「＋ 新建专项…」就跳去 /specials 建，跳转前必须把下拉复位到这条流水的真实归属：
+    // t.special_id 压根没变，Alpine 的 :selected 不会重算，浏览器后退（含 bfcache）回来时
+    // 下拉会停在「＋ 新建专项…」，界面就在声称这条流水属于一个还不存在的专项。
+    async patchSpecial(t, el) {
+      const value = el.value;
+      if (value === '__new__') {
+        el.value = t.special_id || '';
+        window.location.href = '/specials';
+        return;
+      }
+      if (value === t.special_id) return;
+      const prev = t.special_id;
+      t.special_id = value;
+      const ok = await this._patch(t.id, { special_id: value });
+      if (!ok) t.special_id = prev;
+    },
+
+    // applyBatchSpecial 把当前筛选出的流水一次归入（或移出）某个专项。
+    // 走 PATCH /api/transactions/batch，失败整体回滚本地状态。
+    async applyBatchSpecial() {
+      if (this.batching || !this.batchSpecialID) return;
+      const targets = this.filtered.filter(
+        (t) => t.special_id !== (this.batchSpecialID === '__clear__' ? '' : this.batchSpecialID),
+      );
+      if (targets.length === 0) {
+        alert('当前筛选的流水已经是该专项，无需处理。');
+        return;
+      }
+      const specialID = this.batchSpecialID === '__clear__' ? '' : this.batchSpecialID;
+      const label = specialID ? (this.specialNameById[specialID] || specialID) : '日常';
+      if (!confirm(`把 ${targets.length} 条流水归入「${label}」？`)) return;
+
+      this.batching = true;
+      const prev = targets.map((t) => t.special_id);
+      targets.forEach((t) => { t.special_id = specialID; });
+      try {
+        const r = await fetch('/api/transactions/batch', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: targets.map((t) => t.id), special_id: specialID }),
+        });
+        if (!r.ok) {
+          targets.forEach((t, i) => { t.special_id = prev[i]; });
+          alert('批量归类失败：' + (await r.text()));
+          return;
+        }
+        const data = await r.json();
+        alert(`已归类 ${data.updated} 条流水。`);
+      } catch (e) {
+        targets.forEach((t, i) => { t.special_id = prev[i]; });
+        alert('批量归类失败：' + e.message);
+      } finally {
+        this.batching = false;
+      }
     },
 
     async _patch(id, body) {

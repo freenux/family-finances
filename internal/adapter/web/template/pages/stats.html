@@ -90,6 +90,19 @@
     grid-template-columns: 14px 1fr auto auto;
     column-gap: 10px; align-items: center;
     font-size: 13px;
+    cursor: pointer;
+    padding: 3px 6px; margin: 0 -6px;
+    border-radius: 6px;
+    transition: background-color .15s ease;
+  }
+  /* 双击查看该科目流水：hover/focus 都给出可交互提示，键盘 Tab 到这一行也看得见焦点 */
+  .cat-row:hover,
+  .cat-row:focus-visible {
+    background: var(--bg-soft);
+  }
+  .cat-row:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
   }
   .cat-row .dot {
     width: 10px; height: 10px; border-radius: 2px;
@@ -126,6 +139,12 @@
     border: 0; background: transparent; cursor: pointer;
     padding: 0; display: flex; flex-direction: column; align-items: center;
     gap: 6px; font-family: inherit; color: inherit;
+    border-radius: 4px;
+  }
+  /* 单击切当期（focusBar）/ 双击切仪表盘周期（jumpToPeriod）；键盘聚焦时给出可见焦点环 */
+  .col-bar:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   .col-bar .col-val {
     font-family: var(--mono); font-size: 11px; color: var(--muted);
@@ -144,9 +163,28 @@
     opacity: .55;
     border-radius: 4px 4px 0 0;
     transition: height .35s ease, opacity .2s ease;
+    /* 极小值也要看得见；金额为 0 的段由模板直接不渲染，
+       否则这 2px 会在"仅专项"口径下把每根柱子都垫出一条假的日常支出 */
     min-height: 2px;
   }
   .col-bar:hover .col-fill { opacity: .8; }
+  /* 专项段：斜纹叠在日常段之上，一眼看出这期被一次性大额抬高了多少 */
+  .col-bar .col-fill.special {
+    background: repeating-linear-gradient(45deg, #ea2261 0 4px, #f96bee 4px 8px);
+  }
+  /* 只有最上面那段留圆角：有专项时它是专项段（在上），日常段紧随其下不要圆角。
+     不能用 :first-child / :not(:first-child) —— Alpine 的 x-if 会把 <template>
+     留在 DOM 里占住 col-track 的第一个子节点，实心段永远不是 first-child。
+     用 ~ 而不是 +，中间还隔着实心段自己的 <template>。 */
+  .col-bar .col-track .col-fill.special ~ .col-fill { border-radius: 0; }
+  .special-legend {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; color: var(--muted);
+  }
+  .special-legend i {
+    width: 12px; height: 12px; border-radius: 2px; display: inline-block;
+    background: repeating-linear-gradient(45deg, #ea2261 0 3px, #f96bee 3px 6px);
+  }
   .col-bar .col-lbl {
     font-size: 11px; color: var(--muted);
     letter-spacing: 0.02em; font-variant-numeric: tabular-nums;
@@ -228,6 +266,12 @@
         <button :class="direction==='expense' ? 'active' : ''" @click="setDirection('expense')">支出</button>
         <button :class="direction==='income'  ? 'active' : ''" @click="setDirection('income')">收入</button>
       </div>
+      <div class="seg" title="专项＝装修/购车这类一次性大额支出。构成、月度/季度对比条都随口径变化：全部口径下专项以斜纹段叠加在日常段之上，仅专项口径下只剩斜纹段">
+        {{/* 按钮文案来自 stats_page.js 的 SCOPES，与 scopeLabel() 同一份定义，不在这里再抄一遍 */}}
+        <template x-for="s in scopes" :key="s.key">
+          <button :class="scope===s.key ? 'active' : ''" @click="setScope(s.key)" x-text="s.label"></button>
+        </template>
+      </div>
       <div class="seg">
         <button :class="granularity==='month'   ? 'active' : ''" @click="setGranularity('month')">月度</button>
         <button :class="granularity==='quarter' ? 'active' : ''" @click="setGranularity('quarter')">季度</button>
@@ -305,7 +349,13 @@
             </div>
             <div class="cat-list">
               <template x-for="(c, i) in view.categories" :key="c.name">
-                <div class="cat-row" :style="'color:' + c.color">
+                <div class="cat-row" :style="'color:' + c.color"
+                     tabindex="0" role="button"
+                     :aria-label="'查看「' + c.name + '」的流水'"
+                     title="双击查看该科目的流水"
+                     @dblclick="goToTransactions(c.category_id)"
+                     @keydown.enter.prevent="goToTransactions(c.category_id)"
+                     @keydown.space.prevent="goToTransactions(c.category_id)">
                   <span class="dot" :style="'background:' + c.color"></span>
                   <span class="name" style="color:var(--text)" x-text="c.name"></span>
                   <span class="pct" x-text="pctOf(c.amount)"></span>
@@ -320,7 +370,8 @@
 
       <div class="panel">
         <h3>
-          <span>月度对比 <span class="hint" style="margin-left:4px">近 6 个月 · 点击切换当期</span></span>
+          <span>月度对比 <span class="hint" style="margin-left:4px" x-text="'近 6 个月 · ' + scopeLabel() + '口径 · 点击切换当期 · 双击切换仪表盘周期'"></span></span>
+          <span class="special-legend" x-show="hasSpecial(view.monthlyCompare)"><i></i>专项</span>
           <span class="hint" x-text="'当期 ' + (focusMonth() || '—')"></span>
         </h3>
         <div class="panel-body">
@@ -328,10 +379,22 @@
             <template x-for="b in view.monthlyCompare" :key="b.label">
               <button type="button" class="col-bar"
                       :class="b.label===focusMonth() ? 'active' : ''"
-                      @click="focusBar('month', b.label)">
+                      title="单击切换 Top 榜单当期 · 双击（或聚焦后 Shift+Enter）把仪表盘周期切到这一期"
+                      @click="focusBar('month', b.label)"
+                      @dblclick="jumpToPeriod('month', b.label)"
+                      @keydown.enter.shift.prevent="jumpToPeriod('month', b.label)">
                 <span class="col-val" x-text="fmtYuan(b.amount)"></span>
                 <span class="col-track">
-                  <span class="col-fill" :style="'height:' + normBar(b.amount, view.monthlyCompare) + '%'"></span>
+                  {{/* 金额为 0 的段一律不渲染：min-height 会把它撑成 2px，
+                       读图上等于凭空多出一截并不存在的支出 */}}
+                  <template x-if="b.special > 0">
+                    <span class="col-fill special" :title="'专项 ' + fmtYuan(b.special)"
+                          :style="'height:' + normBar(b.special, view.monthlyCompare) + '%'"></span>
+                  </template>
+                  <template x-if="dailyPart(b) > 0">
+                    <span class="col-fill" :title="'日常 ' + fmtYuan(dailyPart(b))"
+                          :style="'height:' + normBar(dailyPart(b), view.monthlyCompare) + '%'"></span>
+                  </template>
                 </span>
                 <span class="col-lbl" x-text="b.label"></span>
                 <span class="col-cmp">
@@ -350,7 +413,8 @@
 
       <div class="panel">
         <h3>
-          <span>季度对比 <span class="hint" style="margin-left:4px">近 4 季 · 点击切换当期</span></span>
+          <span>季度对比 <span class="hint" style="margin-left:4px" x-text="'近 4 季 · ' + scopeLabel() + '口径 · 点击切换当期 · 双击切换仪表盘周期'"></span></span>
+          <span class="special-legend" x-show="hasSpecial(view.quarterlyCompare)"><i></i>专项</span>
           <span class="hint" x-text="'当期 ' + (focusQuarter() || '—')"></span>
         </h3>
         <div class="panel-body">
@@ -358,10 +422,22 @@
             <template x-for="b in view.quarterlyCompare" :key="b.label">
               <button type="button" class="col-bar"
                       :class="b.label===focusQuarter() ? 'active' : ''"
-                      @click="focusBar('quarter', b.label)">
+                      title="单击切换 Top 榜单当期 · 双击（或聚焦后 Shift+Enter）把仪表盘周期切到这一期"
+                      @click="focusBar('quarter', b.label)"
+                      @dblclick="jumpToPeriod('quarter', b.label)"
+                      @keydown.enter.shift.prevent="jumpToPeriod('quarter', b.label)">
                 <span class="col-val" x-text="fmtYuan(b.amount)"></span>
                 <span class="col-track">
-                  <span class="col-fill" :style="'height:' + normBar(b.amount, view.quarterlyCompare) + '%'"></span>
+                  {{/* 金额为 0 的段一律不渲染：min-height 会把它撑成 2px，
+                       读图上等于凭空多出一截并不存在的支出 */}}
+                  <template x-if="b.special > 0">
+                    <span class="col-fill special" :title="'专项 ' + fmtYuan(b.special)"
+                          :style="'height:' + normBar(b.special, view.quarterlyCompare) + '%'"></span>
+                  </template>
+                  <template x-if="dailyPart(b) > 0">
+                    <span class="col-fill" :title="'日常 ' + fmtYuan(dailyPart(b))"
+                          :style="'height:' + normBar(dailyPart(b), view.quarterlyCompare) + '%'"></span>
+                  </template>
                 </span>
                 <span class="col-lbl" x-text="b.label"></span>
                 <span class="col-cmp">

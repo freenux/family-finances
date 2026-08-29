@@ -65,6 +65,10 @@ func TestGenerateAdviceValidatesRefsAndCost(t *testing.T) {
 	if rep.Period == "" {
 		t.Fatal("Period empty; want current quarter label")
 	}
+	// 存的 income/expense/compare 都来自 ContextPack，即日常口径
+	if rep.DataScope != domain.ScopeDaily {
+		t.Fatalf("DataScope = %q; want %q", rep.DataScope, domain.ScopeDaily)
+	}
 
 	var content AdviceContent
 	if err := json.Unmarshal([]byte(rep.AIAnalysis), &content); err != nil {

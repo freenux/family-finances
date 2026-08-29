@@ -1,16 +1,16 @@
 // 共享的周期工具函数，供仪表盘/流水/统计三个页面的 Alpine 组件使用。
 
+// defaultPeriodKey 返回给定粒度「上一个完整周期」的 key：当期还没走完，数字有误导性
+// （环比/同比都会失真），所以三个页面的默认周期统一取上一期，而不是当期。
+// 复用 shiftPeriodKey(-1) 而不是另写一套"减一"算法，避免两处进位逻辑各写一份、日后改跑偏。
 function defaultPeriodKey(granularity) {
   const now = new Date();
   const y = now.getFullYear();
   const m = now.getMonth() + 1;
   const q = Math.floor((m - 1) / 3) + 1;
-  switch (granularity) {
-    case 'month':   return y + '-' + String(m).padStart(2, '0');
-    case 'quarter': return y + 'Q' + q;
-    case 'year':    return String(y);
-  }
-  return '';
+  const currentKey = { month: y + '-' + String(m).padStart(2, '0'), quarter: y + 'Q' + q, year: String(y) }[granularity];
+  if (currentKey === undefined) return '';
+  return shiftPeriodKey(granularity, currentKey, -1) || '';
 }
 
 // 给定粒度 + periodKey，返回偏移后的 key；-1 = 上期

@@ -12,16 +12,26 @@ import (
 // ContextPack 是喂给 LLM 的"财务上下文包"，序列化为稳定 JSON。
 // M2 的配置解释与 P3 对话复用同一构造函数（ContextPackBuilder.Build）。
 // 铁律 4：只含聚合数与快照科目余额，不含交易对手方、单笔明细。
+//
+// 口径约定（包内必须自洽，否则 LLM 按 groups 自己一算就和 kpi 打架）：
+// income/expense/compare/kpi 全部是**日常口径**（已剔除专项），
+// 专项单列在 special 一节里；两者相加才是全口径真实现金流。
 type ContextPack struct {
 	Period     string           `json:"period"`
 	PeriodType string           `json:"period_type"`
+	ScopeNote  string           `json:"scope_note"`
 	Income     MoneySection     `json:"income"`
 	Expense    MoneySection     `json:"expense"`
+	Special    *SpecialSection  `json:"special"`
 	KPI        ContextKPI       `json:"kpi"`
 	Compare    ContextCompare   `json:"compare"`
 	Snapshot   *ContextSnapshot `json:"snapshot"`
 	Findings   []Finding        `json:"findings"`
 }
+
+// scopeNote 写进包里的一句口径说明：让模型不必猜 income/expense 是哪一档。
+const scopeNote = "income/expense/kpi/compare 均为日常口径（已剔除专项开支）；" +
+	"专项见 special 一节，日常 + 专项才是全口径真实现金流。"
 
 // MoneySection 收入或支出的聚合：合计 + 按（二级）科目展开
 type MoneySection struct {
@@ -35,12 +45,37 @@ type MoneyGroupEntry struct {
 	AmountFen  int64  `json:"amount_fen"`
 }
 
+// SpecialSection 专项开支单列一节：装修/购车这类一次性大额支出与科目正交，
+// 混进 expense 会把日常基线冲垮（LLM 每期都说"支出暴涨"）。
+// ExpenseFen − IncomeFen = NetFen；Projects 沿用 ReportData.SpecialByProject 的定序
+// （按金额降序，同额按名称/id），保证 prompt 稳定可复现。
+type SpecialSection struct {
+	ExpenseFen int64                 `json:"expense_fen"`
+	IncomeFen  int64                 `json:"income_fen"`
+	NetFen     int64                 `json:"net_fen"`
+	Projects   []SpecialProjectEntry `json:"projects"`
+	Groups     []MoneyGroupEntry     `json:"groups"`
+}
+
+// SpecialProjectEntry 单个专项在本期的净花费（该专项内的收入已抵扣，
+// 如换车专项里的旧车折价）
+type SpecialProjectEntry struct {
+	Name   string `json:"name"`
+	NetFen int64  `json:"net_fen"`
+}
+
 type ContextKPI struct {
-	SavingsRate     float64 `json:"savings_rate"`
+	// SavingsRate 日常口径结余率 =（日常收入 − 日常支出）/ 日常收入，
+	// 与 income/expense 两节同口径，LLM 可以自己验算。
+	SavingsRate float64 `json:"savings_rate"`
+	// SavingsRateAllScope 全口径（含专项）结余率，即真实现金流那一档
+	SavingsRateAllScope float64 `json:"savings_rate_all_scope"`
+	// DiscretionRatio 自由裁量支出 / 日常支出（分母见 expense.total_fen）
 	DiscretionRatio float64 `json:"discretion_ratio"`
 	DiscretionAlert bool    `json:"discretion_alert"`
 }
 
+// ContextCompare 环比：与 income/expense 同为日常口径，避免一次装修被读成"支出暴涨"
 type ContextCompare struct {
 	PrevPeriod    string `json:"prev_period"`
 	IncomeDelta   int64  `json:"income_delta"`
@@ -107,20 +142,25 @@ func (b *ContextPackBuilder) Build(ctx context.Context, p domain.Period) (Contex
 		return ContextPack{}, fmt.Errorf("query prev report: %w", err)
 	}
 
+	// 全包一个口径：明细、合计、KPI、环比统统取日常口径，专项单列在 Special 一节。
+	// 混着来的话，LLM 按 groups 自己算出 8.6%、包里却写着 0.40，生成的两段话必然打架。
 	pack := ContextPack{
 		Period:     p.Label,
 		PeriodType: string(p.Type),
-		Income:     flattenMoneySection(cur.IncomeGroups, cur.KPI.TotalIncome),
-		Expense:    flattenMoneySection(cur.ExpenseGroups, cur.KPI.TotalExpense),
+		ScopeNote:  scopeNote,
+		Income:     flattenMoneySection(cur.DailyIncomeGroups, cur.KPI.DailyIncome),
+		Expense:    flattenMoneySection(cur.DailyExpenseGroups, cur.KPI.DailyExpense),
+		Special:    buildSpecialSection(cur),
 		KPI: ContextKPI{
-			SavingsRate:     cur.KPI.SurplusRate,
-			DiscretionRatio: cur.KPI.DiscretionRatio,
-			DiscretionAlert: cur.KPI.DiscretionWarning,
+			SavingsRate:         cur.KPI.DailySurplusRate,
+			SavingsRateAllScope: cur.KPI.SurplusRate,
+			DiscretionRatio:     cur.KPI.DiscretionRatio,
+			DiscretionAlert:     cur.KPI.DiscretionWarning,
 		},
 		Compare: ContextCompare{
 			PrevPeriod:   prevPeriod.Label,
-			IncomeDelta:  cur.KPI.TotalIncome - prev.KPI.TotalIncome,
-			ExpenseDelta: cur.KPI.TotalExpense - prev.KPI.TotalExpense,
+			IncomeDelta:  cur.KPI.DailyIncome - prev.KPI.DailyIncome,
+			ExpenseDelta: cur.KPI.DailyExpense - prev.KPI.DailyExpense,
 		},
 	}
 
@@ -144,8 +184,10 @@ func (b *ContextPackBuilder) Build(ctx context.Context, p domain.Period) (Contex
 		pack.Compare.NetWorthDelta = &delta
 	}
 
-	// 结余率连续达标的期数（含当期，向前回溯）
-	streak, err := b.savingsRateStreak(ctx, p, cur.KPI.SurplusRate)
+	// 结余率连续达标的期数（含当期，向前回溯）。
+	// 起始判据必须和历史桶同口径（日常）：用全口径会在装修季第一道 guard 就判负，
+	// 连胜断在这个改动本来要保护的场景里。
+	streak, err := b.savingsRateStreak(ctx, p, cur.KPI.DailySurplusRate)
 	if err != nil {
 		return ContextPack{}, err
 	}
@@ -155,12 +197,14 @@ func (b *ContextPackBuilder) Build(ctx context.Context, p domain.Period) (Contex
 		return ContextPack{}, err
 	}
 
+	// 类目环比同样喂日常口径分组：装修记在"购物消费"下，全口径会让这条 finding
+	// 每期都指着被专项顶起来的那个科目喊涨。
 	pack.Findings = computeFindings(findingsInput{
 		Period:            p,
 		KPI:               cur.KPI,
 		SavingsStreak:     streak,
-		CurExpenseGroups:  cur.ExpenseGroups,
-		PrevExpenseGroups: prev.ExpenseGroups,
+		CurExpenseGroups:  cur.DailyExpenseGroups,
+		PrevExpenseGroups: prev.DailyExpenseGroups,
 		CurSnapshot:       curSnap,
 		PrevSnapshot:      prevSnap,
 		MonthlyAvgExpense: monthlyAvgExpense,
@@ -176,6 +220,25 @@ func (b *ContextPackBuilder) Build(ctx context.Context, p domain.Period) (Contex
 	}
 
 	return pack, nil
+}
+
+// buildSpecialSection 从报表数据里拼出专项一节；本期没有任何专项收支时返回 nil
+// （包里就没有 special 字段可引用，LLM 也不会凭空编一个）。
+func buildSpecialSection(rep domain.ReportData) *SpecialSection {
+	if rep.KPI.SpecialExpense == 0 && rep.KPI.SpecialIncome == 0 && len(rep.SpecialByProject) == 0 {
+		return nil
+	}
+	sec := &SpecialSection{
+		ExpenseFen: rep.KPI.SpecialExpense,
+		IncomeFen:  rep.KPI.SpecialIncome,
+		NetFen:     rep.KPI.SpecialExpense - rep.KPI.SpecialIncome,
+		Groups:     flattenMoneySection(rep.SpecialGroups, rep.KPI.SpecialExpense).Groups,
+	}
+	// SpecialByProject 已按金额降序定序（QueryReport.specialByProject），原样带过来即可
+	for _, sp := range rep.SpecialByProject {
+		sec.Projects = append(sec.Projects, SpecialProjectEntry{Name: sp.Name, NetFen: sp.Amount})
+	}
+	return sec
 }
 
 func flattenMoneySection(groups []domain.CategoryGroupAggregation, total int64) MoneySection {
@@ -208,11 +271,12 @@ func (b *ContextPackBuilder) savingsRateStreak(ctx context.Context, p domain.Per
 		cursor = cursor.Previous()
 		buckets[i] = port.PeriodBucket{Label: cursor.Label, Start: cursor.Start, End: cursor.End}
 	}
-	income, err := b.txRepo.SumByBuckets(ctx, buckets, domain.DirectionIncome, domain.AccountFamily)
+	// 日常口径：否则一次装修会打断连胜，AI 每次都说"支出暴涨"
+	income, _, err := b.txRepo.SumByBuckets(ctx, buckets, domain.DirectionIncome, domain.AccountFamily)
 	if err != nil {
 		return 0, fmt.Errorf("sum streak income: %w", err)
 	}
-	expense, err := b.txRepo.SumByBuckets(ctx, buckets, domain.DirectionExpense, domain.AccountFamily)
+	expense, _, err := b.txRepo.SumByBuckets(ctx, buckets, domain.DirectionExpense, domain.AccountFamily)
 	if err != nil {
 		return 0, fmt.Errorf("sum streak expense: %w", err)
 	}
@@ -234,7 +298,7 @@ func (b *ContextPackBuilder) savingsRateStreak(ctx context.Context, p domain.Per
 // sum(近 4 季度支出) / 12。用于计算活钱覆盖月数。
 func (b *ContextPackBuilder) trailingMonthlyAvgExpense(ctx context.Context, end time.Time) (int64, error) {
 	buckets := trailingQuarterBuckets(end, 4)
-	summed, err := b.txRepo.SumByBuckets(ctx, buckets, domain.DirectionExpense, domain.AccountFamily)
+	summed, _, err := b.txRepo.SumByBuckets(ctx, buckets, domain.DirectionExpense, domain.AccountFamily)
 	if err != nil {
 		return 0, fmt.Errorf("sum trailing quarters: %w", err)
 	}

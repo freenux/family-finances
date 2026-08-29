@@ -22,11 +22,13 @@ type assetsVM struct {
 	CurveJSON       string
 }
 
-// Assets GET /assets?period=2026Q2；period 缺省为当前季度
+// Assets GET /assets?period=2026Q2；period 缺省为上一个完整季度
 func (h *Handler) Assets(w http.ResponseWriter, r *http.Request) {
 	label := r.URL.Query().Get("period")
 	if label == "" {
-		label = domain.CurrentQuarter(time.Now()).Label
+		// 必须和财报/现金流表同一套默认（defaultPeriodFor）：否则快照存进 2026Q3，
+		// 而财报按 2026Q2 去查快照，净资产环比与活钱覆盖月数直接消失。
+		label = defaultPeriodFor(domain.PeriodQuarterly, time.Now()).Label
 	}
 	view, err := h.assetSvc.SnapshotView(r.Context(), label)
 	if err != nil {
