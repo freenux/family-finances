@@ -92,10 +92,15 @@ func (uc *ClassifyPending) runOnce(ctx context.Context, batch int) (pending, ass
 	if err != nil {
 		return len(rows), 0, err
 	}
-	// 只保留二级科目作为 LLM 的可选项
+	// 只保留二级科目作为 LLM 的可选项。
+	//
+	// 往来科目（转账/借还款/报销垫付）故意排除在外：模型只拿得到
+	// counterparty/description/direction，没有金额和时间，判断"这是不是借款"
+	// 证据不足；而误判的代价是一笔真支出以 excluded 落地、从所有报表里消失，
+	// 比分错科目严重得多。往来只靠规则 + 人工。
 	var options []domain.Category
 	for _, c := range cats {
-		if c.Level == 2 {
+		if c.Level == 2 && !domain.IsTransferCategory(c.ID) {
 			options = append(options, c)
 		}
 	}

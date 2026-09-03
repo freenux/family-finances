@@ -15,7 +15,8 @@
   <div class="stats-head">
     <div>
       <h2 class="title-zh"><span x-text="periodKey">{{.Period.Label}}</span> 收支流水</h2>
-      <div class="subtitle">共 <span x-text="rows.length">{{len .Transactions}}</span> 条记录 · 点击列头排序 · 下拉就地改分类</div>
+      <div class="subtitle">共 <span x-text="rows.length">{{len .Transactions}}</span> 条记录 · 点击列头排序</div>
+      <div class="subtitle">逐笔定科目、改备注、标专项 / 不计收支 —— 就地改，报表自动跟着变</div>
     </div>
     <div class="flex-row" style="gap:14px;align-items:center">
       {{template "period_bar" .}}
@@ -104,9 +105,9 @@
 
         <div class="tx-filter-group">
           <span class="label">状态：</span>
-          <label><input type="checkbox" value="pending_review" x-model="statusFilter"> 待处理</label>
-          <label><input type="checkbox" value="confirmed"      x-model="statusFilter"> 已确认</label>
-          <label><input type="checkbox" value="excluded"       x-model="statusFilter"> 已排除</label>
+          <label><input type="checkbox" value="pending_review" x-model="statusFilter"> 待核对</label>
+          <label><input type="checkbox" value="confirmed"      x-model="statusFilter"> 已入账</label>
+          <label><input type="checkbox" value="excluded"       x-model="statusFilter"> 不计收支</label>
         </div>
 
         <button class="btn secondary" @click="resetFilters()">清空筛选</button>
@@ -117,7 +118,27 @@
         <span>收入 <b class="positive" x-text="fmtYuan(totals.income)"></b></span>
         <span>支出 <b class="negative" x-text="fmtYuan(totals.expense)"></b></span>
         <span>净额 <b :class="totals.net >= 0 ? 'positive' : 'negative'" x-text="fmtYuan(totals.net)"></b></span>
+        {{/* 合计只算「已入账」。不计收支的行仍然列在表里（淡显），但不进这三个数，
+             否则一笔提现会同时被算进支出，跟报表对不上。*/}}
+        <template x-if="totals.excludedCount > 0">
+          <span class="meta-sm">（另有 <b x-text="totals.excludedCount"></b> 条不计收支，未计入上面三项）</span>
+        </template>
       </div>
+
+      <details class="tx-help">
+        <summary>三个状态怎么用？借款、报销、退款该记在哪？</summary>
+        <div>
+          <p><b>待核对</b>：机器没认出来是什么科目，等你在这一行的下拉里指定。定完自动转「已入账」。</p>
+          <p><b>已入账</b>：算进季/年报、仪表盘、预算、四笔钱的正经收支。</p>
+          <p><b>不计收支</b>：不进任何报表。两种用法——一是<b>误记/重复</b>，二是<b>资金往来</b>：
+             钱只是换了个口袋（提现、还信用卡、理财申赎），或者是债权债务的一出一回
+             （借出去→收回来、垫钱→报销到账）。这类请在「分类」列选「资金往来 · 不计收支」下的科目，
+             状态会自动变成「不计收支」，两头相抵刚好为零。</p>
+          <p><b>退款要特殊对待</b>：它不能标「不计收支」——原来那笔支出还在报表里算着，
+             没人去冲减它，支出就虚高了。正确做法是<b>直接改原来那笔支出的金额</b>，改成实付；
+             全额退的话，把原支出那笔标「不计收支」即可。退款到账那笔本身不用记。</p>
+        </div>
+      </details>
 
       <template x-if="activeRule">
         <div class="rule-apply-bar">
@@ -187,7 +208,8 @@
         </thead>
         <tbody>
           <template x-for="t in filtered" :key="t.id">
-            <tr :class="{ 'needs-review': !t.category_id }">
+            {{/* row-muted：不计收支的行淡显，一眼看出"这条不进报表" */}}
+            <tr :class="{ 'needs-review': !t.category_id, 'row-muted': t.status === 'excluded' }">
               <td x-text="t.occurred_at"></td>
               <td x-text="sourceLabel(t.source)"></td>
               <td>
@@ -246,9 +268,9 @@
               <td>
                 <select class="inline-select"
                         @change="patchStatus(t, $event.target.value)">
-                  <option value="pending_review" :selected="t.status === 'pending_review'">待处理</option>
-                  <option value="confirmed"      :selected="t.status === 'confirmed'">已确认</option>
-                  <option value="excluded"       :selected="t.status === 'excluded'">已排除</option>
+                  <option value="pending_review" :selected="t.status === 'pending_review'">待核对</option>
+                  <option value="confirmed"      :selected="t.status === 'confirmed'">已入账</option>
+                  <option value="excluded"       :selected="t.status === 'excluded'">不计收支</option>
                 </select>
               </td>
             </tr>

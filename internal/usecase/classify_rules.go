@@ -11,19 +11,25 @@ import (
 //   - matched=true, categoryID!="": 命中具体科目
 //   - matched=true, categoryID=="": 命中"跳过导入"规则（例如转账/提现）
 //   - matched=false：未命中，交由调用方入库为 NULL，后续 LLM 兜底或人工处理
+//
+// 收入行只认往来科目（报销到账、收回借款）——它们是"垫付出去/借出去"那半边的
+// 对手方，不认进来两头就抵不平。工资/租金这类真收入仍然不自动分类：往往要区分
+// 是谁的，让用户自己挑。
 func ClassifyByCustomRules(row domain.RawBillRow, rules []domain.CategoryRule) (categoryID string, skip, matched bool) {
-	// 收入类暂不自动分类，让用户自己挑（工资/租金往往需要区分人）
-	if row.Direction == domain.DirectionIncome {
-		return "", false, false
-	}
-
 	for _, rule := range rules {
 		if !rule.IsActive || rule.Pattern == "" {
 			continue
 		}
-		if ruleMatches(row, rule) {
-			return rule.CategoryID, rule.CategoryID == "", true
+		if !ruleMatches(row, rule) {
+			continue
 		}
+		if row.Direction == domain.DirectionIncome && !domain.IsTransferCategory(rule.CategoryID) {
+			// 收入行撞上了非往来规则。就此收手而不是继续往下找：规则是按
+			// priority 排好序的，第一个命中的就是最该生效的那条，继续扫只会
+			// 捡到更弱的匹配。
+			return "", false, false
+		}
+		return rule.CategoryID, rule.CategoryID == "", true
 	}
 	return "", false, false
 }

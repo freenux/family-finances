@@ -21,10 +21,16 @@ type TransactionUpdate struct {
 	SpecialID  *string // nil 表示不修改；空字符串表示清空（归回日常）
 }
 
-// ImportResult 一次账单导入的结果
+// ImportResult 一次账单导入的结果。
+//
+// TransferRows 是 InsertedRows 的子集，不是与它并列的一档：命中往来规则的行
+// （转账/提现/借还款/报销）确实入了库，只是以 status=excluded 落地不进聚合。
+// 单独数出来是为了让导入回执说得准——早先的文案把这批算进"新增"、却把
+// 被丢弃的收入行说成"忽略转账"，两头都对不上。
 type ImportResult struct {
 	TotalRows          int
 	InsertedRows       int
+	TransferRows       int
 	SkippedDuplicates  int
 	SkippedInvalid     int
 	PendingCategory    int

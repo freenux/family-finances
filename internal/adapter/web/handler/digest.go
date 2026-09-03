@@ -13,7 +13,7 @@ import (
 var digestModules = []struct{ Key, Label string }{
 	{"expense_compare", "支出环比"},
 	{"top_categories", "Top 3 支出科目"},
-	{"pending_count", "待确认流水数"},
+	{"pending_count", "待核对流水数"},
 	{"llm_note", "AI 一句话观察（需配置 key）"},
 }
 

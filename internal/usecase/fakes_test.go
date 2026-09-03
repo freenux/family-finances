@@ -35,6 +35,9 @@ func testCategories() []domain.Category {
 		{ID: "expense.discretion.shopping", ParentID: "expense.discretion", Level: 2, Name: "购物消费", Type: domain.CategoryTypeExpense},
 		{ID: "expense.fixed", Level: 1, Name: "固定刚性支出", Type: domain.CategoryTypeExpense},
 		{ID: "expense.fixed.housing", ParentID: "expense.fixed", Level: 2, Name: "居住成本", Type: domain.CategoryTypeExpense},
+		// 往来科目：它虽然是 level=2，却必须被挡在 LLM 白名单之外
+		{ID: "transfer", Level: 1, Name: "资金往来 · 不计收支", Type: domain.CategoryTypeTransfer},
+		{ID: "transfer.loan", ParentID: "transfer", Level: 2, Name: "借出借入还款", Type: domain.CategoryTypeTransfer},
 	}
 }
 

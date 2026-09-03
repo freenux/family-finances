@@ -39,8 +39,9 @@ type ImportBillInput struct {
 
 // Execute 解析账单 → 本地规则分类 → 批量入库（事务内去重）。
 // 未命中分类的行以 status=pending_review + category_id=NULL 落地，等 LLM 或人工处理。
-// "应跳过"的支出行（转账/中性交易等）以 status=excluded 落地，方便人工恢复。
-// 收入行暂不导入。
+// 命中往来科目（转账/借还款/报销垫付）的行以 status=excluded 落地，不进任何聚合，
+// 但在流水页上有名有姓，能被人工纠正——见 domain.IsTransferCategory。
+// 收入行只在命中往来科目时导入（报销到账、收回借款），其余暂不导入。
 func (uc *ImportBill) Execute(ctx context.Context, in ImportBillInput) (port.ImportResult, error) {
 	parser, ok := bill.ParserFor(in.Source)
 	if !ok {
@@ -73,18 +74,28 @@ func (uc *ImportBill) ExecuteWithParser(ctx context.Context, in ImportBillInput,
 		periodEnd      time.Time
 		skippedInvalid int
 		pendingCat     int
+		transferRows   int
 	)
 	for _, r := range rawRows {
-		if r.Direction == domain.DirectionIncome {
+		catID, skip, _ := ClassifyByCustomRules(r, customRules)
+		isTransfer := domain.IsTransferCategory(catID)
+
+		// 收入行只放行往来科目：报销到账、收回借款是"垫付出去/借出去"那半边的
+		// 对手方，不收进来两头就抵不平（一笔垫付会被永远记成支出）。工资/租金/
+		// 收红包这类仍然不导入，免得微信收款把待核对队列淹掉。
+		if r.Direction == domain.DirectionIncome && !isTransfer {
 			skippedInvalid++
 			continue
 		}
 
-		catID, skip, _ := ClassifyByCustomRules(r, customRules)
 		status := domain.TxStatusConfirmed
-		if skip {
+		switch {
+		case skip || isTransfer:
+			// skip 是 category_id 为空的老式"跳过导入"规则（用户自建的还可能有）；
+			// isTransfer 是迁移 016 之后内置规则的落点。两者都是不计收支。
 			status = domain.TxStatusExcluded
-		} else if catID == "" {
+			transferRows++
+		case catID == "":
 			status = domain.TxStatusPendingReview
 			pendingCat++
 		}
@@ -136,6 +147,7 @@ func (uc *ImportBill) ExecuteWithParser(ctx context.Context, in ImportBillInput,
 	res.TotalRows = len(rawRows)
 	res.SkippedInvalid = skippedInvalid
 	res.PendingCategory = pendingCat
+	res.TransferRows = transferRows
 	res.EarliestOccurredAt = periodStart
 	if uc.trigger != nil && pendingCat > 0 {
 		uc.trigger()

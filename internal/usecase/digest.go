@@ -96,7 +96,7 @@ func (uc *DigestService) Build(ctx context.Context, cadence string, modules []st
 			lines = append(lines, fmt.Sprintf("%d. %s：%s 元", i+1, t.Name, formatYuanFen(t.Amount)))
 		}
 		if len(lines) == 0 {
-			lines = []string{"本期无已确认支出"}
+			lines = []string{"本期无已入账支出"}
 		}
 		sections = append(sections, digestSection{Title: "Top 3 支出科目", Lines: lines})
 	}
@@ -107,8 +107,8 @@ func (uc *DigestService) Build(ctx context.Context, cadence string, modules []st
 			return DigestContent{}, err
 		}
 		sections = append(sections, digestSection{
-			Title: "待确认流水",
-			Lines: []string{fmt.Sprintf("还有 %d 条流水待分类/确认", len(pending))},
+			Title: "待核对流水",
+			Lines: []string{fmt.Sprintf("还有 %d 条流水待分类/核对", len(pending))},
 		})
 	}
 

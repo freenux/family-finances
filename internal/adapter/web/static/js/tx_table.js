@@ -39,7 +39,10 @@ function txTable() {
     memberFilter: '',
     sourceFilter: ['alipay', 'wechat', 'manual', 'csv'],
     accountFilter: ['husband', 'wife'],
-    statusFilter: ['pending_review', 'confirmed'],
+    // 三个状态默认全勾上。早先默认藏起 excluded，结果是导入时被规则自动判成
+    // 转账的那批行用户根本看不见，也就无从纠正一笔被误判的学费。现在它有名有姓
+    // （挂在「资金往来」科目下）且淡显，露出来比藏起来有用。
+    statusFilter: ['pending_review', 'confirmed', 'excluded'],
     categoryFilter: '',
     specialFilter: '',
   });
@@ -225,12 +228,18 @@ function txTable() {
     },
 
     get totals() {
-      let income = 0, expense = 0;
+      // 只累计「已入账」。不计收支的行（转账/借还款/报销垫付/误记）不进合计，
+      // 否则一笔提现会被算成支出，这里的数字跟仪表盘、现金流表对不上——
+      // 后端所有聚合 SQL 都是 status='confirmed' 才算。
+      // 待核对的行也不算：它还没定科目，本来就没进报表。
+      let income = 0, expense = 0, excludedCount = 0;
       for (const t of this.filtered) {
+        if (t.status === 'excluded') { excludedCount++; continue; }
+        if (t.status !== 'confirmed') continue;
         if (t.direction === 'income') income += t.amount_fen;
         else expense += t.amount_fen;
       }
-      return { income, expense, net: income - expense };
+      return { income, expense, net: income - expense, excludedCount };
     },
 
     sortBy(key) {
@@ -298,10 +307,20 @@ function txTable() {
       return [t.counterparty, t.description, t.platform_category, t.note, t.raw_row];
     },
 
+    // statusAfterCategory 镜像后端 PATCH /api/transactions/{id} 的副作用
+    // （handler.go，判据是 domain.IsTransferCategory）：指定分类即转「已入账」，
+    // 但往来科目反过来落「不计收支」——它们不构成收支。
+    // 这是前后端两份实现，改一处必须改另一处，否则乐观更新会跟服务端的真实结果打架。
+    statusAfterCategory(categoryID, current) {
+      if (!categoryID) return current;
+      return categoryID.startsWith('transfer.') ? 'excluded' : 'confirmed';
+    },
+
     get ruleApplyTargets() {
       if (!this.activeRule || !this.activeRule.category_id) return [];
       const categoryID = this.activeRule.category_id;
-      return this.filtered.filter((t) => !(t.category_id === categoryID && t.status === 'confirmed'));
+      const settled = this.statusAfterCategory(categoryID, null);
+      return this.filtered.filter((t) => !(t.category_id === categoryID && t.status === settled));
     },
 
     async applyRule() {
@@ -315,7 +334,7 @@ function txTable() {
           const prevCategory = t.category_id;
           const prevStatus = t.status;
           t.category_id = categoryID;
-          t.status = 'confirmed';
+          t.status = this.statusAfterCategory(categoryID, prevStatus);
           const ok = await this._patch(t.id, { category_id: categoryID });
           if (!ok) {
             t.category_id = prevCategory;
@@ -332,10 +351,14 @@ function txTable() {
 
     async patchCategory(t, value) {
       const prev = t.category_id;
+      const prevStatus = t.status;
       t.category_id = value;
-      if (value) t.status = 'confirmed';
+      t.status = this.statusAfterCategory(value, prevStatus);
       const ok = await this._patch(t.id, { category_id: value });
-      if (!ok) t.category_id = prev;
+      if (!ok) {
+        t.category_id = prev;
+        t.status = prevStatus;
+      }
     },
 
     async patchNote(t, value) {

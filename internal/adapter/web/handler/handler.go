@@ -841,9 +841,15 @@ func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		patch.CategoryID = &v
-		// 如果指定了分类，把 pending_review 自动转 confirmed
+		// 如果指定了分类，把 pending_review 自动转 confirmed；
+		// 但往来科目（转账/借还款/报销垫付）反过来要落 excluded——它们不构成收支。
+		// 漏了这个判断，用户手动把一笔转账归类到「借出借入还款」，
+		// 就等于把它变成了一笔真支出，四笔钱/周报/目标进度/对比条/Top 榜单全会算上。
 		if v != "" {
 			st := domain.TxStatusConfirmed
+			if domain.IsTransferCategory(v) {
+				st = domain.TxStatusExcluded
+			}
 			patch.Status = &st
 		}
 	}
@@ -1018,8 +1024,11 @@ func (h *Handler) ImportSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msg := fmt.Sprintf("导入完成（%s）：新增 %d 条，跳过重复 %d 条，忽略转账/无效 %d 条，未分类待处理 %d 条。",
-		acc.Label(), res.InsertedRows, res.SkippedDuplicates, res.SkippedInvalid, res.PendingCategory)
+	// 旧文案把「忽略转账/无效」当成一档，但那个数字其实只是被丢弃的收入行数，
+	// 转账反而被算进了「新增」——两头都对不上。现在转账/借还款/报销确实入了库
+	// （以不计收支落地），所以作为「新增」的括注说明，不再单列。
+	msg := fmt.Sprintf("导入完成（%s）：新增 %d 条（其中不计收支 %d 条），跳过重复 %d 条，未导入 %d 条，待核对 %d 条。",
+		acc.Label(), res.InsertedRows, res.TransferRows, res.SkippedDuplicates, res.SkippedInvalid, res.PendingCategory)
 	h.flash.set(w, msg)
 	http.Redirect(w, r, importRedirectURL(acc, res), http.StatusSeeOther)
 }

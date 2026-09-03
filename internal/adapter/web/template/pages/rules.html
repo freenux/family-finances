@@ -46,7 +46,9 @@
         <label class="full">
           分类
           <select name="category_id">
-            <option value="">跳过导入（转账/提现等）</option>
+            {{/* 空 category_id 是老式的"跳过导入"：命中即以不计收支落地但没有科目，
+                 用户看不出为什么。转账/提现现在应该直接选「资金往来 · 不计收支」下的科目。*/}}
+            <option value="">不分类（留给 LLM / 人工核对）</option>
             {{range groupCategories .Categories}}
               <optgroup label="{{.Group.Name}}">
                 {{range .Items}}

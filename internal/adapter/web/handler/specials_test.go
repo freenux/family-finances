@@ -159,6 +159,9 @@ func (stubCatRepo) ListAll(context.Context) ([]domain.Category, error) {
 	return []domain.Category{
 		{ID: "expense.discretion", Level: 1, Name: "自由裁量支出", Type: domain.CategoryTypeExpense},
 		{ID: "expense.discretion.shopping", ParentID: "expense.discretion", Level: 2, Name: "购物消费", Type: domain.CategoryTypeExpense},
+		// 往来科目：PATCH 改分类的状态副作用要靠它们区分（见 TestUpdateTransactionCategoryStatusSideEffect）
+		{ID: "transfer", Level: 1, Name: "资金往来 · 不计收支", Type: domain.CategoryTypeTransfer},
+		{ID: "transfer.loan", ParentID: "transfer", Level: 2, Name: "借出借入还款", Type: domain.CategoryTypeTransfer},
 	}, nil
 }
 func (stubCatRepo) ListByType(_ context.Context, t domain.CategoryType) ([]domain.Category, error) {
@@ -808,3 +811,85 @@ func TestBatchRouteDoesNotCollideWithIDRoute(t *testing.T) {
 		})
 	}
 }
+
+// ---- E3. PATCH /api/transactions/{id} 的 category_id 状态副作用 ----
+
+// TestUpdateTransactionCategoryStatusSideEffect 钉住"指定分类会顺手改状态"这条规则，
+// 重点是往来科目的方向跟普通科目相反。
+//
+// 这是最容易被以后改回去的一处：往来行落 confirmed 就等于变成一笔真支出——
+// SumByBuckets / TopTransactions / ListForRecurring 只按 direction + status 过滤、
+// 不看科目，四笔钱、周报、目标进度、月/季对比条、Top 榜单五处会一起算上它。
+func TestUpdateTransactionCategoryStatusSideEffect(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		wantBody   string
+		// wantTxStatus 期望落到 repo 的 Status；nil 表示不该带 Status
+		wantTxStatus *domain.TxStatus
+	}{
+		{
+			name: "普通支出科目 → 已入账", body: `{"category_id":"expense.discretion.shopping"}`,
+			wantStatus: http.StatusNoContent, wantTxStatus: txStatusPtr(domain.TxStatusConfirmed),
+		},
+		{
+			name: "往来科目 → 不计收支（不是已入账）", body: `{"category_id":"transfer.loan"}`,
+			wantStatus: http.StatusNoContent, wantTxStatus: txStatusPtr(domain.TxStatusExcluded),
+		},
+		{
+			name: "清空分类不动状态", body: `{"category_id":""}`,
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name: "一级组不是有效二级科目 → 400", body: `{"category_id":"transfer"}`,
+			wantStatus: http.StatusBadRequest, wantBody: "请选择有效的二级分类",
+		},
+		{
+			name: "不存在的科目 → 400", body: `{"category_id":"expense.ghost"}`,
+			wantStatus: http.StatusBadRequest, wantBody: "请选择有效的二级分类",
+		},
+		{
+			name: "显式传合法 status 照旧接受", body: `{"status":"excluded"}`,
+			wantStatus: http.StatusNoContent, wantTxStatus: txStatusPtr(domain.TxStatusExcluded),
+		},
+		{
+			name: "非法 status → 400", body: `{"status":"archived"}`,
+			wantStatus: http.StatusBadRequest, wantBody: "invalid status",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			txRepo := newStubTxRepo("tx-1")
+			h := newSpecialTestHandler(txRepo)
+
+			rec := httptest.NewRecorder()
+			h.UpdateTransaction(rec, patchTxRequest("tx-1", tt.body))
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d; want %d（body=%s）", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if tt.wantBody != "" && !strings.Contains(rec.Body.String(), tt.wantBody) {
+				t.Fatalf("body = %q; want 含 %q", rec.Body.String(), tt.wantBody)
+			}
+
+			var got *domain.TxStatus
+			for _, p := range txRepo.patches["tx-1"] {
+				if p.Status != nil {
+					got = p.Status
+				}
+			}
+			switch {
+			case tt.wantTxStatus == nil && got != nil:
+				t.Fatalf("patch 带了 Status = %v; want 不改状态", *got)
+			case tt.wantTxStatus != nil && got == nil:
+				t.Fatalf("patch 没带 Status; want %v", *tt.wantTxStatus)
+			case tt.wantTxStatus != nil && *got != *tt.wantTxStatus:
+				t.Fatalf("Status = %v; want %v", *got, *tt.wantTxStatus)
+			}
+		})
+	}
+}
+
+func txStatusPtr(s domain.TxStatus) *domain.TxStatus { return &s }

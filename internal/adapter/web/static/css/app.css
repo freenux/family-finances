@@ -558,16 +558,21 @@ table.tx-list .amount {
 }
 table.tx-list .amount.positive { color: var(--positive); }
 table.tx-list .amount.negative { color: var(--negative); }
+/* 11 列，加起来 99.5%。改任何一列都要重新配一遍：
+   tx-col-member 早先漏了宽度规则，只能捡剩下的 1.5%，表头「成员」被挤到换行、
+   跟方向徽标叠在一起。状态列从 9% 提到 11% 是因为标签从三个字（已排除）
+   变成了四个字（不计收支），9% 会截断成「不计收」。 */
 table.tx-list .tx-col-date { width: 7.5%; }
 table.tx-list .tx-col-source { width: 5%; }
 table.tx-list .tx-col-account { width: 7%; }
+table.tx-list .tx-col-member { width: 6%; }
 table.tx-list .tx-col-direction { width: 5%; }
-table.tx-list .tx-col-description { width: 21%; }
-table.tx-list .tx-col-amount { width: 11%; }
-table.tx-list .tx-col-category { width: 13%; }
-table.tx-list .tx-col-special { width: 10%; }
-table.tx-list .tx-col-note { width: 10%; }
-table.tx-list .tx-col-status { width: 9%; }
+table.tx-list .tx-col-description { width: 18%; }
+table.tx-list .tx-col-amount { width: 10%; }
+table.tx-list .tx-col-category { width: 12%; }
+table.tx-list .tx-col-special { width: 9%; }
+table.tx-list .tx-col-note { width: 8%; }
+table.tx-list .tx-col-status { width: 11%; }
 
 .empty {
   text-align: center;
@@ -701,6 +706,36 @@ table.tx-list.editable tr.needs-review td { border-left: 0; }
 table.tx-list.editable tr.needs-review td:first-child {
   border-left: 3px solid #d9b06a;
 }
+/* 不计收支：转账/借还款/报销垫付，以及用户手排的误记。淡显是为了让"这条不进报表"
+   一眼可见——它们默认就在列表里（用户抱怨过看不见被自动排掉的那批），
+   但不该跟正经收支抢注意力。下拉/输入框保持全不透明，否则改都不好改。 */
+table.tx-list.editable tr.row-muted td {
+  opacity: .55;
+}
+table.tx-list.editable tr.row-muted .inline-select,
+table.tx-list.editable tr.row-muted .inline-input {
+  opacity: 1;
+}
+
+/* 状态说明折叠块 */
+.tx-help {
+  margin: 10px 0 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.tx-help summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+.tx-help > div {
+  padding: 10px 12px;
+  margin-top: 8px;
+  background: var(--accent-soft);
+  border-radius: 6px;
+  line-height: 1.7;
+}
+.tx-help p { margin: 0 0 6px; }
+.tx-help p:last-child { margin-bottom: 0; }
 table.tx-list.editable .meta-sm {
   color: var(--muted);
   font-size: 11px;

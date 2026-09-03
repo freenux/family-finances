@@ -202,8 +202,8 @@ func (h *Handler) CSVImportSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	msg := fmt.Sprintf("CSV 导入完成（%s）：新增 %d 条，跳过重复 %d 条，忽略无效 %d 条，未分类待处理 %d 条。",
-		acc.Label(), res.InsertedRows, res.SkippedDuplicates, res.SkippedInvalid, res.PendingCategory)
+	msg := fmt.Sprintf("CSV 导入完成（%s）：新增 %d 条（其中不计收支 %d 条），跳过重复 %d 条，未导入 %d 条，待核对 %d 条。",
+		acc.Label(), res.InsertedRows, res.TransferRows, res.SkippedDuplicates, res.SkippedInvalid, res.PendingCategory)
 	h.flash.set(w, msg)
 	writeJSON(w, map[string]any{"redirect": importRedirectURL(acc, res)})
 }

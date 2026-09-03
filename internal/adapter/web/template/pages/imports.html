@@ -49,8 +49,8 @@
   <div class="full" style="color:var(--muted);font-size:12px;line-height:1.7">
     解析时会自动：<br>
     · 过滤非"交易成功/支付成功/已转账"的行<br>
-    · 跳过支付宝"亲友代付/转账红包"、微信"充值/提现"等中性交易<br>
-    · 按数据库分类规则尝试分类，未命中的记为<strong>待处理</strong>，可在列表页就地改<br>
+    · 转账/提现/信用卡还款等中性交易归入「资金往来」科目，以<strong>不计收支</strong>落地（不进报表，但列表里看得见、改得动）<br>
+    · 按数据库分类规则尝试分类，未命中的记为<strong>待核对</strong>，可在列表页就地改<br>
     · 以 (来源 + 交易单号) 去重，重复上传不会产生副本
   </div>
 
@@ -65,7 +65,7 @@
 <div class="page-title" style="margin-bottom:16px">
   <div>
     <h2>手工录入单笔</h2>
-    <div class="meta">直接录入一条已确认流水，来源标记为「手填」</div>
+    <div class="meta">直接录入一条已入账流水，来源标记为「手填」</div>
   </div>
 </div>
 

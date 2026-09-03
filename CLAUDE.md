@@ -60,7 +60,7 @@ internal/
   infrastructure/
     config/                env/godotenv 加载 Config
     sqlite/                sql.DB + goose 迁移 + Analyze + 各 Repo 实现
-    sqlite/migrations/     goose SQL（当前到 015），通过 //go:embed 嵌入二进制
+    sqlite/migrations/     goose SQL（当前到 016），通过 //go:embed 嵌入二进制
   adapter/
     bill/                  账单解析器（alipay.csv / wepay.xlsx → []RawBillRow）+ 通用 CSV 模板解析
     llm/                   OpenAI 兼容 chat completions 客户端
@@ -81,12 +81,17 @@ internal/
 
 - **金额单位是 `int64` 分（fen）**，整条链路不用 float。账单解析器把元乘 100 并 +0.5 转分；模板里用 `{{yuan .Amount}}` 格式化回元，前端 JS 用 `tx_table.js` 的 `fmtYuan`。
 - **Period 标签格式**：季度 `"2025Q3"`、年度 `"2025"`、月度 `"2025-07"`。`domain.ParsePeriod` 是唯一解析入口；`Period.End` 是独占（`< End`），SQL 里对应 `occurred_at < ?`。
-- **Category ID 用点分命名空间**：一级（`level=1`）是分组（如 `income.salary`、`expense.discretion`），二级（`level=2`）是真正的科目（如 `expense.discretion.shopping`）。聚合与模板靠 `parent_id` 与 `strings.HasPrefix(GroupID, "income.")/"expense."` 分流。
+- **Category ID 用点分命名空间**：一级（`level=1`）是分组（如 `income.salary`、`expense.discretion`），二级（`level=2`）是真正的科目（如 `expense.discretion.shopping`）。顶层前缀有三个：`income.`、`expense.`，以及迁移 016 加的 `transfer.`（资金往来，见下）。聚合与模板靠 `parent_id` 与 `strings.HasPrefix(GroupID, "income.")/"expense."` 分流——`transfer.` 两边都落不进，天然被排除在收支之外，这是刻意的。
 - **DiscretionRatio 告警阈值 35%**（`computeKPI` in `usecase/query_report.go`，`k.DiscretionWarning = k.DiscretionRatio > 0.35`）。**分子分母都是日常口径**：分子是 `expense.discretion` 组在日常分组里的小计，分母是 `KPI.DailyExpense` 而**不是** `TotalExpense`——用全口径的话一次装修把分母从 4 万抬到 18.5 万，占比被稀释到阈值以下，告警正好在最该响的时候静默关掉。改阈值或新增 KPI 就改 `computeKPI` 这一处。
-- **Transaction.Status**：`pending_review | confirmed | excluded`。聚合 SQL 只算 `confirmed`。
-  - 导入时：命中本地规则 → `confirmed`；未命中 → `pending_review`（等 LLM 或人工）。
-  - 人工在列表页下拉改分类 / LLM 补上分类 → 自动转 `confirmed`。
+- **Transaction.Status 只回答"计不计入报表"，不回答"这是什么钱"**。存储值仍是 `pending_review | confirmed | excluded`（UI 标签：待核对 / 已入账 / 不计收支），聚合 SQL 只算 `confirmed`。
+  - 导入时：命中本地规则 → `confirmed`；未命中 → `pending_review`（等 LLM 或人工）；命中往来科目 → `excluded`。
+  - 人工在列表页下拉改分类 / LLM 补上分类 → 自动转 `confirmed`（往来科目除外，见下）。
   - 用户想彻底忽略某笔（如误记）→ 改为 `excluded`，不参与季/年报。
+- **`transfer.*` 资金往来科目（迁移 016）回答"为什么不计"**：`transfer.internal`（提现/充值/信用卡还款/理财申赎）、`transfer.loan`（借出/借入/还款）、`transfer.reimburse`（可报销垫付 + 报销到账）。这类流水只是钱换了口袋，或是债权债务的一出一回，两头相抵净影响为零。
+  - **红线：往来科目上的行必须是 `excluded`，绝不能是 `confirmed`。** `SumByBuckets`、`TopTransactions`、`ListForRecurring` 只按 `direction` + `status` 过滤、**不看科目**，一条 `confirmed` 的转账会被四笔钱、AI 上下文包、周报季报、目标进度、月/季对比条、Top 榜单一起当成真支出。（现金流表与饼图走 `income.`/`expense.` 前缀分流，那条路本身安全。）
+  - 判据集中在 **`domain.IsTransferCategory`**，三个写入点共用，别各写各的：`usecase/import_bill.go` 落地、`handler.UpdateTransaction` 的 PATCH 改分类、`usecase/classify_pending.go` 的 LLM 回写。前端 `tx_table.js` 的 `statusAfterCategory()` 是这条规则的第二份实现（乐观更新用），**改一处必须改两处**。
+  - **往来科目故意不进 LLM 白名单**（`classify_pending.go`）：模型只拿得到 counterparty/description/direction，判断"这是不是借款"证据不足；误判的代价是一笔真支出以 `excluded` 落地、从所有报表里消失，比分错科目严重。往来只靠规则 + 人工。
+  - **退款是唯一不适用这套的**：原支出那笔是 `confirmed` 算在支出里的，把退款标成不计收支没人去冲减它，支出就虚高了。做法是**改原支出那笔的金额**为实付（全额退则把原支出也标不计收支），退款到账那笔不入库。日常口径的 `AggregateByCategory` 是裸 `SUM(amount)`、不做净额，只有专项那条路（`special_project_repo.go` 的 `netAmountSQL`）会拿收入抵扣支出——这个不一致是已知的，别当成 bug 顺手"修"成两边都净额。
 - **Transaction.SpecialID**：所属专项（`special_projects.id`），**空 = 日常开支**。跟 `excluded` 是两回事：专项**仍然计入支出合计**（`ReportKPI.TotalExpense`、现金流表的「支出合计 (B)」都含它），只是可以按统计口径被剔除；`excluded` 才是彻底不参与任何聚合。判据是"非经常性"而不是"金额大"，所以只能人工标注（流水页单条下拉，或勾选后批量 `PATCH /api/transactions/batch`），不做金额阈值自动判定。
 - **Transaction.Note**：用户在流水列表就地填的备注，与 `Description`（来自账单的商品说明）分开存，不要覆盖。
 - **唯一键防重**：`imported_transaction_keys(source, transaction_no)` 由 `InsertBatch` 在事务内检查。重复导入同一文件全部跳过。
@@ -121,7 +126,7 @@ internal/
 2. `POST /imports` → `ImportBill.Execute`：
    - `adapter/bill/ParserFor(source)` 得到解析器；alipay 走 GB18030 → UTF-8 → `encoding/csv`；wechat 走 `excelize.OpenFile`（先拷贝到临时文件）。
    - 解析器跳过元信息头，找 `交易时间` 表头行后逐行解析，过滤非交易成功 / 不计收支。输出 `[]RawBillRow`。
-   - `ClassifyByCustomRules(row, rules)` 读取 `category_rules` 数据库规则分类；页面新增/保存的规则和迁移种下的内置规则都在同一张表。规则 `category_id=NULL` → 视为"应跳过"（转账/提现等），不入库；未命中 → `category_id=NULL`, `status=pending_review`。
+   - `ClassifyByCustomRules(row, rules)` 读取 `category_rules` 数据库规则分类；页面新增/保存的规则和迁移种下的内置规则都在同一张表。规则 `category_id=NULL` → 老式"跳过导入"，以 `status=excluded` **入库**（不是不入库，方便人工恢复）；迁移 016 之后内置的转账/提现规则改指到 `transfer.internal`，同样落 `excluded` 但带科目，用户在流水页看得见、改得动。未命中 → `category_id=NULL`, `status=pending_review`。**收入行只在命中往来科目时导入**（报销到账、收回借款——不收进来"垫付出去/借出去"就抵不平），其余收入行仍不导入，所以季报里的收入合计目前只有手工录入的那些，这是已知缺口。
    - `TransactionRepo.InsertBatch` 一个事务里：对每行 `SELECT FROM imported_transaction_keys` 去重 → `INSERT transactions` + `INSERT imported_transaction_keys` → 最后 `INSERT import_batches`。
    - 成功后调 `uc.trigger()`（在 main.go 里绑定到 `ClassifyPending.Trigger`）唤醒 LLM 后台兜底。
 3. Flash cookie 回显结果，302 到 `/transactions`。
@@ -167,7 +172,7 @@ internal/
 ### 数据库
 
 - 驱动 `modernc.org/sqlite`（纯 Go，无 CGO）。DSN 带 `journal_mode=WAL` + `foreign_keys=1` + `busy_timeout=5000`。
-- 迁移用 `pressly/goose`，SQL 文件放 `internal/infrastructure/sqlite/migrations/NNN_*.sql`（当前到 `015`），`//go:embed migrations/*.sql`；新增迁移直接加编号更高的文件，服务器启动自动 `goose up`。每个迁移都要写 `-- +goose Down`。
+- 迁移用 `pressly/goose`，SQL 文件放 `internal/infrastructure/sqlite/migrations/NNN_*.sql`（当前到 `016`），`//go:embed migrations/*.sql`；新增迁移直接加编号更高的文件，服务器启动自动 `goose up`。每个迁移都要写 `-- +goose Down`。
 - 主要表：`transactions`、`categories`、`category_rules`、`import_batches`、`imported_transaction_keys`、`asset_snapshots`、`financial_goals`、`insurance_policies`、`family_profile`、`budgets`、`digest_settings`、`import_templates`、`special_projects`（迁移 014 新建，专项开支，已投入使用）、`reports`（AI 财报与 AI 建议共用一张表，靠 `period_type='advice'` 区分；迁移 015 加了 `data_scope` 标注每份存档的统计口径，默认 `'all'` 正是存量行的真实口径）。新增用例优先复用这些表而不是再建。
 - **红线：任何新增的、带口径过滤的聚合，都必须保证 `special_id` 落在它走的覆盖索引里。** 迁移 013 为 `AggregateByCategory` 建了 `idx_tx_category_occurred (category_id, occurred_at, status, amount)`（100k 行实测季度聚合 165ms→2.9ms、年度 664ms→12ms）；014 给聚合 SQL 加上 `special_id` 过滤后必须把该索引重建成五列 `(category_id, occurred_at, status, special_id, amount)`，否则每行都要回表，013 的优化直接作废。`migration_014_test.go` 与 `query_plan_test.go` 用 `EXPLAIN QUERY PLAN` 钉死了"必须命中 COVERING INDEX"。
 - **启动时跑一次 `sqlite.Analyze(db)`（即 `ANALYZE`）**，写在 `Migrate` 之后。原因：没有统计信息时 SQLite 只能按固定比例猜选择度（`special_id IS NOT NULL` 猜 1/4、`status='confirmed'` 猜 1/10），于是所有专项聚合都去走 `idx_tx_status` 扫十分之一张表，014 专门建的 `idx_tx_special` **永远不会被选中**。100k 行实测 `SumByProject` 49.5ms→6.7ms、月/季对比条的专项那一组 87.0ms→10.4ms。不写死 `INDEXED BY`（收益随专项占比变化，该由代价优化器按当下数据决定），也不用 `PRAGMA optimize`（它只考虑本连接查过的表，而 `database/sql` 是连接池，触发时机不可控）。失败不致命，只是查询计划变差。
