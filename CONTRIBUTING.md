@@ -11,6 +11,8 @@ go run ./cmd/server
 
 默认监听 `:8787`，SQLite 数据库默认写入 `./family.db`。如果不配置 `OPENAI_API_KEY`，应用仍可运行，但 LLM 分类功能不可用。
 
+用 Codex CLI 开发时跑一次 `scripts/setup-codex.sh`，它会装好 `codex` 并写入仓库约定的沙箱/审批配置，说明见 [docs/codex.md](docs/codex.md)。
+
 ## 提交要求
 
 - 不要提交真实账单、数据库、`.env`、LLM 缓存、导出的报表或截图中的敏感信息。

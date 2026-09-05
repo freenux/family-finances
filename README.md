@@ -82,5 +82,6 @@ docker compose -f docker-compose.prod.yml up -d --build
 - 新增 Repository 方法先改 `internal/port/` 接口，再改 SQLite 实现。
 - UI 文本和面向用户的错误信息使用简体中文。
 - 页面交互测试优先使用 Playwright。
+- AI 编码代理的项目约定统一放在根目录 `AGENTS.md`（软链到 `CLAUDE.md`）；Codex CLI 的安装与配置见 [docs/codex.md](docs/codex.md)。
 
 更多贡献说明见 [CONTRIBUTING.md](CONTRIBUTING.md)，安全说明见 [SECURITY.md](SECURITY.md)。

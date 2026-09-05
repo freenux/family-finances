@@ -1,0 +1,34 @@
+# Codex CLI 配置模板（family-finances）
+# 由 scripts/setup-codex.sh 写入 $CODEX_HOME/config.toml（默认 ~/.codex/config.toml），
+# __PROJECT_ROOT__ 会被替换成本机的仓库绝对路径。
+# 配置项文档：https://developers.openai.com/codex/config
+
+# 模型留空时用 Codex 默认值；要钉死版本就取消注释，填账号实际可用的模型名。
+# model = "gpt-5.2-codex"
+model_reasoning_effort = "medium"
+
+# 边改代码边跑 go test 的默认姿势：工作区可写，越界的操作再来问。
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+# go mod download、goose 依赖拉取都要出网，关掉会让 go test 直接失败。
+network_access = true
+exclude_tmpdir_env_var = false
+exclude_slash_tmp = false
+
+[shell_environment_policy]
+# 继承常规环境变量即可；应用自己从 .env 读 OPENAI_* / AUTH_KEY，不靠这里注入。
+inherit = "core"
+
+[history]
+persistence = "save-all"
+
+# 信任本仓库，省掉每次进目录的信任确认。换机器/换路径时重跑 setup-codex.sh。
+[projects."__PROJECT_ROOT__"]
+trust_level = "trusted"
+
+# 需要让 Codex 直接开浏览器验证页面时，取消下面两行注释（首次会从 npm 拉包）。
+# [mcp_servers.playwright]
+# command = "npx"
+# args = ["-y", "@playwright/mcp@latest"]
