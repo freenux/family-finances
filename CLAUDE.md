@@ -60,7 +60,7 @@ internal/
   infrastructure/
     config/                env/godotenv 加载 Config
     sqlite/                sql.DB + goose 迁移 + Analyze + 各 Repo 实现
-    sqlite/migrations/     goose SQL（当前到 015），通过 //go:embed 嵌入二进制
+    sqlite/migrations/     goose SQL（当前到 016），通过 //go:embed 嵌入二进制
   adapter/
     bill/                  账单解析器（alipay.csv / wepay.xlsx → []RawBillRow）+ 通用 CSV 模板解析
     llm/                   OpenAI 兼容 chat completions 客户端
@@ -167,7 +167,7 @@ internal/
 ### 数据库
 
 - 驱动 `modernc.org/sqlite`（纯 Go，无 CGO）。DSN 带 `journal_mode=WAL` + `foreign_keys=1` + `busy_timeout=5000`。
-- 迁移用 `pressly/goose`，SQL 文件放 `internal/infrastructure/sqlite/migrations/NNN_*.sql`（当前到 `015`），`//go:embed migrations/*.sql`；新增迁移直接加编号更高的文件，服务器启动自动 `goose up`。每个迁移都要写 `-- +goose Down`。
+- 迁移用 `pressly/goose`，SQL 文件放 `internal/infrastructure/sqlite/migrations/NNN_*.sql`（当前到 `016`），`//go:embed migrations/*.sql`；新增迁移直接加编号更高的文件，服务器启动自动 `goose up`。每个迁移都要写 `-- +goose Down`。
 - 主要表：`transactions`、`categories`、`category_rules`、`import_batches`、`imported_transaction_keys`、`asset_snapshots`、`financial_goals`、`insurance_policies`、`family_profile`、`budgets`、`digest_settings`、`import_templates`、`special_projects`（迁移 014 新建，专项开支，已投入使用）、`reports`（AI 财报与 AI 建议共用一张表，靠 `period_type='advice'` 区分；迁移 015 加了 `data_scope` 标注每份存档的统计口径，默认 `'all'` 正是存量行的真实口径）。新增用例优先复用这些表而不是再建。
 - **红线：任何新增的、带口径过滤的聚合，都必须保证 `special_id` 落在它走的覆盖索引里。** 迁移 013 为 `AggregateByCategory` 建了 `idx_tx_category_occurred (category_id, occurred_at, status, amount)`（100k 行实测季度聚合 165ms→2.9ms、年度 664ms→12ms）；014 给聚合 SQL 加上 `special_id` 过滤后必须把该索引重建成五列 `(category_id, occurred_at, status, special_id, amount)`，否则每行都要回表，013 的优化直接作废。`migration_014_test.go` 与 `query_plan_test.go` 用 `EXPLAIN QUERY PLAN` 钉死了"必须命中 COVERING INDEX"。
 - **启动时跑一次 `sqlite.Analyze(db)`（即 `ANALYZE`）**，写在 `Migrate` 之后。原因：没有统计信息时 SQLite 只能按固定比例猜选择度（`special_id IS NOT NULL` 猜 1/4、`status='confirmed'` 猜 1/10），于是所有专项聚合都去走 `idx_tx_status` 扫十分之一张表，014 专门建的 `idx_tx_special` **永远不会被选中**。100k 行实测 `SumByProject` 49.5ms→6.7ms、月/季对比条的专项那一组 87.0ms→10.4ms。不写死 `INDEXED BY`（收益随专项占比变化，该由代价优化器按当下数据决定），也不用 `PRAGMA optimize`（它只考虑本连接查过的表，而 `database/sql` 是连接池，触发时机不可控）。失败不致命，只是查询计划变差。

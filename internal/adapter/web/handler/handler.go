@@ -566,7 +566,6 @@ type txRowJSON struct {
 	OccurredAt       string `json:"occurred_at"`
 	Source           string `json:"source"`
 	Account          string `json:"account"`
-	Member           string `json:"member"`
 	Counterparty     string `json:"counterparty"`
 	Description      string `json:"description"`
 	PlatformCategory string `json:"platform_category"`
@@ -592,7 +591,6 @@ func txRowJSONFrom(t domain.Transaction) txRowJSON {
 		OccurredAt:       t.OccurredAt.Format("2006-01-02"),
 		Source:           string(t.Source),
 		Account:          string(t.Account),
-		Member:           t.Member,
 		Counterparty:     t.Counterparty,
 		Description:      t.Description,
 		PlatformCategory: t.PlatformCategory,
@@ -804,7 +802,6 @@ type updateTxReq struct {
 	Note       *string `json:"note"`
 	Status     *string `json:"status"`
 	Account    *string `json:"account"`
-	Member     *string `json:"member"`
 	SpecialID  *string `json:"special_id"` // 空字符串 = 归回日常
 }
 
@@ -868,14 +865,6 @@ func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		patch.Account = &a
-	}
-	if req.Member != nil {
-		m := strings.TrimSpace(*req.Member)
-		if len([]rune(m)) > 20 {
-			http.Error(w, "成员标注过长（限 20 字）", http.StatusBadRequest)
-			return
-		}
-		patch.Member = &m
 	}
 	if req.SpecialID != nil {
 		v := strings.TrimSpace(*req.SpecialID)
@@ -955,7 +944,6 @@ type importVM struct {
 	pageBase
 	Error      string
 	Categories []domain.Category
-	Members    []string
 }
 
 func (h *Handler) ImportForm(w http.ResponseWriter, r *http.Request) {
@@ -964,12 +952,7 @@ func (h *Handler) ImportForm(w http.ResponseWriter, r *http.Request) {
 		h.serverError(w, err)
 		return
 	}
-	members, err := h.txRepo.ListMembers(r.Context())
-	if err != nil {
-		h.serverError(w, err)
-		return
-	}
-	vm := importVM{pageBase: pageBase{Title: "导入账单", Nav: "imports"}, Categories: cats, Members: members}
+	vm := importVM{pageBase: pageBase{Title: "导入账单", Nav: "imports"}, Categories: cats}
 	h.renderPage(w, http.StatusOK, "imports", vm)
 }
 
@@ -1008,7 +991,6 @@ func (h *Handler) ImportSubmit(w http.ResponseWriter, r *http.Request) {
 	res, err := h.importBill.Execute(r.Context(), usecase.ImportBillInput{
 		Source:   src,
 		Account:  acc,
-		Member:   strings.TrimSpace(r.FormValue("member")),
 		Filename: header.Filename,
 		Reader:   file,
 	})
@@ -1047,8 +1029,7 @@ func transactionsRedirectURL(acc domain.Account, occurredAt time.Time) string {
 
 func (h *Handler) renderImportError(w http.ResponseWriter, r *http.Request, msg string) {
 	cats, _ := h.catRepo.ListAll(r.Context())
-	members, _ := h.txRepo.ListMembers(r.Context())
-	vm := importVM{pageBase: pageBase{Title: "导入账单", Nav: "imports"}, Error: msg, Categories: cats, Members: members}
+	vm := importVM{pageBase: pageBase{Title: "导入账单", Nav: "imports"}, Error: msg, Categories: cats}
 	h.renderPage(w, http.StatusBadRequest, "imports", vm)
 }
 
@@ -1097,7 +1078,6 @@ func (h *Handler) ManualEntrySubmit(w http.ResponseWriter, r *http.Request) {
 		ID:           newID(),
 		Source:       domain.SourceManual,
 		Account:      acc,
-		Member:       strings.TrimSpace(r.FormValue("member")),
 		OccurredAt:   occurredAt,
 		Counterparty: strings.TrimSpace(r.FormValue("counterparty")),
 		Description:  strings.TrimSpace(r.FormValue("description")),

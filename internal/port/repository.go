@@ -17,7 +17,6 @@ type TransactionUpdate struct {
 	Note       *string
 	Status     *domain.TxStatus
 	Account    *domain.Account
-	Member     *string
 	SpecialID  *string // nil 表示不修改；空字符串表示清空（归回日常）
 }
 
@@ -87,8 +86,6 @@ type TransactionRepo interface {
 	ListAll(ctx context.Context) ([]domain.Transaction, error)
 	// ListAllImportBatches 全量导入批次；供 /export 使用
 	ListAllImportBatches(ctx context.Context) ([]domain.ImportBatch, error)
-	// ListMembers 已出现过的成员标注去重列表（datalist 记忆用）
-	ListMembers(ctx context.Context) ([]string, error)
 	// ListForRecurring 周期识别专用精简查询：direction='expense' AND status='confirmed'，
 	// 只取 occurred_at / counterparty / description / amount 必要列（不拉 raw_row 等大字段），
 	// 返回的 Transaction 仅这四个字段 + Direction/Status 有值。scope 同上。

@@ -132,10 +132,6 @@ func (r *captureTransactionRepo) ListAllImportBatches(context.Context) ([]domain
 	return nil, nil
 }
 
-func (r *captureTransactionRepo) ListMembers(context.Context) ([]string, error) {
-	return nil, nil
-}
-
 func (r *captureTransactionRepo) ListForRecurring(context.Context, time.Time, time.Time, domain.Scope) ([]domain.Transaction, error) {
 	return nil, nil
 }

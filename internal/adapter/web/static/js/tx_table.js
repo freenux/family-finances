@@ -36,7 +36,6 @@ function txTable() {
   const defaultFilters = () => ({
     keyword: '',
     directionFilter: 'all',
-    memberFilter: '',
     sourceFilter: ['alipay', 'wechat', 'manual', 'csv'],
     accountFilter: ['husband', 'wife'],
     statusFilter: ['pending_review', 'confirmed'],
@@ -86,13 +85,11 @@ function txTable() {
       }
 
       // 从仪表盘「双击科目 / 双击柱子」跳转过来：按 URL 参数预设筛选状态。
-      // member 目前仪表盘还不会传，但先支持上，以后仪表盘加了成员维度直接能用。
       const q = new URLSearchParams(window.location.search);
       const dir = q.get('direction');
       if (dir === 'income' || dir === 'expense') this.directionFilter = dir;
       if (q.has('category')) this.categoryFilter = q.get('category');
       if (q.has('special'))  this.specialFilter = q.get('special');
-      if (q.has('member'))   this.memberFilter = q.get('member');
     },
 
     setGranularity(g) {
@@ -121,14 +118,13 @@ function txTable() {
     },
 
     // syncURL 把当前视图完整写回地址栏。除了后端参数，还要带上 direction / category /
-    // special / member 这几个纯前端的穿透筛选（init() 读的就是它们）——否则从仪表盘穿透
+    // special 这几个纯前端的穿透筛选（init() 读的就是它们）——否则从仪表盘穿透
     // 过来再点一次「上一期」，URL 就只剩周期，刷新或把链接发给别人时筛选全部回默认。
     syncURL() {
       const q = this.apiParams();
       if (this.directionFilter !== 'all') q.set('direction', this.directionFilter);
       if (this.categoryFilter) q.set('category', this.categoryFilter);
       if (this.specialFilter)  q.set('special',  this.specialFilter);
-      if (this.memberFilter)   q.set('member',   this.memberFilter);
       const s = q.toString();
       window.history.replaceState(null, '', window.location.pathname + (s ? '?' + s : ''));
     },
@@ -159,14 +155,8 @@ function txTable() {
       const catFilter = this.categoryFilter;
       const specialFilter = this.specialFilter;
 
-      const memberFilter = this.memberFilter;
       let out = this.rows.filter((t) => {
         if (dir !== 'all' && t.direction !== dir) return false;
-        if (memberFilter === '__none__') {
-          if (t.member) return false;
-        } else if (memberFilter && t.member !== memberFilter) {
-          return false;
-        }
         // csv:<模板名> 归并到 'csv' 复选项
         const srcKey = t.source && t.source.startsWith('csv:') ? 'csv' : t.source;
         if (!sources.has(srcKey)) return false;
@@ -216,12 +206,6 @@ function txTable() {
         return String(av).localeCompare(String(bv), 'zh-CN') * sign;
       });
       return out;
-    },
-
-    get memberOptions() {
-      const set = new Set();
-      for (const t of this.rows) if (t.member) set.add(t.member);
-      return [...set].sort((a, b) => a.localeCompare(b, 'zh-CN'));
     },
 
     get totals() {
@@ -351,15 +335,6 @@ function txTable() {
       t.status = value;
       const ok = await this._patch(t.id, { status: value });
       if (!ok) t.status = prev;
-    },
-
-    async patchMember(t, value) {
-      value = value.trim();
-      if (value === t.member) return;
-      const prev = t.member;
-      t.member = value;
-      const ok = await this._patch(t.id, { member: value });
-      if (!ok) t.member = prev;
     },
 
     async patchAccount(t, value) {

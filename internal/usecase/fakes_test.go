@@ -160,8 +160,6 @@ func (f *fakeTransactionRepo) ListAllImportBatches(context.Context) ([]domain.Im
 	return f.allBatches, nil
 }
 
-func (f *fakeTransactionRepo) ListMembers(context.Context) ([]string, error) { return nil, nil }
-
 func (f *fakeTransactionRepo) ListForRecurring(_ context.Context, from, to time.Time, scope domain.Scope) ([]domain.Transaction, error) {
 	var out []domain.Transaction
 	for _, t := range f.allTxs {

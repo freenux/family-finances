@@ -96,8 +96,8 @@ func TestClassifyPendingKeepsSpecialID(t *testing.T) {
 	if patch.Status == nil || *patch.Status != domain.TxStatusConfirmed {
 		t.Fatalf("patch.Status = %v; want confirmed", patch.Status)
 	}
-	// 备注 / 账户 / 成员同理，都不归 LLM 管
-	if patch.Note != nil || patch.Account != nil || patch.Member != nil {
+	// 备注 / 账户同理，都不归 LLM 管
+	if patch.Note != nil || patch.Account != nil {
 		t.Fatalf("patch 多带了不该改的字段: %+v", patch)
 	}
 }

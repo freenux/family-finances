@@ -119,7 +119,6 @@ func (r *stubTxRepo) ListAll(context.Context) ([]domain.Transaction, error) { re
 func (r *stubTxRepo) ListAllImportBatches(context.Context) ([]domain.ImportBatch, error) {
 	return nil, nil
 }
-func (r *stubTxRepo) ListMembers(context.Context) ([]string, error) { return nil, nil }
 func (r *stubTxRepo) ListForRecurring(context.Context, time.Time, time.Time, domain.Scope) ([]domain.Transaction, error) {
 	return nil, nil
 }
