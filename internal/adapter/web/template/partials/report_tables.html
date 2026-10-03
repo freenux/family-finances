@@ -72,7 +72,7 @@
                   <summary style="cursor:pointer">其中：专项支出</summary>
                   <div style="margin-top:6px">
                     {{range .Report.SpecialByProject}}
-                      <div class="flex-row row-sp12 special-line">
+                      <div class="special-line">
                         <a href="/specials?edit={{.SpecialID}}#special-form">{{.Name}}</a>
                         <span class="special-line-amt">{{yuan .Amount}}</span>
                       </div>

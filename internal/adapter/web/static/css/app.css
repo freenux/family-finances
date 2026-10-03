@@ -1584,8 +1584,10 @@ header.app-header nav > a + a { margin-left: 26px; }
 .stats-head.stats-head--wrap > :first-child { margin-right: 10px; }
 .stats-head.stats-head--wrap > .flex-row.row-wrap { margin: -5px 5px 5px -5px; }
 
-/* 专项明细行（report_tables.html）：两端对齐 + 内边距/颜色；间距走 .flex-row.row-sp12 */
-.special-line { justify-content: space-between; padding: 2px 0; color: var(--text-secondary); }
+/* 专项明细行（report_tables.html）：名称靠左、金额靠右，原 gap 12px 改兄弟 margin。
+   不用 .flex-row：手机断点会让 .flex-row 换行并给每个子元素加上下 margin，行高会变。 */
+.special-line { display: flex; justify-content: space-between; padding: 2px 0; color: var(--text-secondary); }
+.special-line > :not(template) ~ :not(template) { margin-left: 12px; }
 .special-line-amt { font-variant-numeric: tabular-nums; }
 
 /* ============================================================
