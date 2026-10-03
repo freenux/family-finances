@@ -142,6 +142,8 @@ func main() {
 		TxQuery:      txQuery,
 		Tx:           txRepo,
 		TxBulk:       txRepo,
+		TxInsert:     txRepo,
+		Report:       queryRep,
 		Nav:          nav,
 		Log:          log,
 	})

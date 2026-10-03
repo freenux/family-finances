@@ -9,6 +9,10 @@ import (
 	"family-finances/internal/port"
 )
 
+// DiscretionWarnRatio 自由裁量占日常支出的告警阈值（严格大于才告警）。
+// 阈值只此一处：computeKPI 判定告警，ReportView 的说明文案也读它，客户端不比阈值。
+const DiscretionWarnRatio = 0.35
+
 type QueryReport struct {
 	txRepo      port.TransactionRepo
 	catRepo     port.CategoryRepo
@@ -212,6 +216,6 @@ func computeKPI(income, expense, dailyIncome, dailyExpense []domain.CategoryGrou
 			k.DiscretionRatio = float64(g.Subtotal) / float64(k.DailyExpense)
 		}
 	}
-	k.DiscretionWarning = k.DiscretionRatio > 0.35
+	k.DiscretionWarning = k.DiscretionRatio > DiscretionWarnRatio
 	return k
 }

@@ -221,6 +221,89 @@ page_size  = 50                          缺省 50，上限 200，超出钳到�
 
 ---
 
+## 5.1 手填记账：`POST /api/v1/transactions`
+
+```json
+// 请求
+{"occurred_at":"2025-07-03 14:22","account":"husband","direction":"expense","amount_fen":1234,
+ "category_id":"expense.discretion.shopping","member":"","counterparty":"星巴克","description":"咖啡","note":""}
+// 响应（200，沿用统一信封；本契约的写接口都不用 201）
+{"data":{"id":"6f1c..."}}
+```
+
+- **金额只收分：`amount_fen`，整数（`int64`）**，必须 > 0 且 ≤ 1,000,000,000,000（100 亿元）。
+  不收元：元→分是一处两端各写一遍就会各自漂移的推导，所以客户端**不得自己乘 100**——
+  金额输入控件应直接产出整数分（如小程序的分单位数字键盘）。
+  **唯一的换算实现是 `usecase.ParseYuanToFen`**：纯十进制字符串解析，整条链路无 float，
+  第三位小数四舍五入（`19.999 → 2000`），与账单解析器「元乘 100 再 +0.5」同向；
+  只给 SSR 表单（`POST /imports/manual`，用户在网页里敲的是元）用。
+  JSON 里传 `12.5`、`"12"` 这类非整数 `amount_fen` → 400，不会悄悄取整。
+- `occurred_at` 接受三种写法，都由 `usecase.ParseOccurredAt` 解析，无时区信息时按服务器本地时区：
+  `"2025-07-03 14:22"`（与行 DTO 的 `occurred_text` 同形，**推荐**）、`"2025-07-03T14:22"`、RFC3339。
+- `account` 只能是 `husband | wife`（见 §3 `accounts`；`family` 是查询视图，不可写）；
+  `direction` 只能是 `income | expense`；`category_id` 可空，非空必须是二级科目（见 §3 `categories`）。
+  `member` / `counterparty` / `description` / `note` 可空，服务端 trim。
+- 服务端装配：`source = manual`；`status = confirmed`（手填就是用户亲手确认的）；`id` 由服务端生成。
+  **注意**：不给 `category_id` 时仍然是 `confirmed`（沿用 SSR 表单既有行为），这类流水
+  因为没有科目不会进任何聚合，也不会被 LLM 兜底分类——客户端应引导用户选科目，
+  事后可用 `PATCH /api/v1/transactions/{id}` 补。
+- 校验全在 `usecase.CreateTransaction`（SSR 表单与本接口共用），失败返回 `ErrInvalidInput`
+  → 400 `bad_request`，`message` 是中文原话（「金额必须为正数」「请选择有效的二级分类」……）；
+  DB 故障 → 500，细节只进日志。
+- 路由：`POST /transactions` 与 `PATCH /transactions/{id}` 不同 method，且 POST 下没有占位段，互不干扰
+  （`apiv1.TestCreateTransactionRouteOwnership` 钉住）。
+- 等价性：同一组输入走 SSR 表单与走本接口，落库的流水逐字段相同
+  （`handler.TestManualEntryFormAndAPIProduceSameTransaction` 钉住）。
+
+---
+
+## 5.2 季/年报：`GET /api/v1/report?type=&period=&account=`
+
+数据源是 `usecase.QueryReport`（日常、专项各聚合一次再合成全口径，原因见 `CLAUDE.md`「统计口径」），
+本接口不重新实现任何聚合。装配在 `usecase.ReportView`，`apiv1.Report` 只是薄壳。
+
+- **缺省粒度是 `quarterly`**（财报视图是季/年口径，不是月度；与 `/periods/nav` 一致，不像 §5 流水列表缺省 monthly）。
+  `type` 可传 `quarterly | annual | monthly`；`period` 缺省取该粒度的默认周期（上一个完整周期），
+  `type` 与 `period` 对不上时退回该 `type` 的默认周期，`period` 解析失败 → 400（规则全在 `PeriodNav.Resolve`，见 §4）。
+- `account` 缺省/非法 → `family`。
+
+```json
+{"data":{
+  "period":{...§4 同形状，含 prev / next / has_next...},
+  "account":"family","account_text":"家庭总账",
+  "kpi":{
+    "total_income_fen":0,"total_income_text":"0.00",
+    "total_expense_fen":0,"total_expense_text":"0.00",
+    "surplus_fen":0,"surplus_text":"0.00","surplus_rate":0.0,"surplus_rate_text":"0.0%",
+    "daily_surplus_fen":0,"daily_surplus_text":"0.00","daily_surplus_rate":0.0,"daily_surplus_rate_text":"0.0%",
+    "discretion_ratio":0.5,"discretion_ratio_text":"50.0%",
+    "discretion_warning":true,
+    "discretion_note":"自由裁量支出占日常支出（不含专项）50.0%，超过 35.0% 的建议线，建议控制。"
+  },
+  "cashflow":[
+    {"key":"daily","label":"日常","income_fen":0,"income_text":"0.00","expense_fen":0,"expense_text":"0.00","surplus_fen":0,"surplus_text":"0.00"},
+    {"key":"special","label":"专项", ...同形状...},
+    {"key":"all","label":"全口径", ...同形状...}
+  ],
+  "special_by_project":[{"special_id":"sp-1","name":"装修","amount_fen":0,"amount_text":"0.00"}]
+}}
+```
+
+- **`cashflow` 固定三行，顺序 `daily` / `special` / `all`，且逐列满足 `daily + special == all`**
+  （收入、支出、结余；`CLAUDE.md` 红线）。三行直接取自 `QueryReport` 已合成的 KPI，不在适配器里重算。
+  `surplus_*`（kpi）是**全口径**真实现金流结余，`daily_surplus_*` 是剔除专项后的攒钱能力。
+- **告警由服务端判定**：`discretion_warning = discretion_ratio > 0.35`（阈值常量 `usecase.DiscretionWarnRatio`，
+  `computeKPI` 与文案共用）。**分母是日常支出，不是 `total_expense`**——装修季全口径分母被抬高会让告警静默。
+  客户端只渲染 `discretion_warning` 与 `discretion_note`，**不得自己比阈值**。
+  `discretion_note` 告警与否都有一句话（超标：「…超过 35.0% 的建议线，建议控制。」；否则「…在 35.0% 的建议线以内。」）。
+- 比率成对：原始值（`float64`，给条形图用）+ `_text`（`"%.1f%%"`）。
+- `special_by_project` 是本期各专项的净花费（专项内收入已抵扣），按金额降序；无专项时为 `[]`。
+- 本接口只给 KPI 与现金流三行，不含逐科目明细表（小程序「季/年报 KPI」的范围）；需要时再加字段，不改现有字段。
+- 测试：`usecase.TestReportViewCashflowInvariant`、`usecase.TestReportViewDiscretionWarning`、
+  `apiv1.TestReportEndpointInvariantAndWarning`、`apiv1.TestReportWarningNotAffectedBySpecial`。
+
+---
+
 ## 6. 规则：匹配逻辑去重 + 批量应用
 
 ### 6.1 先修一个真 bug

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -886,89 +885,48 @@ func (h *Handler) renderImportError(w http.ResponseWriter, r *http.Request, msg 
 	h.renderPage(w, http.StatusBadRequest, "imports", vm)
 }
 
+// ManualEntrySubmit POST /imports/manual（表单 + flash + 302）。
+// 校验与装配都在 usecase.CreateTransaction（与 /api/v1 共用），这里只做表单解析与跳转。
 func (h *Handler) ManualEntrySubmit(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		h.renderImportError(w, r, "表单解析失败")
 		return
 	}
 
-	occurredStr := r.FormValue("occurred_at")
-	occurredAt, err := time.ParseInLocation("2006-01-02T15:04", occurredStr, time.Local)
-	if err != nil {
-		h.renderImportError(w, r, "日期时间格式不正确")
-		return
-	}
-
-	acc := domain.Account(r.FormValue("account"))
-	if !acc.IsStorageAccount() {
-		h.renderImportError(w, r, "请选择账户归属（男主/女主）")
-		return
-	}
-
-	dir := domain.Direction(r.FormValue("direction"))
-	if dir != domain.DirectionIncome && dir != domain.DirectionExpense {
-		h.renderImportError(w, r, "请选择收支方向")
-		return
-	}
-
 	amountStr := r.FormValue("amount")
-	amountFen, amountErr := parseAmountToFen(amountStr)
-	if amountErr != nil {
-		h.renderImportError(w, r, amountErr.Error())
+	amountFen, err := parseAmountToFen(amountStr)
+	if err != nil {
+		h.renderImportError(w, r, err.Error())
 		return
 	}
 
-	categoryID := r.FormValue("category_id")
-	if categoryID != "" {
-		if err := h.ensureLeafCategory(r.Context(), categoryID); err != nil {
+	tx, err := usecase.NewCreateTransaction(h.txRepo, h.catRepo).Execute(r.Context(), usecase.NewTransactionInput{
+		OccurredAt:   r.FormValue("occurred_at"),
+		Account:      r.FormValue("account"),
+		Direction:    r.FormValue("direction"),
+		AmountFen:    amountFen,
+		CategoryID:   r.FormValue("category_id"),
+		Member:       r.FormValue("member"),
+		Counterparty: r.FormValue("counterparty"),
+		Description:  r.FormValue("description"),
+		Note:         r.FormValue("note"),
+	})
+	if err != nil {
+		if errors.Is(err, usecase.ErrInvalidInput) {
 			h.renderImportError(w, r, err.Error())
 			return
 		}
-	}
-
-	now := time.Now()
-	tx := domain.Transaction{
-		ID:           newID(),
-		Source:       domain.SourceManual,
-		Account:      acc,
-		Member:       strings.TrimSpace(r.FormValue("member")),
-		OccurredAt:   occurredAt,
-		Counterparty: strings.TrimSpace(r.FormValue("counterparty")),
-		Description:  strings.TrimSpace(r.FormValue("description")),
-		Note:         strings.TrimSpace(r.FormValue("note")),
-		Amount:       amountFen,
-		Direction:    dir,
-		Status:       domain.TxStatusConfirmed,
-		CategoryID:   categoryID,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-	if err := h.txRepo.Insert(r.Context(), tx); err != nil {
 		h.log.Error("manual entry insert", "err", err)
 		h.renderImportError(w, r, "写入失败："+err.Error())
 		return
 	}
 
-	h.flash.set(w, fmt.Sprintf("手工录入成功（%s）：%s ¥%s", acc.Label(), string(dir), amountStr))
-	http.Redirect(w, r, transactionsRedirectURL(acc, occurredAt), http.StatusSeeOther)
+	h.flash.set(w, fmt.Sprintf("手工录入成功（%s）：%s ¥%s", tx.Account.Label(), string(tx.Direction), amountStr))
+	http.Redirect(w, r, transactionsRedirectURL(tx.Account, tx.OccurredAt), http.StatusSeeOther)
 }
 
-// parseAmountToFen 把用户输入的元金额转成分。
-// ParseFloat 会接受 "NaN"/"Inf"/超大科学计数法，必须显式拒绝，否则会写入垃圾金额。
-func parseAmountToFen(s string) (int64, error) {
-	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
-	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
-		return 0, fmt.Errorf("金额格式不正确")
-	}
-	if f <= 0 {
-		return 0, fmt.Errorf("金额必须为正数")
-	}
-	const maxYuan = 1e10 // 单笔上限 100 亿元，防 int64 溢出
-	if f > maxYuan {
-		return 0, fmt.Errorf("金额超出可接受范围")
-	}
-	return int64(math.Round(f * 100)), nil
-}
+// parseAmountToFen 表单里的元金额 → 分。换算只有 usecase.ParseYuanToFen 一份，这里留作薄封装。
+func parseAmountToFen(s string) (int64, error) { return usecase.ParseYuanToFen(s) }
 
 func (h *Handler) serverError(w http.ResponseWriter, err error) {
 	// 细节只进日志，避免把 SQL / 文件路径等内部信息回给客户端

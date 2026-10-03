@@ -60,6 +60,9 @@ type fakeTransactionRepo struct {
 	// updates / updateErr：Update 收到的 patch 序列，与可注入的返回错误
 	updates   []port.TransactionUpdate
 	updateErr error
+	// inserted / insertErr：Insert 收到的流水序列，与可注入的返回错误
+	inserted  []domain.Transaction
+	insertErr error
 	// tops / topScopes：TopTransactions 的返回值与收到的口径序列。
 	// tops 按口径分组，用来验"Top 榜单跟随 scope"。
 	tops      map[domain.Scope][]port.TopTransaction
@@ -100,7 +103,13 @@ func sumAggs(a, b []domain.CategoryAggregation) []domain.CategoryAggregation {
 	return out
 }
 
-func (f *fakeTransactionRepo) Insert(context.Context, domain.Transaction) error { return nil }
+func (f *fakeTransactionRepo) Insert(_ context.Context, tx domain.Transaction) error {
+	if f.insertErr != nil {
+		return f.insertErr
+	}
+	f.inserted = append(f.inserted, tx)
+	return nil
+}
 
 func (f *fakeTransactionRepo) InsertBatch(context.Context, domain.ImportBatch, []port.ImportRow) (port.ImportResult, error) {
 	return port.ImportResult{}, nil

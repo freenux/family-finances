@@ -2,6 +2,7 @@ package apiv1
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 
@@ -101,4 +102,38 @@ func (a *API) BatchUpdateTransactionsByFilter(w http.ResponseWriter, r *http.Req
 		return
 	}
 	WriteData(w, map[string]int{"updated": updated})
+}
+
+// ----- POST：手填记账。校验与装配全在 usecase.CreateTransaction（与 SSR 表单共用） -----
+
+type createTxReq struct {
+	OccurredAt   string `json:"occurred_at"`
+	Account      string `json:"account"`
+	Direction    string `json:"direction"`
+	AmountFen    int64  `json:"amount_fen"` // 分，整数；不收元，换算不在客户端
+	CategoryID   string `json:"category_id"`
+	Member       string `json:"member"`
+	Counterparty string `json:"counterparty"`
+	Description  string `json:"description"`
+	Note         string `json:"note"`
+}
+
+// CreateTransaction POST /api/v1/transactions → {"data":{"id":"..."}}
+func (a *API) CreateTransaction(w http.ResponseWriter, r *http.Request) {
+	if a.txCreate == nil {
+		a.internalError(w, errors.New("手填记账未装配"))
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	var req createTxReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteError(w, http.StatusBadRequest, "bad_request", "请求体不是合法的 JSON（amount_fen 必须是整数分）")
+		return
+	}
+	tx, err := a.txCreate.Execute(r.Context(), usecase.NewTransactionInput(req))
+	if err != nil {
+		a.writeUseCaseError(w, err, "")
+		return
+	}
+	WriteData(w, map[string]string{"id": tx.ID})
 }

@@ -185,11 +185,16 @@ func (uc *UpdateTransaction) AssignSpecialByFilter(ctx context.Context, req TxQu
 
 // ensureLeafCategory category_id 必须是二级科目。ListAll 出错是内部故障，原样返回。
 func (uc *UpdateTransaction) ensureLeafCategory(ctx context.Context, id string) error {
-	cats, err := uc.cats.ListAll(ctx)
+	return ensureLeafCategory(ctx, uc.cats, id)
+}
+
+// ensureLeafCategory 编辑与手填共用的科目校验：必须存在且是二级科目。
+func ensureLeafCategory(ctx context.Context, cats LeafCategoryLister, id string) error {
+	all, err := cats.ListAll(ctx)
 	if err != nil {
 		return err
 	}
-	for _, c := range cats {
+	for _, c := range all {
 		if c.ID == id && c.Level == 2 {
 			return nil
 		}
