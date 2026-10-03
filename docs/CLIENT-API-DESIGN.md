@@ -54,8 +54,15 @@ internal/adapter/web/handler/          SSR 改为调同一个 usecase，不再�
 - 前缀 `/api/v1`，挂在 `RequireAuth` 之内（`/api/v1/auth/token` 例外，见 §7）。
 - **现有 `/api/*` 全部保持不动**，PC 页面切到 v1 之后再决定是否下线。不要在本次改动里删。
 - 成功信封：`{"data": <payload>}`。失败：对应 HTTP 状态码 + `{"error":{"code":"...","message":"..."}}`。
-  `code` 用稳定短串，客户端可据此分支：`bad_request` / `unauthorized` / `not_found` / `internal`。
+  `code` 用稳定短串，客户端可据此分支：`bad_request` / `unauthorized` / `not_found` /
+  `method_not_allowed` / `too_many_requests` / `internal`。
   `message` 是面向用户的简体中文。
+  `too_many_requests` 必须是独立的码而不是复用 `bad_request`：客户端要据它决定「退避后重试」，
+  而不是把限流当成自己参数写错。`method_not_allowed` 同理，它指示的是客户端代码写错了。
+- **信封的实现只有一份**，导出在 `apiv1`（`apiv1.WriteData` / `apiv1.WriteError`）。
+  `handler` 需要吐同样的信封时（例如 `/api/v1/auth/token`）**import `apiv1` 复用**，不要各写一份
+  —— 两份信封实现迟早会在格式上漂开。方向是单向的：`handler` 可以 import `apiv1`，
+  `apiv1` 永远不许 import `handler`（否则成环）。
 - 所有金额字段成对出现：`xxx_fen`（`int64`，原始分）+ `xxx_text`（已格式化，如 `"1,234.50"`）。
   客户端只渲染 `_text`，`_fen` 留给需要做条形图高度之类的场景。
 - 所有枚举字段成对出现：`xxx`（稳定机器值）+ `xxx_text`（中文）。
@@ -72,7 +79,8 @@ internal/adapter/web/handler/          SSR 改为调同一个 usecase，不再�
   "categories":[{"group_id":"expense.discretion","group_name":"可选消费","type":"expense",
                  "items":[{"id":"expense.discretion.shopping","name":"购物"}]}],
   "specials":[{"id":"...","name":"装修","active":true}],
-  "accounts":[{"value":"family","label":"全家"},{"value":"husband","label":"..."}],
+  "accounts":[{"value":"husband","label":"男主"},{"value":"wife","label":"女主"}],
+  "account_views":[{"value":"family","label":"家庭总账"},{"value":"husband","label":"男主"}],
   "sources":[{"value":"alipay","label":"支付宝"},{"value":"csv","label":"CSV"}],
   "statuses":[...],"directions":[...],
   "default_period":{"monthly":{...},"quarterly":{...},"annual":{...}}
@@ -81,6 +89,14 @@ internal/adapter/web/handler/          SSR 改为调同一个 usecase，不再�
 
 **分组装配在服务端做**（现在是 `tx_table.js` 里那段 `groupIndex` 循环），客户端直接拿树。
 `specials` 为空或专项功能未启用时返回空数组，不报错（沿用 `specialsEnabled()` 的降级姿势）。
+- **`accounts` 与 `account_views` 必须分开两个字段**，判据就是现成的 `domain.Account.IsStorageAccount()`：
+  `accounts` 只含能写入 DB 的真实成员（husband / wife），用于「把这笔流水改成谁的账户」这种**可写**场景；
+  `account_views` 额外含 `family`，用于顶部的**查询视图**切换。
+  合成一个列表会让薄客户端拿 `family` 去填单条流水的账户下拉，而 `family` 从来不是合法的存储值
+  —— 客户端不该靠自己记住这条规则，这正是「服务端不让客户端推导」要覆盖的事。
+- 枚举的中文说法以**现有页面**为准，不要另起叫法：状态是「待处理 / 已确认 / 已排除」
+  （`transactions.html` 就是这么写的，不是 `CLAUDE.md` 里顺手写的「待核对」），
+  账户是 `Account.Label()` 的「男主 / 女主 / 家庭总账」。
 
 ---
 
@@ -159,6 +175,13 @@ page_size  = 50                          缺省 50，上限 200，超出钳到�
 **红线五：不得改动现有聚合 SQL 与迁移 013/014 建的覆盖索引。** 本次只加「取行」的查询。
 除非 `EXPLAIN QUERY PLAN` 实测需要，不新增迁移。
 
+**红线六：`rule_id` 预筛必须只看支出流水，而且预筛集合要与「批量应用」改动的集合完全相同。**
+理由是真实分类器 `ClassifyByCustomRules` 对收入流水直接 `return`，一条规则永远不会分类收入。
+预筛如果把收入行也列出来，「查看流水」说 37 条、点「应用」只改了 24 条，用户无从理解差额。
+这与 §6.1 那个 bug 是同一个病根：**预览必须镜像分类器的真实行为**，不能自己放宽。
+实现上把方向约束放在 usecase（`Rule != nil` 时强制 `direction=expense`），不要烧进 repo 的
+`ruleWhere`，让 repo 保持通用。
+
 ### 行 DTO
 
 ```json
@@ -211,6 +234,14 @@ POST /api/v1/rules/{id}/apply        body {type, period, account}
 服务端在**单个事务**里一条 `UPDATE` 写完（参照 `SetSpecialForIDs` 的写法），
 只改「不是(已经是该科目 且 已确认)」的行，并按既有约定把 `status` 置为 `confirmed`。
 弱网下 37 次请求变 1 次，这是移动端的刚需。
+
+另外三条语义：
+- **不动 `excluded` 的行**。那是用户刻意排除的流水，批量应用不该把它复活。
+- **改动集合 = §5 红线六的预筛集合**，即只有支出流水。不要再额外按「目标科目是收入还是支出」
+  去决定方向：那恰好会让收入科目的规则去改收入流水，而分类器从来不会那么做，
+  等于让批量应用比真实分类器更激进。
+- 规则的 `category_id` 在科目表里查不到、或为空（跳过导入类规则）时，返回错误且不改任何行。
+  指向收入科目的规则在分类器眼里是一条死规则，同样返回错误并说明原因，而不是悄悄改支出行。
 
 ---
 
@@ -300,3 +331,27 @@ POST /api/v1/rules/{id}/apply        body {type, period, account}
 9. `special` 的 `__none__` / `__any__` / 具体 id 三态语义。
 10. `RuleMatches` 与现有 `classify_rules_test.go` 行为完全一致（回归）。
 11. Bearer token 能过 `RequireAuth`；过期 token 被拒；`/api/v1/auth/token` 受限流保护。
+
+
+---
+
+## 11. 已接受的取舍（不要反复重开）
+
+实现中确认过、权衡后接受的行为差异，记在这里免得日后被当成 bug 反复讨论。
+
+1. **中文排序是 Unicode 码点序，不是拼音序。** 旧前端用 `localeCompare(…, 'zh-CN')` 得到拼音序，
+   但那依赖「整期全在手」。服务端分页要求排序发生在 SQL 里，而 SQLite 默认排序规则是字节序。
+   要恢复拼音序得注册自定义 collation 或加一列预计算排序键，代价远超这个功能的价值。
+   影响 `counterparty` / `member` 两个键，以及 `facets.members` 的顺序。
+2. **`sort=category` / `sort=special` 按 id 排，不按显示名排。** 科目 id 是点分命名空间
+   （`expense.discretion.shopping`），按 id 排等于按一级分组聚拢，比按名字排更有结构。
+3. **规则预筛的子串匹配用 SQLite 的 `instr(lower(col), ?)`，而 `domain.RuleMatches` 用 Go 的
+   `strings.ToLower`。** SQLite 的 `lower()` 只处理 ASCII，Go 处理全部 Unicode，所以含非 ASCII
+   大写字母（如 `CAFÉ`）的字段在两边可能判定不一致。中文、英文、数字不受影响。
+4. **`total_pages` 在 0 行时是 0 而不是 1。** 客户端此时展示空态，不需要「第 1 页 / 共 1 页」。
+5. **`order` 缺省一律 `desc`，不按排序键区分。** 文本键降序略反直觉，但规则统一比分键特判好记。
+6. **查询能力放在独立的窄接口 `port.TransactionQueryRepo`，没有并进 `TransactionRepo`。**
+   这是刻意的接口隔离：`TransactionRepo` 已经很宽，handler 测试里的 `stubTxRepo` 实现了它的全部方法，
+   每加一个方法就要去改所有替身。新接口由 `sqlite.TransactionRepo` 一并实现，有编译期断言钉住。
+   `CLAUDE.md` 的「新增 Repository 方法」一节要补上这条：宽接口加方法的代价由所有替身承担，
+   新增查询能力优先开窄接口。

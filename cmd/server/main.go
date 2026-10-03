@@ -15,6 +15,7 @@ import (
 	"family-finances/internal/adapter/llm"
 	"family-finances/internal/adapter/notify"
 	"family-finances/internal/adapter/web"
+	"family-finances/internal/adapter/web/apiv1"
 	"family-finances/internal/adapter/web/handler"
 	"family-finances/internal/infrastructure/config"
 	"family-finances/internal/infrastructure/sqlite"
@@ -129,6 +130,8 @@ func main() {
 		AuthKey:      cfg.AuthKey,
 	})
 
+	apiV1 := apiv1.New(apiv1.Deps{Categories: catRepo, Specials: specialRepo, Log: log})
+
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Logger)
@@ -142,6 +145,8 @@ func main() {
 	r.Get("/auth/login", h.LoginForm)
 	r.Post("/auth/login", h.LoginSubmit)
 	r.Get("/auth/logout", h.Logout)
+	// Bearer token 签发：必须在鉴权组之外（否则没 token 的客户端拿不到 token），限流在 handler 内
+	r.Post("/api/v1/auth/token", h.IssueAPIToken)
 
 	staticHandler := http.StripPrefix("/static/", http.FileServer(http.FS(web.StaticFS())))
 	r.Handle("/static/*", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -152,6 +157,8 @@ func main() {
 
 	r.Group(func(r chi.Router) {
 		r.Use(h.RequireAuth)
+		// 平台无关 JSON API；/api/v1 子树与 /api/transactions/{id} 等不同段，不会撞静态段/占位段
+		r.Mount("/api/v1", apiV1.Routes())
 		r.Get("/", h.Stats)
 		r.Get("/stats", func(w http.ResponseWriter, req *http.Request) {
 			http.Redirect(w, req, "/", http.StatusMovedPermanently)

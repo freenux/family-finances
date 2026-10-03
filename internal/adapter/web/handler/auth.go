@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/url"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"family-finances/internal/adapter/web/apiv1"
 )
 
 const (
@@ -52,8 +55,18 @@ func (a *authManager) sign(payload string) string {
 
 // newToken 生成带过期时间的会话 token：exp.sig
 func (a *authManager) newToken(now time.Time) string {
-	exp := strconv.FormatInt(now.Add(sessionTTL).Unix(), 10)
-	return exp + "." + a.sign(exp)
+	tok, _ := a.newTokenExp(now)
+	return tok
+}
+
+// tokenExpiry 过期时间的唯一来源；newTokenExp 与 expires_at 都从这里算
+func tokenExpiry(now time.Time) time.Time { return now.Add(sessionTTL) }
+
+// newTokenExp 同 newToken，并返回编码进 token 的过期时间（秒级精度）
+func (a *authManager) newTokenExp(now time.Time) (string, time.Time) {
+	expAt := time.Unix(tokenExpiry(now).Unix(), 0)
+	exp := strconv.FormatInt(expAt.Unix(), 10)
+	return exp + "." + a.sign(exp), expAt
 }
 
 func (a *authManager) validToken(v string, now time.Time) bool {
@@ -72,11 +85,27 @@ func (a *authManager) authenticated(r *http.Request) bool {
 	if !a.enabled() {
 		return true
 	}
-	c, err := r.Cookie(authCookieName)
-	if err != nil {
-		return false
+	now := time.Now()
+	if c, err := r.Cookie(authCookieName); err == nil && a.validToken(c.Value, now) {
+		return true
 	}
-	return a.validToken(c.Value, time.Now())
+	// 小程序的 wx.request 不可靠地携带 Cookie，补一条 Bearer 通道；token 与 Cookie 同一套签名
+	if tok, ok := bearerToken(r); ok {
+		return a.validToken(tok, now)
+	}
+	return false
+}
+
+// bearerToken 宽容地解析 Authorization: Bearer <token>：scheme 大小写不敏感，容忍前后空白；
+// 格式不对（无头、缺 token、scheme 不是 Bearer）一律视为没有这个头。
+func bearerToken(r *http.Request) (string, bool) {
+	h := strings.TrimSpace(r.Header.Get("Authorization"))
+	scheme, rest, ok := strings.Cut(h, " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") {
+		return "", false
+	}
+	tok := strings.TrimSpace(rest)
+	return tok, tok != ""
 }
 
 func (a *authManager) setSession(w http.ResponseWriter, r *http.Request) {
@@ -223,6 +252,42 @@ func (h *Handler) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, safeNextURL(r.FormValue("next")), http.StatusSeeOther)
 }
 
+// IssueAPIToken 处理 POST /api/v1/auth/token：用 key 换一个 Bearer token（供小程序使用）。
+// 必须挂在 RequireAuth 之外，否则没 token 的客户端拿不到 token。
+// 与 /auth/login 共用同一个 loginLimiter，否则这里就是绕过网页登录限流的暴力破解后门。
+// 鉴权未启用时无需 token：返回空 token 与零值 expires_at，客户端可直接不带头访问。
+// 信封复用 apiv1.WriteData/WriteError（handler -> apiv1 单向依赖）。
+func (h *Handler) IssueAPIToken(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.enabled() {
+		apiv1.WriteData(w, map[string]string{"token": "", "expires_at": ""})
+		return
+	}
+	ip := clientIP(r)
+	now := time.Now()
+	if !h.auth.limiter.allow(ip, now) {
+		apiv1.WriteError(w, http.StatusTooManyRequests, "too_many_requests", "尝试次数过多，请 15 分钟后再试")
+		return
+	}
+	var body struct {
+		Key string `json:"key"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
+		apiv1.WriteError(w, http.StatusBadRequest, "bad_request", "请求体不是合法的 JSON")
+		return
+	}
+	if !h.auth.checkKey(body.Key) {
+		h.auth.limiter.fail(ip, now)
+		apiv1.WriteError(w, http.StatusUnauthorized, "unauthorized", "认证 key 不正确")
+		return
+	}
+	h.auth.limiter.reset(ip)
+	tok, expAt := h.auth.newTokenExp(now)
+	apiv1.WriteData(w, map[string]string{
+		"token":      tok,
+		"expires_at": expAt.UTC().Format(time.RFC3339),
+	})
+}
+
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	h.auth.clearSession(w, r)
 	http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
@@ -241,6 +306,10 @@ func (h *Handler) RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if h.auth.authenticated(r) {
 			next.ServeHTTP(w, r)
+			return
+		}
+		if r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/v1/") {
+			apiv1.WriteError(w, http.StatusUnauthorized, "unauthorized", "未认证或登录已过期，请重新登录")
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/api/") {
