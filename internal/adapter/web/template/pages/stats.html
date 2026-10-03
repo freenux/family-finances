@@ -59,7 +59,8 @@
     align-items: start;
   }
   @media (max-width: 820px) { .compose { grid-template-columns: 1fr; } }
-  .pie-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .pie-wrap { display: flex; flex-direction: column; align-items: center; }
+  .pie-wrap > :not(template) ~ :not(template) { margin-top: 10px; } /* 原 gap 10px：iOS<14.5 的 flex 不支持 gap */
   .pie {
     width: 220px; height: 220px; border-radius: 50%;
     position: relative;
@@ -84,7 +85,8 @@
     font-size: 10px; color: var(--muted); margin-top: 2px; letter-spacing: 0.12em;
   }
 
-  .cat-list { display: flex; flex-direction: column; gap: 10px; }
+  .cat-list { display: flex; flex-direction: column; }
+  .cat-list > :not(template) ~ :not(template) { margin-top: 10px; } /* 原 gap 10px */
   .cat-row {
     display: grid;
     grid-template-columns: 14px 1fr auto auto;
@@ -147,16 +149,18 @@
 
   /* column-chart bars */
   .col-bars {
-    display: flex; gap: 10px; align-items: stretch;
+    display: flex; align-items: stretch;
     height: 210px;
   }
+  .col-bars > :not(template) ~ :not(template) { margin-left: 10px; } /* 原 gap 10px */
   .col-bar {
     flex: 1; min-width: 0;
     border: 0; background: transparent; cursor: pointer;
     padding: 0; display: flex; flex-direction: column; align-items: center;
-    gap: 6px; font-family: inherit; color: inherit;
+    font-family: inherit; color: inherit;
     border-radius: 4px;
   }
+  .col-bar > :not(template) ~ :not(template) { margin-top: 6px; } /* 原 gap 6px */
   /* 单击切当期（focusBar）/ 双击切仪表盘周期（jumpToPeriod）；键盘聚焦时给出可见焦点环 */
   .col-bar:focus-visible {
     outline: 2px solid var(--accent);
@@ -194,9 +198,10 @@
      用 ~ 而不是 +，中间还隔着实心段自己的 <template>。 */
   .col-bar .col-track .col-fill.special ~ .col-fill { border-radius: 0; }
   .special-legend {
-    display: inline-flex; align-items: center; gap: 5px;
+    display: inline-flex; align-items: center;
     font-size: 11px; color: var(--muted);
   }
+  .special-legend i { margin-right: 5px; } /* 原 gap 5px */
   .special-legend i {
     width: 12px; height: 12px; border-radius: 2px; display: inline-block;
     background: repeating-linear-gradient(45deg, #ea2261 0 3px, #f96bee 3px 6px);
@@ -211,14 +216,16 @@
   .col-bar.active .col-val,
   .col-bar.active .col-lbl { color: var(--accent); font-weight: 500; }
   .col-bar .col-cmp {
-    display: flex; flex-direction: column; gap: 1px;
+    display: flex; flex-direction: column;
     font-family: var(--mono); font-size: 10px; line-height: 1.25;
     font-variant-numeric: tabular-nums; letter-spacing: 0.02em;
     min-height: 26px; /* 即使没有基期也保留高度，避免柱子高低错位 */
   }
+  .col-bar .col-cmp > :not(template) ~ :not(template) { margin-top: 1px; } /* 原 gap 1px */
   .col-bar .col-cmp .row {
-    display: flex; gap: 3px; justify-content: center; align-items: baseline;
+    display: flex; justify-content: center; align-items: baseline;
   }
+  .col-bar .col-cmp .row > :not(template) ~ :not(template) { margin-left: 3px; } /* 原 gap 3px */
   .col-bar .col-cmp .row .tag { color: var(--muted); font-size: 9px; }
   .col-bar .col-cmp .row.bad  { color: var(--negative); }
   .col-bar .col-cmp .row.good { color: var(--positive); }

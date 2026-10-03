@@ -1584,11 +1584,9 @@ header.app-header nav > a + a { margin-left: 26px; }
 .stats-head.stats-head--wrap > :first-child { margin-right: 10px; }
 .stats-head.stats-head--wrap > .flex-row.row-wrap { margin: -5px 5px 5px -5px; }
 
-/* 唯一还在用的「靠匹配 style 字符串生效」的垫片：
-   partials/report_tables.html:75（专项明细行，style="display:flex;justify-content:space-between;gap:12px;..."）。
-   partials/ 不在本轮可改范围内；待那一行迁成 class 后，这两条一并删除。 */
-div[style*="display:flex"][style*="gap:12px"] { gap: 0 !important; }
-div[style*="display:flex"][style*="gap:12px"] > :not(template) ~ :not(template) { margin-left: 12px; }
+/* 专项明细行（report_tables.html）：两端对齐 + 内边距/颜色；间距走 .flex-row.row-sp12 */
+.special-line { justify-content: space-between; padding: 2px 0; color: var(--text-secondary); }
+.special-line-amt { font-variant-numeric: tabular-nums; }
 
 /* ============================================================
    兼容层 B：带 style="overflow-x:auto" 的横向滚动容器
