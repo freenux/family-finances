@@ -70,6 +70,7 @@ body { background: transparent; }
 /* ---- 顶部渐变网格：奶油 / 橙 / 薰衣草 / 靛蓝 / 宝红，斜切下缘 ---- */
 body {
   position: relative;
+  overflow-x: hidden; /* 旧内核（iOS<16 / X5）不认 clip，先用 hidden 兜底 */
   overflow-x: clip;
 }
 body::before {
@@ -131,6 +132,7 @@ main { animation: rise .4s ease-out both; }
    顶部导航：白底悬浮于渐变网格之上
    ============================================================ */
 header.app-header {
+  position: -webkit-sticky;
   position: sticky;
   top: 0;
   z-index: 50;
@@ -147,7 +149,6 @@ header.app-header {
 header.app-header h1 {
   display: flex;
   align-items: center;
-  gap: 10px;
   font-size: 16px;
   font-weight: 500;
   margin: 0;
@@ -168,7 +169,6 @@ header.app-header h1 {
 
 header.app-header nav {
   display: flex;
-  gap: 26px;
 }
 header.app-header nav a {
   color: var(--muted);
@@ -195,14 +195,13 @@ main {
 @media (max-width: 700px) {
   header.app-header {
     flex-wrap: wrap;
-    gap: 10px;
     padding: 10px 16px;
   }
   header.app-header nav {
     max-width: 100%;
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
-    gap: 18px;
   }
   header.app-header nav::-webkit-scrollbar { display: none; }
   header.app-header nav a { white-space: nowrap; }
@@ -232,7 +231,6 @@ main {
 
 .period-selector {
   display: inline-flex;
-  gap: 0;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--pill);
@@ -268,8 +266,7 @@ main {
 }
 
 .period-nav {
-  display: inline-flex; align-items: center; gap: 12px;
-  background: var(--surface); border: 1px solid var(--border);
+  display: inline-flex; align-items: center;  background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--pill); padding: 5px 10px;
   box-shadow: var(--shadow-1);
 }
@@ -287,15 +284,13 @@ main {
 }
 
 .seg-row {
-  display: flex; flex-wrap: wrap; gap: 18px;
-  margin-bottom: 22px;
+  display: flex; flex-wrap: wrap;  margin-bottom: 22px;
 }
 .seg {
   display: inline-flex; background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--pill);
   overflow: hidden;
   padding: 3px;
-  gap: 2px;
   box-shadow: var(--shadow-1);
 }
 .seg .seg-label {
@@ -341,7 +336,6 @@ main {
   margin-bottom: 8px;
   display: flex;
   align-items: center;
-  gap: 5px;
   letter-spacing: -0.1px;
 }
 .kpi-card .value {
@@ -429,7 +423,7 @@ table.ledger .subtotal {
 }
 table.ledger .subtotal td { border-top: 1px solid #d5dde5; }
 
-.flex-row { display: flex; gap: 16px; align-items: center; }
+.flex-row { display: flex; align-items: center; }
 .spacer { flex: 1; }
 
 /* ============================================================
@@ -488,7 +482,6 @@ table.ledger .subtotal td { border-top: 1px solid #d5dde5; }
 .form-grid label {
   display: flex;
   flex-direction: column;
-  gap: 5px;
   font-size: 12px;
   color: var(--muted);
 }
@@ -517,7 +510,6 @@ table.ledger .subtotal td { border-top: 1px solid #d5dde5; }
   grid-column: 1 / -1;
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
 }
 
 /* ============================================================
@@ -593,7 +585,6 @@ table.tx-list .tx-col-status { width: 9%; }
 .tx-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px 22px;
   align-items: center;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -621,14 +612,12 @@ table.tx-list .tx-col-status { width: 9%; }
 }
 .tx-toolbar .tx-filter-group {
   display: flex;
-  gap: 8px;
   align-items: center;
   flex-wrap: wrap;
 }
 .tx-toolbar .tx-filter-group .label { color: var(--muted); }
 .tx-toolbar label {
   display: inline-flex;
-  gap: 4px;
   align-items: center;
   color: var(--text);
   cursor: pointer;
@@ -645,7 +634,6 @@ table.tx-list .tx-col-status { width: 9%; }
 
 .tx-summary {
   display: flex;
-  gap: 26px;
   padding: 9px 16px;
   margin-bottom: 10px;
   background: var(--accent-soft);
@@ -667,7 +655,6 @@ table.tx-list .tx-col-status { width: 9%; }
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 14px;
   padding: 10px 16px;
   margin-bottom: 10px;
   background: #f0faf4;
@@ -756,7 +743,6 @@ table.tx-list.editable td:nth-child(9) {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  gap: 16px;
   margin-bottom: 18px;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--border);
@@ -807,6 +793,7 @@ table.tx-list.editable td:nth-child(9) {
   box-shadow: var(--shadow-1);
 }
 .rule-create-panel {
+  position: -webkit-sticky;
   position: sticky;
   top: 78px;
   padding: 18px;
@@ -821,7 +808,6 @@ table.tx-list.editable td:nth-child(9) {
 .rule-card label {
   display: flex;
   flex-direction: column;
-  gap: 5px;
   min-width: 0;
   color: var(--muted);
   font-size: 11px;
@@ -874,7 +860,6 @@ table.tx-list.editable td:nth-child(9) {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
   padding: 14px 18px;
   border-bottom: 1px solid var(--rule-line);
   background: var(--bg-soft);
@@ -899,7 +884,6 @@ table.tx-list.editable td:nth-child(9) {
 .rules-filter {
   display: flex;
   align-items: flex-end;
-  gap: 10px;
   padding: 12px 18px;
   border-bottom: 1px solid var(--rule-line);
   background: var(--surface);
@@ -908,7 +892,6 @@ table.tx-list.editable td:nth-child(9) {
   display: flex;
   flex: 1 1 260px;
   flex-direction: column;
-  gap: 5px;
   max-width: 360px;
   color: var(--muted);
   font-size: 11px;
@@ -937,7 +920,6 @@ table.tx-list.editable td:nth-child(9) {
 .rule-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
   padding: 14px 18px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
@@ -960,7 +942,6 @@ table.tx-list.editable td:nth-child(9) {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
 }
 .rule-card-fields {
   display: grid;
@@ -995,7 +976,6 @@ table.tx-list.editable td:nth-child(9) {
 }
 .rule-actions {
   display: flex;
-  gap: 6px;
   align-items: center;
   justify-content: flex-end;
 }
@@ -1063,6 +1043,7 @@ table.tx-list.editable td:nth-child(9) {
 
 .auth-page {
   min-height: calc(100vh - 120px);
+  min-height: calc(100dvh - 120px);
   display: grid;
   place-items: center;
   padding: 52px 0;
@@ -1163,7 +1144,6 @@ table.tx-list.editable td:nth-child(9) {
 .auth-foot {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
   margin-top: 20px;
   padding-top: 14px;
   border-top: 1px solid var(--border);
@@ -1175,6 +1155,7 @@ table.tx-list.editable td:nth-child(9) {
 @media (max-width: 560px) {
   .auth-page {
     min-height: calc(100vh - 94px);
+    min-height: calc(100dvh - 94px);
     padding: 28px 0;
   }
   .auth-panel {
@@ -1203,7 +1184,6 @@ table.tx-list.editable td:nth-child(9) {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 10px;
 }
 .section .section-title .hint { font-weight: 400; color: var(--muted); font-size: 12px; }
 
@@ -1261,13 +1241,12 @@ table.ledger tr.total { font-weight: 600; background: var(--accent-soft); }
 .tip b { font-variant-numeric: tabular-nums; }
 .legend-row {
   display: flex;
-  gap: 16px;
   flex-wrap: wrap;
   padding: 4px 16px 12px;
   font-size: 12px;
   color: var(--muted);
 }
-.legend-row .li { display: inline-flex; align-items: center; gap: 6px; }
+.legend-row .li { display: inline-flex; align-items: center; }
 .legend-row .sw { width: 10px; height: 10px; border-radius: 3px; }
 
 .note-strip {
@@ -1285,7 +1264,6 @@ table.ledger tr.total { font-weight: 600; background: var(--accent-soft); }
 .toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
   align-items: center;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1322,7 +1300,6 @@ table.ledger tr.total { font-weight: 600; background: var(--accent-soft); }
   justify-content: space-between;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 8px;
 }
 .report-card .rc-head h3 { margin: 0; font-size: 18px; font-weight: 400; letter-spacing: -.18px; }
 .report-card .rc-head .meta { color: var(--muted); font-size: 12px; }
@@ -1334,7 +1311,6 @@ table.ledger tr.total { font-weight: 600; background: var(--accent-soft); }
   letter-spacing: .02em;
   display: flex;
   align-items: center;
-  gap: 8px;
 }
 .report-card h4:first-child { margin-top: 0; }
 .report-card h4 .dot { width: 8px; height: 8px; border-radius: 3px; }
@@ -1342,7 +1318,7 @@ table.ledger tr.total { font-weight: 600; background: var(--accent-soft); }
 .report-card ul { margin: 0; padding-left: 20px; color: var(--text-secondary); font-size: 13.5px; line-height: 1.8; }
 .report-card li { margin-bottom: 4px; }
 
-.stat-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 4px; }
+.stat-chips { display: flex; flex-wrap: wrap; margin: 6px 0 4px; }
 .stat-chips .chip {
   padding: 5px 12px;
   border: 1px solid var(--border);
@@ -1380,7 +1356,6 @@ table.ledger tr.total { font-weight: 600; background: var(--accent-soft); }
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 10px;
   padding: 11px 16px;
   border-bottom: 1px solid var(--border);
   cursor: pointer;
@@ -1421,7 +1396,6 @@ table.ledger tr.total { font-weight: 600; background: var(--accent-soft); }
 .profile-form label {
   display: flex;
   flex-direction: column;
-  gap: 6px;
   font-size: 12px;
   color: var(--muted);
 }
@@ -1467,7 +1441,7 @@ table.ledger tr.total { font-weight: 600; background: var(--accent-soft); }
   padding: 14px 18px;
   margin-bottom: 18px;
 }
-.rebalance-card .rb-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.rebalance-card .rb-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; }
 .rebalance-card .rb-title { font-weight: 600; font-size: 13px; color: var(--warning); }
 .rebalance-card .rb-meta { color: var(--muted); font-size: 12px; }
 .rebalance-card .rb-list { margin: 8px 0 6px; padding-left: 18px; color: var(--text-secondary); font-size: 13px; line-height: 1.8; }
@@ -1481,19 +1455,19 @@ table.ledger tr.total { font-weight: 600; background: var(--accent-soft); }
 .goal-card { margin-bottom: 14px; }
 .goal-card .section-title form { margin: 0; }
 .goal-body { padding: 12px 16px 14px; }
-.goal-nums { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--text-secondary); }
+.goal-nums { display: flex; flex-wrap: wrap; font-size: 13px; color: var(--text-secondary); }
 .goal-nums b { font-variant-numeric: tabular-nums; }
 .goal-bar { height: 8px; border-radius: var(--pill); background: var(--bg-soft); border: 1px solid var(--border); margin: 10px 0 6px; overflow: hidden; }
 .goal-bar-fill { height: 100%; border-radius: var(--pill); background: linear-gradient(90deg, var(--accent-subdued), var(--accent)); }
 .goal-meta { color: var(--muted); font-size: 12px; }
 .goal-links { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px 10px; }
-.goal-link-item { display: flex !important; flex-direction: row !important; align-items: center; gap: 6px !important; font-size: 12px !important; color: var(--text-secondary) !important; }
+.goal-link-item { display: flex !important; flex-direction: row !important; align-items: center; font-size: 12px !important; color: var(--text-secondary) !important; }
 
 /* ============================================================
    M4：AI 问数 / 摘要推送 / CSV 导入 / 情景实验室
    ============================================================ */
 .ask-body { padding: 14px 16px 16px; }
-.ask-input-row { display: flex; gap: 10px; align-items: center; }
+.ask-input-row { display: flex; align-items: center; }
 .ask-chip { cursor: pointer; border: 1px solid var(--border); font-family: inherit; transition: all .12s; }
 .ask-chip:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .ask-chip:disabled { opacity: .5; cursor: not-allowed; }
@@ -1507,3 +1481,300 @@ table.ledger tr.total { font-weight: 600; background: var(--accent-soft); }
 .scenario-card { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
 .scenario-card .sc-head { padding: 10px 14px; background: var(--bg-soft); font-weight: 500; font-size: 13px; border-bottom: 1px solid var(--border); }
 .scenario-card .sc-head .code { display: block; font-size: 11px; color: var(--muted); font-weight: 400; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+/* ============================================================
+   兼容层 A：flex 容器的 gap → 子元素 margin
+   ------------------------------------------------------------
+   iOS < 14.5 与旧 X5 内核的 flexbox 不认 gap（grid 的 gap 没问题，不动）。
+   上文所有 flex 容器已去掉 gap，间距统一在这里用 margin 还原，
+   数值与原 gap 一一对应，PC 视觉不变。三种写法：
+   1) 单行：  > :not(template) ~ :not(template) { margin-left / margin-top: 原 gap }
+      （不用 > * + *：Alpine 的 <template x-for> 本身是个 display:none 的兄弟，会让第一个按钮多出一份间距）
+   2) 换行：  子元素各加 gap/2 的 margin，容器用 -gap/2 的负 margin 抵消
+   3) 文本在前的容器（input + 文字）：直接给 input 加 margin-right
+   新增 flex 布局请照此写，不要再用 gap。
+   ============================================================ */
+header.app-header .brand-seal { margin-right: 10px; }
+header.app-header nav > a + a { margin-left: 26px; }
+.period-nav > :not(template) ~ :not(template) { margin-left: 12px; }
+.seg > :not(template) ~ :not(template) { margin-left: 2px; }
+.kpi-card .label > :not(template) ~ :not(template) { margin-left: 5px; }
+.flex-row > :not(template) ~ :not(template) { margin-left: 16px; }
+.form-actions > :not(template) ~ :not(template) { margin-left: 10px; }
+.tx-summary > :not(template) ~ :not(template) { margin-left: 26px; }
+.rule-apply-bar > :not(template) ~ :not(template) { margin-left: 14px; }
+.rules-hero > :not(template) ~ :not(template) { margin-left: 16px; }
+.rules-panel-head > :not(template) ~ :not(template) { margin-left: 12px; }
+.rules-filter > :not(template) ~ :not(template) { margin-left: 10px; }
+.rule-card-top > :not(template) ~ :not(template) { margin-left: 12px; }
+.rule-actions > :not(template) ~ :not(template) { margin-left: 6px; }
+.auth-foot > :not(template) ~ :not(template) { margin-left: 16px; }
+.section .section-title > :not(template) ~ :not(template) { margin-left: 10px; }
+.hist-item > :not(template) ~ :not(template) { margin-left: 10px; }
+.ask-input-row > :not(template) ~ :not(template) { margin-left: 10px; }
+
+/* 纵向 flex（label 内：文字在前、控件在后，控件前加间距） */
+.form-grid label > input, .form-grid label > select, .form-grid label > textarea { margin-top: 5px; }
+.rules-form label > input, .rules-form label > select, .rules-form label > textarea,
+.rule-card label > input, .rule-card label > select, .rule-card label > textarea,
+.rules-filter label > select { margin-top: 5px; }
+.profile-form label > input, .profile-form label > select, .profile-form label > textarea { margin-top: 6px; }
+.rule-card > :not(template) ~ :not(template) { margin-top: 12px; }
+
+/* 图例 / 标题里的色点 + 文字 */
+.legend-row .li .sw { margin-right: 6px; }
+.report-card h4 .dot { margin-right: 8px; }
+.tx-toolbar label > input { margin-right: 7px; } /* 原 gap 4px + 控件默认 3px */
+.goal-link-item > input { margin-right: 9px; margin-top: 3px !important; } /* 原 gap 6px + 默认 3px */
+
+/* 换行容器：子元素 margin = gap/2，容器负 margin 抵消 */
+.seg-row { margin: -9px -9px 13px; }                       /* 原 gap 18px / margin-bottom 22px */
+.seg-row > * { margin: 9px; }
+.tx-toolbar { padding: 5px 5px; }                          /* 原 padding 12px 16px 减去子元素 margin */
+.tx-toolbar > * { margin: 7px 11px; }                      /* 原 gap 14px 22px */
+.tx-toolbar .tx-filter-group { margin: -4px 0; }           /* 原 gap 8px */
+.tx-toolbar .tx-filter-group > * { margin: 4px; }
+.toolbar { padding: 6px 10px; }                            /* 原 padding 12px 16px、gap 12px */
+.toolbar > * { margin: 6px; }
+.legend-row { margin: -8px; }                              /* 原 gap 16px */
+.legend-row > * { margin: 8px; }
+.report-card .rc-head { padding: 12px 16px; }              /* 原 padding 16px 20px、gap 8px */
+.report-card .rc-head > * { margin: 4px; }
+.stat-chips { margin: 2px -4px 0; }                        /* 原 gap 8px / margin 6px 0 4px */
+.stat-chips > * { margin: 4px; }
+.stat-chips[style*="margin-bottom:10px"] { margin-bottom: 6px !important; } /* ask.html 内联了 margin-bottom:10px */
+.rebalance-card .rb-head { margin: -5px; }                 /* 原 gap 10px */
+.rebalance-card .rb-head > * { margin: 5px; }
+.goal-nums { margin: -4px -9px; }                          /* 原 gap 8px 18px */
+.goal-nums > * { margin: 4px 9px; }
+
+/* 页面里写死在 style="" 中的 gap（pages/ 本阶段不能改，下一阶段应迁成 class 后删掉这一段）：
+   用属性选择器把内联 gap 清零并换成 margin。 */
+[style*="gap:"][style*="display:flex"], .flex-row[style*="gap:"] { gap: 0 !important; }
+.flex-row[style*="gap:8px"]  > :not(template) ~ :not(template) { margin-left: 8px; }
+.flex-row[style*="gap:10px"] > :not(template) ~ :not(template) { margin-left: 10px; }
+.flex-row[style*="gap:12px"] > :not(template) ~ :not(template) { margin-left: 12px; }
+.flex-row[style*="gap:14px"] > :not(template) ~ :not(template) { margin-left: 14px; }
+.flex-row[style*="flex-wrap:wrap"][style*="gap:10px"] { margin: -5px; }
+.flex-row[style*="flex-wrap:wrap"][style*="gap:10px"] > * { margin: 5px; }
+/* stats.html 的 .stats-head 自带 border-bottom，不能用负 margin，改成「子元素下边距 + 减小容器 padding」 */
+.stats-head[style*="gap:10px"] { gap: 0 !important; padding-bottom: 6px; }
+.stats-head[style*="gap:10px"] > * { margin: 0 0 10px; }
+.stats-head[style*="gap:10px"] > :first-child { margin-right: 10px; }
+.stats-head > .flex-row[style*="flex-wrap:wrap"][style*="gap:10px"] { margin: -5px 5px 5px -5px; }
+div[style*="display:flex"][style*="flex-wrap:wrap"][style*="gap:12px"] { margin: -6px; }
+div[style*="display:flex"][style*="flex-wrap:wrap"][style*="gap:12px"] > * { margin: 6px; }
+div[style*="display:flex"][style*="gap:12px"]:not([style*="flex-wrap"]) > :not(template) ~ :not(template) { margin-left: 12px; }
+
+/* ============================================================
+   兼容层 B：带 style="overflow-x:auto" 的横向滚动容器
+   （旧 iOS 上默认没有惯性滚动）。pages/ 里的内联滚动容器靠属性选择器兜住。
+   ============================================================ */
+[style*="overflow-x:auto"], [style*="overflow:auto"], .scroll-x {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ============================================================
+   手机端适配（<= 700px）
+   原则：同一套模板、同一份 CSS，不 fork。下面三块都只在窄屏生效，PC 不受影响。
+   ============================================================ */
+
+/* ---- B1. 宽表转堆叠卡片：.stacked-on-mobile ----
+   用法（模板侧要做的只有两件事，不改表格 HTML 结构）：
+     1) 在 <table> 上加类 stacked-on-mobile；
+     2) 在每个 <td> 上加 data-label="列名"（= 对应 <th> 的文字）。
+        不需要标签的格子（操作列、勾选框列）写 data-label="" 或干脆不写，标签就不显示。
+   最小示例：
+     <table class="tx-list stacked-on-mobile">
+       <thead><tr><th>日期</th><th>金额</th><th></th></tr></thead>
+       <tbody><tr>
+         <td data-label="日期">2025-07-03</td>
+         <td data-label="金额" class="amount">-¥36.00</td>
+         <td data-label=""><button>删除</button></td>
+       </tr></tbody>
+     </table>
+   Alpine 的 <template x-for> 渲染的行同样写 :data-label 或直接 data-label="..."（静态值即可）。
+   表头 thead 在手机上视觉隐藏（保留给读屏），因此点表头排序在手机上不可用，
+   需要排序的页面应另给一个「排序」下拉。 */
+@media (max-width: 700px) {
+  table.stacked-on-mobile,
+  table.stacked-on-mobile > tbody,
+  table.stacked-on-mobile > tfoot,
+  table.stacked-on-mobile > tbody > tr,
+  table.stacked-on-mobile > tfoot > tr,
+  table.stacked-on-mobile > tbody > tr > td,
+  table.stacked-on-mobile > tfoot > tr > td {
+    display: block;
+    width: auto;
+  }
+  table.stacked-on-mobile {
+    table-layout: auto;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    border-radius: 0;
+    overflow: visible;
+  }
+  /* 视觉隐藏表头但保留给读屏 */
+  table.stacked-on-mobile > thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  table.stacked-on-mobile > tbody > tr,
+  table.stacked-on-mobile > tfoot > tr {
+    background: var(--surface) !important;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-1);
+    margin: 0 0 12px;
+    padding: 4px 14px;
+    overflow: hidden;
+  }
+  table.stacked-on-mobile > tbody > tr.needs-review { border-left: 3px solid #d9b06a; }
+  table.stacked-on-mobile > tbody > tr > td,
+  table.stacked-on-mobile > tfoot > tr > td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 44px;
+    padding: 8px 0 !important;
+    border: 0 !important;
+    border-bottom: 1px dashed var(--border) !important;
+    text-align: right;
+    white-space: normal !important;
+    text-overflow: clip !important;
+    overflow: visible !important;
+    min-width: 0;
+  }
+  table.stacked-on-mobile > tbody > tr > td:last-child { border-bottom: 0 !important; }
+  table.stacked-on-mobile td::before {
+    content: attr(data-label);
+    flex: 0 0 5.5em;
+    margin-right: 12px;
+    text-align: left;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 400;
+  }
+  /* 空 data-label 或没写 data-label：不显示标签，内容靠右 */
+  table.stacked-on-mobile td[data-label=""]::before,
+  table.stacked-on-mobile td:not([data-label])::before { display: none; }
+  table.stacked-on-mobile td > div { white-space: normal !important; text-overflow: clip !important; }
+  table.stacked-on-mobile td { flex-wrap: wrap; }
+  table.stacked-on-mobile td > .meta-sm { flex: 1 0 100%; }
+  table.stacked-on-mobile td:empty { display: none; }
+  /* 格子里的就地编辑控件在卡片里吃满剩余宽度 */
+  table.stacked-on-mobile td > .inline-select,
+  table.stacked-on-mobile td > .inline-input,
+  table.stacked-on-mobile td > .cell-input { flex: 1 1 auto; width: auto; min-width: 0; }
+  /* 「暂无数据」之类的通栏行 */
+  table.stacked-on-mobile td.empty { justify-content: center; text-align: center; }
+}
+
+/* ---- B2. 输入框 16px（iOS 聚焦时 <16px 会整页放大）+ 点击目标 >= 44px ----
+   inline style 里写了 font-size 的 select，所以这里用 !important。 */
+@media (max-width: 700px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="range"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="range"]):not([type="file"]),
+  select {
+    min-height: 44px;
+  }
+  button,
+  .btn,
+  .period-nav a {
+    min-height: 44px;
+  }
+  .btn,
+  .period-nav a,
+  .period-nav button,
+  .seg button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .period-nav button,
+  .period-nav a { min-width: 44px; }
+  .seg button { padding-left: 16px; padding-right: 16px; }
+  .period-selector button,
+  .period-selector select { min-height: 44px; }
+  header.app-header nav a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+  /* 勾选框 / 单选框本体放大；包它的 label 也要 >= 44px 才好点 */
+  input[type="checkbox"],
+  input[type="radio"] { width: 22px; height: 22px; }
+  .tx-toolbar label,
+  .goal-link-item { min-height: 44px; }
+  /* 模板里给裸 checkbox 套一层 <label class="tap-target"> 即可获得 44x44 的点击区 */
+  .tap-target {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    cursor: pointer;
+  }
+  table.tx-list th.sortable { min-height: 44px; padding-top: 14px; padding-bottom: 14px; }
+
+  /* ---- B3. 不依赖 hover：就地编辑框平时没有边框，触屏上看不出能点，手机上常驻边框 ---- */
+  .inline-select,
+  .inline-input,
+  .cell-input {
+    border-color: var(--border-strong);
+    background: var(--surface);
+  }
+
+  /* ---- 导航：整行滚动，且独占一行（取代原来的 gap 换行）；链接间距换成 margin ---- */
+  header.app-header nav { flex: 1 1 100%; margin-top: 10px; }
+  header.app-header nav > a + a { margin-left: 18px; }
+}
+
+/* ---- 分类规则页在 <= 680px 由横排改纵排后，间距方向跟着换 ---- */
+@media (max-width: 680px) {
+  .rules-hero > :not(template) ~ :not(template),
+  .rules-filter > :not(template) ~ :not(template),
+  .rule-card-top > :not(template) ~ :not(template) { margin-left: 0; margin-top: 10px; }
+  .rule-actions { margin: -3px; }
+  .rule-actions > *,
+  .rule-actions > :not(template) ~ :not(template) { margin: 3px; }
+}
+
+/* ---- 防横向溢出（<= 700px）----
+   pages/ 里不少地方把 flex 行 / 两列网格写死（内联 style），窄屏会撑出视口；
+   body 的 overflow-x:clip 只是把溢出部分裁掉，内容还是看不到，所以要真正让它折行。 */
+@media (max-width: 700px) {
+  .flex-row {
+    flex-wrap: wrap;
+  }
+  .flex-row > *,
+  .flex-row > :not(template) ~ :not(template) {
+    margin: 4px 10px 4px 0 !important;
+  }
+  .seg {
+    max-width: calc(100vw - 32px); /* 页面左右各 16px；百分比在 flex 里拿不到确定宽度 */
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .seg::-webkit-scrollbar { display: none; }
+  .stats-head { flex-wrap: wrap; align-items: flex-start; }
+  .stats-head > * { min-width: 0; max-width: 100%; margin-top: 4px; margin-bottom: 4px; }
+  .stats-head .title-zh { font-size: 26px; }
+  .seg button, .seg .seg-label { white-space: nowrap; flex: 0 0 auto; }
+  /* 内联写死的 1fr 1fr / 多列网格在手机上改单列；grid 子项允许收缩 */
+  .profile-form[style*="grid-template-columns"],
+  .form-grid[style*="grid-template-columns"],
+  .export-grid { grid-template-columns: 1fr !important; }
+  .profile-form > *, .form-grid > *, .two-col > *, .rules-form > * { min-width: 0; }
+  .profile-form input, .profile-form select, .form-grid input, .form-grid select { max-width: 100%; }
+}
