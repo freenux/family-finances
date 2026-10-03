@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -192,5 +193,101 @@ func TestParseYuanToFen(t *testing.T) {
 		if !errors.Is(err, ErrInvalidInput) || err.Error() != tt.wantMsg {
 			t.Errorf("ParseYuanToFen(%q) err = %v; want ErrInvalidInput %q", tt.in, err, tt.wantMsg)
 		}
+	}
+}
+
+func TestResolveAmountFen(t *testing.T) {
+	i64 := func(v int64) *int64 { return &v }
+	tests := []struct {
+		name    string
+		fen     *int64
+		yuan    string
+		want    int64
+		wantMsg string
+	}{
+		{"只给 yuan", nil, "12.34", 1234, ""},
+		{"只给 fen", i64(1234), "", 1234, ""},
+		{"yuan 与 fen 换算结果相同", nil, "12.34", 1234, ""},
+		{"两个都给：不猜优先级，报错", i64(1234), "12.34", 0, "金额只能给 amount_fen 或 amount_yuan 其中一个"},
+		{"两个都给且数值冲突也是同一个错", i64(1), "99", 0, "金额只能给 amount_fen 或 amount_yuan 其中一个"},
+		{"都不给", nil, "", 0, "请提供金额（amount_fen 或 amount_yuan）"},
+		{"yuan 仅空白等同没给", nil, "  ", 0, "请提供金额（amount_fen 或 amount_yuan）"},
+		{"amount_fen=0 是「给了」，原样交给 Execute 报必须为正", i64(0), "", 0, ""},
+		{"yuan 格式错走 ParseYuanToFen 的报错", nil, "1e3", 0, "金额格式不正确"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ResolveAmountFen(tt.fen, tt.yuan)
+			if tt.wantMsg != "" {
+				if !errors.Is(err, ErrInvalidInput) || err.Error() != tt.wantMsg {
+					t.Fatalf("err = %v; want ErrInvalidInput %q", err, tt.wantMsg)
+				}
+				return
+			}
+			if err != nil || got != tt.want {
+				t.Errorf("got = %d, %v; want %d", got, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestCreateTransactionOccurredAtDefault(t *testing.T) {
+	now := time.Date(2025, 8, 15, 12, 0, 0, 0, time.Local)
+	tests := []struct {
+		name    string
+		allow   bool
+		at      string
+		want    time.Time
+		wantMsg string
+	}{
+		{"允许缺省且为空 → 服务器当前时间", true, "", now, ""},
+		{"允许缺省但只有空白也算空", true, "  ", now, ""},
+		{"允许缺省但给了值 → 按值", true, "2025-07-03 14:22", time.Date(2025, 7, 3, 14, 22, 0, 0, time.Local), ""},
+		{"允许缺省但值非法 → 仍报错，不静默改成现在", true, "昨天", time.Time{}, "日期时间格式不正确"},
+		{"不允许缺省（SSR 表单）空串仍报错", false, "", time.Time{}, "日期时间格式不正确"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uc, _ := newCreateUC(t)
+			uc.WithClock(func() time.Time { return now })
+			in := validInput()
+			in.OccurredAt, in.AllowEmptyOccurredAt = tt.at, tt.allow
+			got, err := uc.Execute(context.Background(), in)
+			if tt.wantMsg != "" {
+				if !errors.Is(err, ErrInvalidInput) || err.Error() != tt.wantMsg {
+					t.Fatalf("err = %v; want %q", err, tt.wantMsg)
+				}
+				return
+			}
+			if err != nil || !got.OccurredAt.Equal(tt.want) {
+				t.Errorf("OccurredAt = %v, %v; want %v", got.OccurredAt, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestMemberLimitSharedByCreateAndUpdate(t *testing.T) {
+	long := strings.Repeat("字", maxMemberRunes+1)
+	ok := strings.Repeat("字", maxMemberRunes)
+	uc, _ := newCreateUC(t)
+	for _, tt := range []struct {
+		name, member string
+		wantErr      bool
+	}{
+		{"恰好 20 字通过", ok, false},
+		{"21 字被拒（与 PATCH 同一上限）", long, true},
+		{"首尾空白不计入长度", " " + ok + " ", false},
+	} {
+		in := validInput()
+		in.Member = tt.member
+		_, err := uc.Execute(context.Background(), in)
+		if (err != nil) != tt.wantErr || (err != nil && !errors.Is(err, ErrInvalidInput)) {
+			t.Errorf("%s: err = %v; wantErr %v", tt.name, err, tt.wantErr)
+		}
+	}
+	// PATCH 侧同一常量同一判定
+	up := NewUpdateTransaction(&fakeTransactionRepo{}, &fakeCategoryRepo{}, nil)
+	if err := up.Update(context.Background(), "x", TxPatch{Member: &long}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("PATCH 21 字 err = %v; want ErrInvalidInput", err)
 	}
 }

@@ -86,6 +86,9 @@ func New(d Deps) *API {
 	}
 	if d.TxInsert != nil {
 		a.txCreate = usecase.NewCreateTransaction(d.TxInsert, d.Categories)
+		if d.Nav.Now != nil { // 与周期导航同一个时钟，测试可注入
+			a.txCreate.WithClock(d.Nav.Now)
+		}
 	}
 	if d.Report != nil {
 		a.report = usecase.NewReportView(d.Report, d.Nav)

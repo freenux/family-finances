@@ -14,8 +14,17 @@ import (
 // 两个适配器（SSR handler 与 /api/v1）共用这一个常量。
 const MaxBatchTxIDs = 1000
 
-// maxMemberRunes 成员标注的字数上限
+// maxMemberRunes 成员标注的字数上限，编辑（PATCH）与手填共用这一个
 const maxMemberRunes = 20
+
+// normalizeMember trim 并校验成员标注长度，编辑与手填共用
+func normalizeMember(s string) (string, error) {
+	m := strings.TrimSpace(s)
+	if len([]rune(m)) > maxMemberRunes {
+		return "", newUserError(ErrInvalidInput, fmt.Sprintf("成员标注过长（限 %d 字）", maxMemberRunes))
+	}
+	return m, nil
+}
 
 // TxWriter 单条/批量改流水，由 sqlite.TransactionRepo 满足。
 type TxWriter interface {
@@ -117,9 +126,9 @@ func (uc *UpdateTransaction) Update(ctx context.Context, id string, p TxPatch) e
 		patch.Account = &ac
 	}
 	if p.Member != nil {
-		m := strings.TrimSpace(*p.Member)
-		if len([]rune(m)) > maxMemberRunes {
-			return newUserError(ErrInvalidInput, fmt.Sprintf("成员标注过长（限 %d 字）", maxMemberRunes))
+		m, err := normalizeMember(*p.Member)
+		if err != nil {
+			return err
 		}
 		patch.Member = &m
 	}

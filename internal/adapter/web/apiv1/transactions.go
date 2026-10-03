@@ -110,7 +110,8 @@ type createTxReq struct {
 	OccurredAt   string `json:"occurred_at"`
 	Account      string `json:"account"`
 	Direction    string `json:"direction"`
-	AmountFen    int64  `json:"amount_fen"` // 分，整数；不收元，换算不在客户端
+	AmountFen    *int64 `json:"amount_fen"`  // 分，整数；与 amount_yuan 二选一
+	AmountYuan   string `json:"amount_yuan"` // 元，如 "12.34"；由服务端 ParseYuanToFen 换算
 	CategoryID   string `json:"category_id"`
 	Member       string `json:"member"`
 	Counterparty string `json:"counterparty"`
@@ -130,7 +131,17 @@ func (a *API) CreateTransaction(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, "bad_request", "请求体不是合法的 JSON（amount_fen 必须是整数分）")
 		return
 	}
-	tx, err := a.txCreate.Execute(r.Context(), usecase.NewTransactionInput(req))
+	fen, err := usecase.ResolveAmountFen(req.AmountFen, req.AmountYuan)
+	if err != nil {
+		a.writeUseCaseError(w, err, "")
+		return
+	}
+	tx, err := a.txCreate.Execute(r.Context(), usecase.NewTransactionInput{
+		OccurredAt: req.OccurredAt, AllowEmptyOccurredAt: true, // 空 = 服务器当前时间
+		Account: req.Account, Direction: req.Direction, AmountFen: fen,
+		CategoryID: req.CategoryID, Member: req.Member, Counterparty: req.Counterparty,
+		Description: req.Description, Note: req.Note,
+	})
 	if err != nil {
 		a.writeUseCaseError(w, err, "")
 		return

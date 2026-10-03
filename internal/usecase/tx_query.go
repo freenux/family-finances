@@ -312,9 +312,29 @@ func buildTxRow(t domain.Transaction, catName, specialName map[string]string) Tx
 		AmountFen: t.Amount, AmountText: FormatYuan(t.Amount),
 		Direction: string(t.Direction), DirectionText: directionText(t.Direction),
 		Status: string(t.Status), StatusText: statusText(t.Status),
-		CategoryID: t.CategoryID, CategoryText: catName[t.CategoryID],
-		SpecialID: t.SpecialID, SpecialText: specialName[t.SpecialID],
+		CategoryID: t.CategoryID, CategoryText: categoryText(t.CategoryID, catName),
+		SpecialID: t.SpecialID, SpecialText: specialText(t.SpecialID, specialName),
 	}
+}
+
+// 空值的展示文案由服务端给，客户端不自编枚举文案。
+const (
+	uncategorizedText = "未分类"
+	dailyText         = "日常" // special_id 为空 = 日常开支（与网页下拉的「— 日常 —」同一说法）
+)
+
+func categoryText(id string, names map[string]string) string {
+	if id == "" {
+		return uncategorizedText
+	}
+	return names[id]
+}
+
+func specialText(id string, names map[string]string) string {
+	if id == "" {
+		return dailyText
+	}
+	return names[id]
 }
 
 func accountText(a domain.Account) string {

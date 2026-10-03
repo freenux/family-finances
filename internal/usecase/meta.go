@@ -61,7 +61,16 @@ func NewMeta(cats LeafCategoryLister, specials MetaSpecialLister, nav PeriodNav)
 	return &Meta{cats: cats, specials: specials, nav: nav}
 }
 
+// Execute 返回完整 bootstrap（不过滤科目方向）。
 func (m *Meta) Execute(ctx context.Context) (MetaView, error) {
+	return m.ExecuteFor(ctx, "")
+}
+
+// ExecuteFor 同 Execute，direction 为 income | expense 时只返回对应 type 的科目分组
+// （手填支出只该给支出科目：按方向筛科目是业务规则，不由客户端实现）。
+// 其它值（含空串、非法值）一律视为不过滤，与 §5 的 direction=all 及 ParseScope「非法退回默认」同一习惯。
+// 只影响 categories，其它字段不变。
+func (m *Meta) ExecuteFor(ctx context.Context, direction string) (MetaView, error) {
 	var v MetaView
 	cats, err := m.cats.ListAll(ctx)
 	if err != nil {
@@ -77,8 +86,18 @@ func (m *Meta) Execute(ctx context.Context) (MetaView, error) {
 			specials = append(specials, MetaSpecial{ID: p.ID, Name: p.Name, Active: p.IsActive()})
 		}
 	}
+	groups := GroupCategories(cats)
+	if direction == string(domain.DirectionIncome) || direction == string(domain.DirectionExpense) {
+		kept := make([]MetaCategoryGroup, 0, len(groups))
+		for _, g := range groups {
+			if g.Type == direction {
+				kept = append(kept, g)
+			}
+		}
+		groups = kept
+	}
 	return MetaView{
-		Categories:   GroupCategories(cats),
+		Categories:   groups,
 		Specials:     specials,
 		Accounts:     accountOptions(false),
 		AccountViews: accountOptions(true),

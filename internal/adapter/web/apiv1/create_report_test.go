@@ -105,7 +105,7 @@ func TestCreateTransactionErrors(t *testing.T) {
 		raw     string // 非空时直接作为 body
 		wantMsg string
 	}{
-		{"缺金额", func(m map[string]any) { delete(m, "amount_fen") }, "", "金额必须为正数"},
+		{"缺金额", func(m map[string]any) { delete(m, "amount_fen") }, "", "请提供金额（amount_fen 或 amount_yuan）"},
 		{"金额为 0", func(m map[string]any) { m["amount_fen"] = 0 }, "", "金额必须为正数"},
 		{"金额为负", func(m map[string]any) { m["amount_fen"] = -5 }, "", "金额必须为正数"},
 		{"金额带小数（客户端传了元）", nil, `{"amount_fen":12.5}`, "请求体不是合法的 JSON（amount_fen 必须是整数分）"},
@@ -282,5 +282,95 @@ func TestReportEndpointErrors(t *testing.T) {
 	decode(t, rec, &r)
 	if rec.Code != 200 || r.Data.Period.Key != "2024" || r.Data.AccountText != "女主" {
 		t.Errorf("annual/2024/wife → %d %s %q; want 200 / 2024 / 女主", rec.Code, r.Data.Period.Key, r.Data.AccountText)
+	}
+}
+
+// amount_fen 与 amount_yuan 二选一；"12.34" 与 1234 落库完全相同。
+func TestCreateTransactionAmountYuanOrFen(t *testing.T) {
+	tests := []struct {
+		name    string
+		mod     func(map[string]any)
+		wantMsg string // 空 = 期望 200
+	}{
+		{"只给 yuan", func(m map[string]any) { delete(m, "amount_fen"); m["amount_yuan"] = "12.34" }, ""},
+		{"只给 fen", func(m map[string]any) {}, ""},
+		{"两个都给 → 400，不猜优先级", func(m map[string]any) { m["amount_yuan"] = "12.34" }, "金额只能给 amount_fen 或 amount_yuan 其中一个"},
+		{"都不给 → 400", func(m map[string]any) { delete(m, "amount_fen") }, "请提供金额（amount_fen 或 amount_yuan）"},
+		{"yuan 非法 → 400 复用 ParseYuanToFen 的报错", func(m map[string]any) { delete(m, "amount_fen"); m["amount_yuan"] = "abc" }, "金额格式不正确"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newFullEnv(t)
+			m := validCreate()
+			tt.mod(m)
+			rec := e.post("/transactions", m)
+			if tt.wantMsg == "" {
+				if rec.Code != 200 {
+					t.Fatalf("status = %d; want 200（%s）", rec.Code, rec.Body)
+				}
+				return
+			}
+			if rec.Code != 400 {
+				t.Fatalf("status = %d; want 400（%s）", rec.Code, rec.Body)
+			}
+			if _, msg := errCode(t, rec); msg != tt.wantMsg {
+				t.Errorf("message = %q; want %q", msg, tt.wantMsg)
+			}
+		})
+	}
+
+	// 两条路径落库的流水逐字段相同（除 id）
+	e := newFullEnv(t)
+	create := func(mod func(map[string]any)) domain.Transaction {
+		m := validCreate()
+		mod(m)
+		rec := e.post("/transactions", m)
+		var resp struct {
+			Data struct{ ID string } `json:"data"`
+		}
+		decode(t, rec, &resp)
+		got, err := e.tx.Get(context.Background(), resp.Data.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	a := create(func(m map[string]any) { delete(m, "amount_fen"); m["amount_yuan"] = "12.34" })
+	b := create(func(m map[string]any) {})
+	a.ID, b.ID, a.CreatedAt, b.CreatedAt, a.UpdatedAt, b.UpdatedAt = "", "", time.Time{}, time.Time{}, time.Time{}, time.Time{}
+	if a != b {
+		t.Errorf("yuan=\"12.34\" 落库 %+v; fen=1234 落库 %+v; want 完全相同（换算只有 ParseYuanToFen 一处）", a, b)
+	}
+}
+
+// occurred_at 缺省取服务器时间（这里是注入的 fixedNow）；给了非法值仍是 400。
+func TestCreateTransactionOccurredAtOptional(t *testing.T) {
+	e := newFullEnv(t)
+	m := validCreate()
+	delete(m, "occurred_at")
+	rec := e.post("/transactions", m)
+	if rec.Code != 200 {
+		t.Fatalf("status = %d; want 200（%s）", rec.Code, rec.Body)
+	}
+	var resp struct {
+		Data struct{ ID string } `json:"data"`
+	}
+	decode(t, rec, &resp)
+	got, err := e.tx.Get(context.Background(), resp.Data.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.OccurredAt.Equal(fixedNow) {
+		t.Errorf("OccurredAt = %v; want 服务器时钟 %v（缺省不由客户端拼）", got.OccurredAt, fixedNow)
+	}
+}
+
+func TestCreateTransactionMemberLimit(t *testing.T) {
+	e := newFullEnv(t)
+	m := validCreate()
+	m["member"] = strings.Repeat("字", 21)
+	rec := e.post("/transactions", m)
+	if rec.Code != 400 {
+		t.Fatalf("status = %d; want 400（member 21 字，与 PATCH 同一上限 20）", rec.Code)
 	}
 }

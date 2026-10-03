@@ -297,8 +297,8 @@ func TestTxQueryRowDTO(t *testing.T) {
 		{"source_text alipay", r2.SourceText, "支付宝"},
 		{"direction_text income", r2.DirectionText, "收入"},
 		{"status_text confirmed", r2.StatusText, "已确认"},
-		{"无分类时 category_text 为空", r2.CategoryText, ""},
-		{"无专项时 special_text 为空", r2.SpecialText, ""},
+		{"无分类时 category_text 由服务端给「未分类」（客户端不自编文案）", r2.CategoryText, "未分类"},
+		{"无专项 = 日常开支，special_text 为「日常」", r2.SpecialText, "日常"},
 		{"负金额", r2.AmountText, "-0.05"},
 	}
 	for _, c := range checks {

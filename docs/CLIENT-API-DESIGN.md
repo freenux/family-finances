@@ -72,6 +72,11 @@ internal/adapter/web/handler/          SSR 改为调同一个 usecase，不再�
 
 ## 3. `GET /api/v1/meta`
 
+可选参数 `direction=income|expense`：只返回对应 `type` 的科目分组（手填支出只该给支出科目，
+「按方向筛科目」是业务规则，客户端不自己实现）。不给、`all` 或任何非法值都**不过滤**（与 §5 的
+`direction` 及 `ParseScope`「非法退回默认」同一习惯，不返回 400）。只影响 `categories`，其它字段不变。
+装配在 `usecase.Meta.ExecuteFor`。
+
 小程序/移动端启动时拉一次的 bootstrap，替代现在 SSR 嵌的四个 `<script type="application/json">`。
 
 ```json
@@ -218,6 +223,9 @@ page_size  = 50                          缺省 50，上限 200，超出钳到�
 
 `source_text` 对 `csv:<模板名>` 返回 `"CSV·<模板名>"`（把 `tx_table.js` 的 `sourceLabel` 搬过来）。
 `category_text` / `special_text` 由服务端查表填好，客户端不再需要 `catNameById`。
+**空值的文案也由服务端给**：`category_id` 为空 → `category_text = "未分类"`；`special_id` 为空（日常开支）
+→ `special_text = "日常"`（与网页下拉的「— 日常 —」同一说法）。客户端不得自编这类枚举文案，
+想隐藏「日常」就按 `special_id` 是否为空判断，不要比较文案。
 
 ---
 
@@ -231,18 +239,19 @@ page_size  = 50                          缺省 50，上限 200，超出钳到�
 {"data":{"id":"6f1c..."}}
 ```
 
-- **金额只收分：`amount_fen`，整数（`int64`）**，必须 > 0 且 ≤ 1,000,000,000,000（100 亿元）。
-  不收元：元→分是一处两端各写一遍就会各自漂移的推导，所以客户端**不得自己乘 100**——
-  金额输入控件应直接产出整数分（如小程序的分单位数字键盘）。
-  **唯一的换算实现是 `usecase.ParseYuanToFen`**：纯十进制字符串解析，整条链路无 float，
-  第三位小数四舍五入（`19.999 → 2000`），与账单解析器「元乘 100 再 +0.5」同向；
-  只给 SSR 表单（`POST /imports/manual`，用户在网页里敲的是元）用。
-  JSON 里传 `12.5`、`"12"` 这类非整数 `amount_fen` → 400，不会悄悄取整。
-- `occurred_at` 接受三种写法，都由 `usecase.ParseOccurredAt` 解析，无时区信息时按服务器本地时区：
+- **金额二选一：`amount_fen`（整数分，`int64`）或 `amount_yuan`（字符串，如 `"12.34"`）**。
+  两个都给 → 400（「金额只能给 amount_fen 或 amount_yuan 其中一个」，不猜优先级，猜错就是错账）；
+  都不给 → 400。客户端**不得自己乘 100**：要么直接产出整数分，要么把用户输入的元原样放进 `amount_yuan`。
+  **唯一的换算实现是 `usecase.ParseYuanToFen`**（`amount_yuan` 与 SSR 表单共用）：纯十进制字符串解析，
+  整条链路无 float，第三位小数四舍五入（`19.999 → 2000`）。`"12.34"` 与 `1234` 落库完全相同。
+  金额必须 > 0 且 ≤ 1,000,000,000,000 分（100 亿元）。`amount_fen` 传 `12.5`、`"12"` 这类非整数 → 400，不会悄悄取整。
+- `occurred_at` **可省略或为空串，缺省取服务器当前时间**（客户端时钟可能不准，「现在」不由客户端拼）。
+  SSR 表单仍然必填，行为不变。给了就必须合法，非法值照旧 400，不会静默改成现在。接受三种写法，都由 `usecase.ParseOccurredAt` 解析，无时区信息时按服务器本地时区：
   `"2025-07-03 14:22"`（与行 DTO 的 `occurred_text` 同形，**推荐**）、`"2025-07-03T14:22"`、RFC3339。
 - `account` 只能是 `husband | wife`（见 §3 `accounts`；`family` 是查询视图，不可写）；
   `direction` 只能是 `income | expense`；`category_id` 可空，非空必须是二级科目（见 §3 `categories`）。
-  `member` / `counterparty` / `description` / `note` 可空，服务端 trim。
+  `member` / `counterparty` / `description` / `note` 可空，服务端 trim；
+  `member` 限 20 字（与 `PATCH` 同一常量 `maxMemberRunes`，超出 → 400）。
 - 服务端装配：`source = manual`；`status = confirmed`（手填就是用户亲手确认的）；`id` 由服务端生成。
   **注意**：不给 `category_id` 时仍然是 `confirmed`（沿用 SSR 表单既有行为），这类流水
   因为没有科目不会进任何聚合，也不会被 LLM 兜底分类——客户端应引导用户选科目，

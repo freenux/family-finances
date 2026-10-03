@@ -205,3 +205,47 @@ func TestMetaAccountsSplit(t *testing.T) {
 		t.Errorf("account_views = %v; want 含 family 共 3 项", resp.Data.AccountViews)
 	}
 }
+
+// meta?direction= 只过滤科目分组，其它字段不变；非法值退回不过滤。
+func TestMetaDirectionFilter(t *testing.T) {
+	tests := []struct {
+		query      string
+		wantGroups []string
+		why        string
+	}{
+		{"", []string{"expense.discretion", "income.salary", "expense.empty"}, "不给 direction：现有行为不变，全部返回"},
+		{"?direction=expense", []string{"expense.discretion", "expense.empty"}, "支出表单只给支出科目"},
+		{"?direction=income", []string{"income.salary"}, "收入表单只给收入科目"},
+		{"?direction=all", []string{"expense.discretion", "income.salary", "expense.empty"}, "all 与不给等价"},
+		{"?direction=bogus", []string{"expense.discretion", "income.salary", "expense.empty"}, "非法值退回默认（不过滤），与 ParseScope 同一习惯"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.query, func(t *testing.T) {
+			rec := get(newAPI(fakeCats{list: sampleCats}, nil), "/meta"+tt.query)
+			if rec.Code != 200 {
+				t.Fatalf("status = %d; want 200", rec.Code)
+			}
+			var resp struct {
+				Data struct {
+					Categories []struct {
+						GroupID string `json:"group_id"`
+					} `json:"categories"`
+					Accounts []json.RawMessage `json:"accounts"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, g := range resp.Data.Categories {
+				got = append(got, g.GroupID)
+			}
+			if strings.Join(got, ",") != strings.Join(tt.wantGroups, ",") {
+				t.Errorf("groups = %v; want %v（%s）", got, tt.wantGroups, tt.why)
+			}
+			if len(resp.Data.Accounts) != 2 {
+				t.Errorf("accounts = %d 项; want 2（direction 不影响其它字段）", len(resp.Data.Accounts))
+			}
+		})
+	}
+}
