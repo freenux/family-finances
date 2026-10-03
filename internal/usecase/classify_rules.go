@@ -1,8 +1,6 @@
 package usecase
 
 import (
-	"strings"
-
 	"family-finances/internal/domain"
 )
 
@@ -29,35 +27,9 @@ func ClassifyByCustomRules(row domain.RawBillRow, rules []domain.CategoryRule) (
 }
 
 func ruleMatches(row domain.RawBillRow, rule domain.CategoryRule) bool {
-	pattern := strings.ToLower(strings.TrimSpace(rule.Pattern))
-	if pattern == "" {
-		return false
-	}
-	for _, value := range ruleFieldValues(row, rule.Field) {
-		value = strings.ToLower(value)
-		switch rule.PatternType {
-		case "exact":
-			if value == pattern {
-				return true
-			}
-		default:
-			if strings.Contains(value, pattern) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func ruleFieldValues(row domain.RawBillRow, field string) []string {
-	switch field {
-	case "counterparty":
-		return []string{row.Counterparty}
-	case "description":
-		return []string{row.Description}
-	case "platform_category":
-		return []string{row.PlatformCategory}
-	default:
-		return []string{row.Counterparty, row.Description, row.PlatformCategory}
-	}
+	return domain.RuleMatches(rule, domain.RuleMatchFields{
+		Counterparty:     row.Counterparty,
+		Description:      row.Description,
+		PlatformCategory: row.PlatformCategory,
+	})
 }

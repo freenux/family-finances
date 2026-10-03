@@ -113,3 +113,49 @@ func (p Period) Previous() Period {
 	}
 	return Period{}
 }
+
+// Next 返回下一期（Shift(1)）
+func (p Period) Next() Period { return p.Shift(1) }
+
+// Shift 平移 n 期（n 可为负），跨年自动进位；零值或未知 Type 返回零值 Period。
+// Shift(-1) 与 Previous() 完全等价。
+func (p Period) Shift(n int) Period {
+	if p.Start.IsZero() {
+		return Period{}
+	}
+	var start time.Time
+	var label string
+	switch p.Type {
+	case PeriodMonthly:
+		start = p.Start.AddDate(0, n, 0)
+		label = fmt.Sprintf("%04d-%02d", start.Year(), start.Month())
+		return Period{Label: label, Type: PeriodMonthly, Start: start, End: start.AddDate(0, 1, 0)}
+	case PeriodQuarterly:
+		start = p.Start.AddDate(0, 3*n, 0)
+		q := (int(start.Month())-1)/3 + 1
+		label = fmt.Sprintf("%dQ%d", start.Year(), q)
+		return Period{Label: label, Type: PeriodQuarterly, Start: start, End: start.AddDate(0, 3, 0)}
+	case PeriodAnnual:
+		start = p.Start.AddDate(n, 0, 0)
+		label = fmt.Sprintf("%d", start.Year())
+		return Period{Label: label, Type: PeriodAnnual, Start: start, End: start.AddDate(1, 0, 0)}
+	}
+	return Period{}
+}
+
+// DisplayLabel 中文可读标签：2025年7月 / 2025年第三季度 / 2025年
+func (p Period) DisplayLabel() string {
+	if p.Start.IsZero() {
+		return ""
+	}
+	switch p.Type {
+	case PeriodMonthly:
+		return fmt.Sprintf("%d年%d月", p.Start.Year(), int(p.Start.Month()))
+	case PeriodQuarterly:
+		q := (int(p.Start.Month())-1)/3 + 1
+		return fmt.Sprintf("%d年第%s季度", p.Start.Year(), [...]string{"", "一", "二", "三", "四"}[q])
+	case PeriodAnnual:
+		return fmt.Sprintf("%d年", p.Start.Year())
+	}
+	return p.Label
+}

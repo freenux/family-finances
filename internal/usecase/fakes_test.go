@@ -61,6 +61,18 @@ type fakeTransactionRepo struct {
 	// tops 按口径分组，用来验"Top 榜单跟随 scope"。
 	tops      map[domain.Scope][]port.TopTransaction
 	topScopes []domain.Scope
+	// QueryTransactions 替身：记录最后一次收到的查询，返回 queryPage
+	lastQuery   port.TransactionQuery
+	queryPage   port.TransactionPage
+	members     []string
+	applyCalls  []applyCall
+	applyResult int
+}
+
+// applyCall 记录 ApplyCategoryByRule 的入参
+type applyCall struct {
+	rule      domain.CategoryRule
+	direction string
 }
 
 // sumAggs 合并同科目金额，用于拼出全口径（日常 + 专项）
@@ -150,6 +162,20 @@ func (f *fakeTransactionRepo) TopTransactions(_ context.Context, _ domain.Period
 		rows = rows[:limit]
 	}
 	return rows, nil
+}
+
+func (f *fakeTransactionRepo) QueryTransactions(_ context.Context, q port.TransactionQuery) (port.TransactionPage, error) {
+	f.lastQuery = q
+	return f.queryPage, nil
+}
+
+func (f *fakeTransactionRepo) DistinctMembers(context.Context, domain.Period, domain.Account) ([]string, error) {
+	return f.members, nil
+}
+
+func (f *fakeTransactionRepo) ApplyCategoryByRule(_ context.Context, _ domain.Period, _ domain.Account, rule domain.CategoryRule, direction string) (int, error) {
+	f.applyCalls = append(f.applyCalls, applyCall{rule: rule, direction: direction})
+	return f.applyResult, nil
 }
 
 func (f *fakeTransactionRepo) ListAll(context.Context) ([]domain.Transaction, error) {
@@ -344,7 +370,12 @@ func (f *fakeCategoryRuleRepo) ListRules(context.Context) ([]domain.CategoryRule
 func (f *fakeCategoryRuleRepo) ListActiveRules(context.Context) ([]domain.CategoryRule, error) {
 	return f.rules, nil
 }
-func (f *fakeCategoryRuleRepo) GetRule(context.Context, string) (domain.CategoryRule, error) {
+func (f *fakeCategoryRuleRepo) GetRule(_ context.Context, id string) (domain.CategoryRule, error) {
+	for _, r := range f.rules {
+		if r.ID == id {
+			return r, nil
+		}
+	}
 	return domain.CategoryRule{}, port.ErrNotFound
 }
 func (f *fakeCategoryRuleRepo) InsertRule(context.Context, domain.CategoryRule) error { return nil }
@@ -367,12 +398,13 @@ func (f *fakeLLM) Complete(context.Context, string, string) (string, error) {
 }
 
 var (
-	_ port.CategoryRepo      = (*fakeCategoryRepo)(nil)
-	_ port.TransactionRepo   = (*fakeTransactionRepo)(nil)
-	_ port.AssetSnapshotRepo = (*fakeAssetSnapshotRepo)(nil)
-	_ port.ReportRepo        = (*fakeReportRepo)(nil)
-	_ port.CategoryRuleRepo  = (*fakeCategoryRuleRepo)(nil)
-	_ ReportLLM              = (*fakeLLM)(nil)
+	_ port.CategoryRepo         = (*fakeCategoryRepo)(nil)
+	_ port.TransactionRepo      = (*fakeTransactionRepo)(nil)
+	_ port.TransactionQueryRepo = (*fakeTransactionRepo)(nil)
+	_ port.AssetSnapshotRepo    = (*fakeAssetSnapshotRepo)(nil)
+	_ port.ReportRepo           = (*fakeReportRepo)(nil)
+	_ port.CategoryRuleRepo     = (*fakeCategoryRuleRepo)(nil)
+	_ ReportLLM                 = (*fakeLLM)(nil)
 )
 
 // ---- fakeProfileRepo（画像 + 目标 + 保单三合一）----
