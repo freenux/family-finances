@@ -19,8 +19,8 @@
     </view>
     <view class="muted">{{item.occurred_text}} · {{item.account_text}} · {{item.source_text}}</view>
     <view class="muted">
-      <text class="cat">{{item.category_text || '未分类'}}</text>
-      <text wx:if="{{item.special_text}}"> · {{item.special_text}}</text>
+      <text class="cat">{{item.category_text}}</text>
+      <text wx:if="{{item.special_id}}"> · {{item.special_text}}</text>
       · {{item.status_text}}
     </view>
     <view class="muted" wx:if="{{item.note}}">备注：{{item.note}}</view>

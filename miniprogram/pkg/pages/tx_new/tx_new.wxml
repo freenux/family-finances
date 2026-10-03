@@ -8,10 +8,10 @@
     <view class="label">金额（元）</view>
     <input class="input" type="digit" placeholder="0.00" value="{{amountYuan}}" bindinput="onAmount" />
 
-    <view class="label">发生时间</view>
+    <view class="label">发生时间（不选则为现在）<text class="navbtn" wx:if="{{date || time}}" bindtap="clearTime">清除</text></view>
     <view class="row">
-      <picker mode="date" value="{{date}}" bindchange="onDate"><view class="input pick">{{date}}</view></picker>
-      <picker mode="time" value="{{time}}" bindchange="onTime"><view class="input pick" style="margin-left:16rpx">{{time}}</view></picker>
+      <picker mode="date" value="{{date}}" bindchange="onDate"><view class="input pick">{{date || '默认现在'}}</view></picker>
+      <picker mode="time" value="{{time}}" bindchange="onTime"><view class="input pick" style="margin-left:16rpx">{{time || '默认现在'}}</view></picker>
     </view>
 
     <view class="label">账户归属</view>

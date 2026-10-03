@@ -18,9 +18,7 @@ miniprogram/
   sitemap.json                   不允许被微信索引
   utils/request.js               请求层：注入 Bearer、解信封、按 error.code 分支、showError
   utils/store.js                 Storage 封装：只存 token 与上次选的周期
-  utils/meta.js                  /api/v1/meta 的内存缓存（不落 Storage）
-  utils/amount.js                元转分 yuanToFen（唯一的客户端换算，见下）
-  utils/datetime.js              记账默认时间的格式拼接
+  utils/meta.js                  /api/v1/meta 的内存缓存（按 direction 分别缓存，不落 Storage）
   pages/index                    主包：tabBar 首页，三个入口
   pages/mine                     主包：tabBar「我的」，退出登录
   pages/login                    主包：输入 key 换 token
@@ -54,9 +52,16 @@ miniprogram/
 科目树用 `/meta.categories`，告警用 `kpi.discretion_warning` 与 `discretion_note`，
 流水底部合计用 `totals.*_text`（整个筛选结果集，不是当页）。
 
-唯一例外：手填记账的元→分换算（`utils/amount.js`）。接口只收整数分，用户输入的是元，
-所以客户端要换算一次。它是服务端 `usecase.ParseYuanToFen` 的孪生，**改一处必须改另一处**。
-该函数不产生任何错误文案，无法解析时返回 0，由服务端返回「金额必须为正数」等提示。
+没有例外：小程序里没有任何业务推导，也没有 `utils/amount.js`、`utils/datetime.js`（已删除）。
+
+手填记账的约定：
+- **金额**：把用户输入的元字符串原样作为 `amount_yuan` 发出，换算与格式校验由服务端（`usecase.ParseYuanToFen`）负责，
+  错误提示也由服务端返回。请求体里**只能有 `amount_yuan`**，同时带 `amount_fen` 会 400。
+- **时间**：用户不选就**不传 `occurred_at`**，服务端取服务器当前时间（客户端时钟可能不准）。
+  界面保留可选的日期/时间入口（便于补记旧账），选了才传；只选一半或格式不对由服务端返回 400。
+- **科目**：切换收支方向时用 `GET /api/v1/meta?direction=income|expense` 重新取科目树，
+  过滤由服务端做；`utils/meta.js` 按方向分别缓存；已选科目不在新树里会被清掉。
+- 流水列表直接渲染 `category_text`（空科目时服务端给「未分类」），是否显示专项按 `special_id` 判断，不比较 `*_text` 文案。
 
 ## 本地存储
 
