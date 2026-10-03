@@ -40,6 +40,19 @@ func (a Account) IsStorageAccount() bool {
 	return a == AccountHusband || a == AccountWife
 }
 
+// ParseAccount 解析账户查询参数；空串与任何非法值一律退回 AccountFamily（查询视图）。
+// 这是整个仓库唯一的解析入口，usecase / handler / apiv1 都调它，不要再各写一份。
+func ParseAccount(s string) Account {
+	switch Account(s) {
+	case AccountHusband:
+		return AccountHusband
+	case AccountWife:
+		return AccountWife
+	default:
+		return AccountFamily
+	}
+}
+
 // AccountLabel 给 UI 展示用
 func (a Account) Label() string {
 	switch a {

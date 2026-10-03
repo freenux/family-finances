@@ -187,9 +187,9 @@ func TestTxQueryRuleView(t *testing.T) {
 			t.Errorf("Rule = %+v; want %+v", res.Rule, want)
 		}
 	})
-	t.Run("显式给了 period 以显式为准", func(t *testing.T) {
+	t.Run("显式给了 type+period 以显式为准（只给 period 而与默认 type 对不上会退回默认周期）", func(t *testing.T) {
 		q, repo, _ := newTestTxQuery(t)
-		if _, err := q.Execute(context.Background(), TxQueryRequest{RuleID: "r-sbux", Period: "2024"}); err != nil {
+		if _, err := q.Execute(context.Background(), TxQueryRequest{RuleID: "r-sbux", Type: "annual", Period: "2024"}); err != nil {
 			t.Fatal(err)
 		}
 		if repo.lastQuery.Period.Label != "2024" {

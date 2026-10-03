@@ -117,6 +117,17 @@ internal/
 
 `TransactionRepo.SumByBuckets` 是个例外——它**不收 scope 参数**：一次范围扫描同时返回 `(daily, special)` 两组按下标对齐的桶，基线调用方取第一个返回值即可，"全部"= 两者逐桶相加。别为了换口径把同一段范围扫两遍。
 
+### 错误约定（usecase 哨兵 + 适配器映射）
+
+- **`port.ErrNotFound`**：repo 的「按 id 取单条 / 更新无匹配行」找不到时**必须**返回它（`GetRule`、`TransactionRepo.Get` 也是），不要把 `sql.ErrNoRows` 漏出 sqlite 包——usecase 与适配器只认哨兵，认不出就会把 404 变成 500，而用替身的单测发现不了，所以 sqlite 层有真库测试钉住（`category_repo_test.go`）。
+- **`usecase/errors.go` 三个哨兵**：`ErrInvalidPeriod`（周期 label 非法）、`ErrRuleNotApplicable`（规则是死规则 / 无目标科目 / 科目不存在）、`ErrInvalidInput`（其余入参校验：非二级科目、状态/账户非法、成员过长、专项不存在、ids 为空或超限……）。它们的 `Error()` 是面向用户的中文，适配器可原样回显；**除此之外的错误一律是内部故障**。
+- **适配器只用 `errors.Is` 映射**：三个哨兵 → 400；`port.ErrNotFound` → 404；其余 → 500 且细节只进日志（`apiv1.writeUseCaseError`、`handler.writeTxUpdateError`）。**禁止**靠「有没有 `%w` 包装」或错误文本做判断——repo 直接返回的裸驱动错误会被误判成 400 并泄露给客户端。`apiv1/errors_test.go` 钉住这一点。
+- `SpecialView.Ensure` 目标不存在时返回包装了 `port.ErrNotFound` 的错误，DB 故障原样返回，二者可区分。
+
+### 流水编辑（单条 / 批量）只有一份实现
+
+PATCH 的业务逻辑——叶子科目校验、status 白名单、`IsStorageAccount`、member 长度、`category_id` 非空自动 `confirmed`、专项校验、批量 ids 上限（`usecase.MaxBatchTxIDs`）与过滤空 id——全在 `usecase.UpdateTransaction`（`Update` / `AssignSpecial`）。`handler.UpdateTransaction` / `BatchUpdateTransactions`（204 / 纯文本错误）与 `apiv1`（信封）只做 HTTP 解析与响应格式，**不要在任一侧再写校验**。账户参数解析统一用 `domain.ParseAccount`（空串与非法值退回 `family`）。
+
 ### 账单导入流程
 
 1. `GET /imports` 上传表单（source ∈ {alipay, wechat}，文件 multipart）。
@@ -164,7 +175,7 @@ internal/
 - 仪表盘 `/`、收支流水 `/transactions`、现金流表 `/cashflow` 这三个页面（以及 `/reports`、`/assets`、`/api/stats`）的默认周期一律是**上一个完整周期**，不是当期——当期没走完，环比同比都会失真。
 - 后端唯一入口 `defaultPeriodFor(type, now)`（`handler/handler.go`）：annual → 去年，monthly → 上月，quarterly（以及任何非法值）→ 上季度。`parsePeriodFromQuery` 与 `StatsAPI`（先把 `month/quarter/year` 短别名翻成 `PeriodType`）都复用它。
 - 前端唯一入口 `defaultPeriodKey(granularity)`（`static/js/period_utils.js`），内部复用 `shiftPeriodKey(..., -1)`；`stats_page.js` / `dashboard_page.js` / `tx_table.js` 都调它。
-- **这是两份独立实现，改规则必须两处一起改**，否则首屏 SSR 的周期和 Alpine 接管后显示的周期会打架。
+- **这是两份独立实现，改规则必须两处一起改**，否则首屏 SSR 的周期和 Alpine 接管后显示的周期会打架。（后端侧 `type` 与 `period` 对不上 → 退回该 `type` 的默认周期，规则只在 `usecase.PeriodNav.Resolve` 一处；`handler` 里的 `parsePeriodFromQuery` / `defaultPeriodFor` / `txListPeriod` 是纯委托，不得再写自己的判断。）
 - **唯一例外**：流水页带 `?rule_id=`（从「分类规则」页点「查看流水」跳过来，且 URL 里既没有 `type` 也没有 `period`）时改用**当前季度**，见 `txListPeriod`。这里不能复用 `defaultPeriodFor`——它给的是上一个完整季度，同样盖不住当月刚导入待核对的那批流水，页面会误报"这条规则没匹配到任何流水"。URL 显式给了 `type` 或 `period` 时一律以显式为准。
 
 ### 数据库

@@ -111,6 +111,16 @@ internal/adapter/web/handler/          SSR 改为调同一个 usecase，不再�
 - **默认周期规则不变**：上一个完整周期（annual→去年，monthly→上月，quarterly→上季度）。
   现有 `handler.defaultPeriodFor` 的逻辑整体搬进 `usecase.PeriodNav`，handler 改为调它，
   不要留两份。`txListPeriod` 的 `?rule_id=` 例外（当前季度）也搬进去，作为 `PeriodNav` 的一个显式入口。
+- **`type` 与 `period` 必须配套传**：客户端传 `period` 时必须同时传匹配的 `type`
+  （`2025Q3` 配 `quarterly`、`2025-07` 配 `monthly`、`2025` 配 `annual`）。
+  `period` 合法但与 `type` 对不上（如 `type=annual&period=2026Q3`）时，**退回该 `type` 的默认周期**
+  （此例得到去年），而不是采用 `period` 自带的粒度；只传 `period` 不传 `type` 时 `type` 取各端点的默认粒度
+  （`/api/v1/*` 为 `quarterly`），同样按此规则比对。理由：对不上是客户端的 bug，悄悄改变请求的粒度
+  比退回该粒度的默认周期更糟。`period` 本身解析失败 → 400 `bad_request`。
+  这条规则只在 `PeriodNav.Resolve` 里实现一份，SSR 页面（`period_query_test.go` 钉住）与 `/api/v1` 共用。
+- **响应里的 `period` 对象总是同时带 `type` 和 `key`**，客户端照原样把这两个字段回传
+  （`?type=<period.type>&period=<period.key>`；翻页用 `prev`/`next` 与同一个 `type`），
+  不需要自己记当前是什么粒度，也就不会传出对不上的组合。
 - **每个带周期的响应都内嵌同形状的 `period` 对象**。客户端翻页只用 `prev`/`next` 里给好的 key，
   自己不做任何日期运算 → `period_utils.js` 的 `defaultPeriodKey` / `shiftPeriodKey` 随 §9 删除。
 - `has_next=false` 时客户端禁用「下一期」按钮：不让用户翻到未来。

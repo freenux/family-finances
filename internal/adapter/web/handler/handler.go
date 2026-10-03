@@ -152,34 +152,21 @@ func (h *Handler) renderPartial(w http.ResponseWriter, name string, vm any) {
 	}
 }
 
-// parsePeriodFromQuery 从 querystring 解析 type/period。
-// URL 未显式指定（或指定的 period 跟 type 对不上）时，退回 defaultType 粒度下的默认周期——
+// parsePeriodFromQuery 从 querystring 解析 type/period，纯委托给 usecase.PeriodNav.Resolve
+// （周期规则的唯一来源，含「type 与 period 对不上就退回该 type 的默认周期」）。
 // 调用方按自己页面的粒度传入 defaultType，几个页面各自默认值不同，不能共用一个全局默认。
-// 默认周期本身由 usecase.PeriodNav 给出（唯一来源）；本函数只负责 querystring 的
-// 「label 与 type 对不上就作废」这条 SSR 专有的容错。
 func (h *Handler) parsePeriodFromQuery(r *http.Request, defaultType domain.PeriodType) (domain.Period, error) {
 	return periodFromQuery(h.nav, r, defaultType)
 }
 
 func periodFromQuery(nav usecase.PeriodNav, r *http.Request, defaultType domain.PeriodType) (domain.Period, error) {
-	typeStr := r.URL.Query().Get("type")
-	if typeStr == "" {
-		typeStr = string(defaultType)
-	}
-	label := r.URL.Query().Get("period")
-	// 若 label 与 type 不匹配（例如切换季→年时旧 label 还是 2026Q1），退回到 type 的默认值
-	labelMatchesType := label != "" &&
-		((typeStr == string(domain.PeriodQuarterly) && strings.Contains(label, "Q")) ||
-			(typeStr == string(domain.PeriodAnnual) && !strings.Contains(label, "Q") && !strings.Contains(label, "-")) ||
-			(typeStr == string(domain.PeriodMonthly) && strings.Contains(label, "-")))
-	if !labelMatchesType {
-		label = nav.Default(domain.PeriodType(typeStr)).Label
-	}
-	return domain.ParsePeriod(label)
+	q := r.URL.Query()
+	return nav.Resolve(q.Get("type"), q.Get("period"), defaultType)
 }
 
 // parsePeriodFromQuery / defaultPeriodFor / txListPeriod 是包级薄壳（用系统时钟的零值 PeriodNav），
 // 供不持有 Handler 的调用方与既有测试使用；生产路径走 Handler 方法，用注入的 nav。
+// 三者都是纯委托，不含任何自己的规则判断。
 func parsePeriodFromQuery(r *http.Request, defaultType domain.PeriodType) (domain.Period, error) {
 	return periodFromQuery(usecase.PeriodNav{}, r, defaultType)
 }
@@ -205,15 +192,7 @@ func periodTypeFromGranularityAlias(gran string) domain.PeriodType {
 
 // parseAccountFromQuery 默认 family
 func parseAccountFromQuery(r *http.Request) domain.Account {
-	v := r.URL.Query().Get("account")
-	switch v {
-	case string(domain.AccountHusband):
-		return domain.AccountHusband
-	case string(domain.AccountWife):
-		return domain.AccountWife
-	default:
-		return domain.AccountFamily
-	}
+	return domain.ParseAccount(r.URL.Query().Get("account"))
 }
 
 // ----- Dashboard -----
@@ -663,19 +642,15 @@ func ruleJSONFromDomain(rule domain.CategoryRule, cats []domain.Category) ruleJS
 	}
 }
 
-// txListPeriod 解析流水页的周期。平时默认「上个月」；带 ?rule_id=（且 URL 里既没有
-// type 也没有 period）时改用当前季度——这条例外的原因与实现见 usecase.PeriodNav.ForRuleView。
-// URL 显式给了 type 或 period 时一律以显式为准（前端切周期、翻页都走这条路）。
+// txListPeriod 解析流水页的周期：纯委托 usecase.PeriodNav.ResolveForList
+// （默认「上个月」；带 ?rule_id= 且 URL 里既没有 type 也没有 period 时用当前季度，原因见 ForRuleView）。
 func (h *Handler) txListPeriod(r *http.Request) (domain.Period, error) {
 	return txListPeriodWith(h.nav, r)
 }
 
 func txListPeriodWith(nav usecase.PeriodNav, r *http.Request) (domain.Period, error) {
 	q := r.URL.Query()
-	if strings.TrimSpace(q.Get("rule_id")) != "" && q.Get("period") == "" && q.Get("type") == "" {
-		return nav.ForRuleView(), nil
-	}
-	return periodFromQuery(nav, r, domain.PeriodMonthly)
+	return nav.ResolveForList(q.Get("type"), q.Get("period"), q.Get("rule_id"), domain.PeriodMonthly)
 }
 
 // txListPeriod 包级薄壳，同 parsePeriodFromQuery。
@@ -740,8 +715,12 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 	ruleBytes := []byte("null")
 	if ruleID := strings.TrimSpace(r.URL.Query().Get("rule_id")); ruleID != "" {
 		rule, err := h.ruleRepo.GetRule(r.Context(), ruleID)
+		if errors.Is(err, port.ErrNotFound) {
+			http.Error(w, "规则不存在", http.StatusNotFound)
+			return
+		}
 		if err != nil {
-			http.Error(w, "规则不存在: "+err.Error(), http.StatusNotFound)
+			h.serverError(w, err)
 			return
 		}
 		ruleBytes, _ = json.Marshal(ruleJSONFromDomain(rule, cats))
@@ -817,89 +796,40 @@ type updateTxReq struct {
 	SpecialID  *string `json:"special_id"` // 空字符串 = 归回日常
 }
 
-// ensureSpecial 校验专项存在；空串（清空）直接放行
-func (h *Handler) ensureSpecial(ctx context.Context, id string) error {
-	if id == "" {
-		return nil
+// txUpdater 流水编辑用例。按需装配（Handler 在测试里是字面量构造的）。
+// specialView 为 nil（裁剪过依赖）时必须传真 nil 接口，不能传带类型的 nil 指针。
+func (h *Handler) txUpdater() *usecase.UpdateTransaction {
+	var specials usecase.SpecialEnsurer
+	if h.specialsEnabled() {
+		specials = h.specialView
 	}
-	if !h.specialsEnabled() {
-		return fmt.Errorf("专项功能未启用")
-	}
-	return h.specialView.Ensure(ctx, id)
+	return usecase.NewUpdateTransaction(h.txRepo, h.catRepo, specials)
 }
 
-func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
-	id := chiURLParam(r, "id")
-	if id == "" {
-		http.Error(w, "missing id", http.StatusBadRequest)
-		return
+// writeTxUpdateError 校验失败 400 + usecase 给的中文；流水不存在 404；其余 500 且不回细节
+func (h *Handler) writeTxUpdateError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, usecase.ErrInvalidInput):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, port.ErrNotFound):
+		http.Error(w, "流水不存在", http.StatusNotFound)
+	default:
+		h.serverError(w, err)
 	}
+}
+
+// UpdateTransaction PATCH /api/transactions/{id}。校验与装配都在 usecase.UpdateTransaction，
+// 这里只解析 body 并回 204。
+func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	var req updateTxReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	patch := port.TransactionUpdate{}
-	if req.CategoryID != nil {
-		v := *req.CategoryID
-		if v != "" {
-			if err := h.ensureLeafCategory(r.Context(), v); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-		}
-		patch.CategoryID = &v
-		// 如果指定了分类，把 pending_review 自动转 confirmed
-		if v != "" {
-			st := domain.TxStatusConfirmed
-			patch.Status = &st
-		}
-	}
-	if req.Note != nil {
-		v := *req.Note
-		patch.Note = &v
-	}
-	if req.Status != nil {
-		s := domain.TxStatus(*req.Status)
-		switch s {
-		case domain.TxStatusPendingReview, domain.TxStatusConfirmed, domain.TxStatusExcluded:
-		default:
-			http.Error(w, "invalid status", http.StatusBadRequest)
-			return
-		}
-		patch.Status = &s
-	}
-	if req.Account != nil {
-		a := domain.Account(*req.Account)
-		if !a.IsStorageAccount() {
-			http.Error(w, "invalid account", http.StatusBadRequest)
-			return
-		}
-		patch.Account = &a
-	}
-	if req.Member != nil {
-		m := strings.TrimSpace(*req.Member)
-		if len([]rune(m)) > 20 {
-			http.Error(w, "成员标注过长（限 20 字）", http.StatusBadRequest)
-			return
-		}
-		patch.Member = &m
-	}
-	if req.SpecialID != nil {
-		v := strings.TrimSpace(*req.SpecialID)
-		if err := h.ensureSpecial(r.Context(), v); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		patch.SpecialID = &v
-	}
-	if err := h.txRepo.Update(r.Context(), id, patch); err != nil {
-		if errors.Is(err, port.ErrNotFound) {
-			http.Error(w, "流水不存在", http.StatusNotFound)
-			return
-		}
-		h.serverError(w, err)
+	err := h.txUpdater().Update(r.Context(), chiURLParam(r, "id"), usecase.TxPatch(req))
+	if err != nil {
+		h.writeTxUpdateError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -911,8 +841,8 @@ type batchUpdateTxReq struct {
 	SpecialID *string  `json:"special_id"` // 空字符串 = 批量归回日常
 }
 
-// maxBatchTxIDs 一次批量操作的上限。装修一次上百笔，给足余量但不放任无界请求。
-const maxBatchTxIDs = 1000
+// maxBatchTxIDs 批量上限，常量本体在 usecase（两个适配器共用）
+const maxBatchTxIDs = usecase.MaxBatchTxIDs
 
 // BatchUpdateTransactions PATCH /api/transactions/batch —— 批量归入专项。
 // 装修一次几十上百笔，逐条 PATCH 不可用。
@@ -923,36 +853,9 @@ func (h *Handler) BatchUpdateTransactions(w http.ResponseWriter, r *http.Request
 		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if len(req.IDs) == 0 {
-		http.Error(w, "请选择要归类的流水", http.StatusBadRequest)
-		return
-	}
-	if len(req.IDs) > maxBatchTxIDs {
-		http.Error(w, fmt.Sprintf("一次最多处理 %d 条流水", maxBatchTxIDs), http.StatusBadRequest)
-		return
-	}
-	if req.SpecialID == nil {
-		http.Error(w, "缺少 special_id", http.StatusBadRequest)
-		return
-	}
-	specialID := strings.TrimSpace(*req.SpecialID)
-	if err := h.ensureSpecial(r.Context(), specialID); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	ids := make([]string, 0, len(req.IDs))
-	for _, id := range req.IDs {
-		if id != "" {
-			ids = append(ids, id)
-		}
-	}
-	// 一个事务里一次写完：逐条 Update 会开上千个隐式事务（1000 条 332ms vs 18ms），
-	// 而且中途失败时前面已提交的部分回滚不掉，用户会拿到一个说不清改了多少的半成品。
-	// 不存在的 id 由 repo 静默跳过（前端列表可能已过期），不算整体失败。
-	updated, err := h.txRepo.SetSpecialForIDs(r.Context(), ids, specialID)
+	updated, err := h.txUpdater().AssignSpecial(r.Context(), req.IDs, req.SpecialID)
 	if err != nil {
-		h.serverError(w, err)
+		h.writeTxUpdateError(w, err)
 		return
 	}
 	writeJSON(w, map[string]any{"updated": updated})

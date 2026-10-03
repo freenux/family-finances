@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -45,29 +46,70 @@ func TestPeriodNavForRuleViewIsCurrentQuarterNotDefault(t *testing.T) {
 	}
 }
 
+// TestPeriodNavResolve 与 handler 的 period_query_test.go 等价（那边一个字没改，这里在 usecase 层再钉一遍）：
+// type 与 period 对不上 → 退回该 type 的默认周期，不采用 period 自带的粒度。
 func TestPeriodNavResolve(t *testing.T) {
-	n := navAt(2025, 8, 15)
+	n := navAt(2025, 8, 15) // 默认：上月 2025-07 / 上季 2025Q2 / 去年 2024
 	tests := []struct {
 		name, typ, period string
+		defaultType       domain.PeriodType
 		want              string
-		wantErr           bool
+		wantType          domain.PeriodType
+		wantInvalid       bool
 	}{
-		{"显式 period 优先于 type", "annual", "2025-03", "2025-03", false},
-		{"只有 type：走默认", "monthly", "", "2025-07", false},
-		{"都没给：季度默认", "", "", "2025Q2", false},
-		{"非法 type 无 period：季度默认", "bogus", "", "2025Q2", false},
-		{"period 前后空白容忍", "", " 2024Q1 ", "2024Q1", false},
-		{"非法 period 报错", "", "2025Q9", "", true},
-		{"乱码 period 报错", "", "abc", "", true},
+		{"都没给：取 defaultType 的默认（季度）", "", "", domain.PeriodQuarterly, "2025Q2", domain.PeriodQuarterly, false},
+		{"都没给：取 defaultType 的默认（月度）", "", "", domain.PeriodMonthly, "2025-07", domain.PeriodMonthly, false},
+		{"只有 type：走该 type 的默认，不看 defaultType", "annual", "", domain.PeriodMonthly, "2024", domain.PeriodAnnual, false},
+		{"非法 type 无 period：按季度", "bogus", "", domain.PeriodMonthly, "2025Q2", domain.PeriodQuarterly, false},
+		{"type 与 period 匹配：原样采用_月", "monthly", "2026-03", domain.PeriodQuarterly, "2026-03", domain.PeriodMonthly, false},
+		{"type 与 period 匹配：原样采用_季", "quarterly", "2026Q1", domain.PeriodMonthly, "2026Q1", domain.PeriodQuarterly, false},
+		{"type 与 period 匹配：原样采用_年", "annual", "2024", domain.PeriodMonthly, "2024", domain.PeriodAnnual, false},
+		{"只传 period 且与 defaultType 匹配：采用", "", "2026-03", domain.PeriodMonthly, "2026-03", domain.PeriodMonthly, false},
+		{"只传 period 但与 defaultType 对不上：退回 defaultType 的默认", "", "2026Q2", domain.PeriodMonthly, "2025-07", domain.PeriodMonthly, false},
+		{"period 与显式 type 对不上：退回该 type 的默认而非 defaultType", "annual", "2026Q3", domain.PeriodMonthly, "2024", domain.PeriodAnnual, false},
+		{"季度 type 配月度 period：退回季度默认", "quarterly", "2025-03", domain.PeriodMonthly, "2025Q2", domain.PeriodQuarterly, false},
+		{"period 前后空白容忍", "", " 2024Q1 ", domain.PeriodQuarterly, "2024Q1", domain.PeriodQuarterly, false},
+		{"季度越界：ErrInvalidPeriod", "", "2025Q9", domain.PeriodQuarterly, "", "", true},
+		{"乱码 period：ErrInvalidPeriod", "", "abc", domain.PeriodQuarterly, "", "", true},
+		{"type 对不上的乱码也是非法，不被默认周期掩盖", "annual", "abc", domain.PeriodQuarterly, "", "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := n.Resolve(tt.typ, tt.period)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("err = %v; wantErr %v", err, tt.wantErr)
+			got, err := n.Resolve(tt.typ, tt.period, tt.defaultType)
+			if tt.wantInvalid {
+				if !errors.Is(err, ErrInvalidPeriod) {
+					t.Fatalf("err = %v; want ErrInvalidPeriod", err)
+				}
+				return
 			}
-			if !tt.wantErr && got.Label != tt.want {
-				t.Errorf("Resolve(%q,%q) = %s; want %s", tt.typ, tt.period, got.Label, tt.want)
+			if err != nil {
+				t.Fatalf("err = %v; want nil", err)
+			}
+			if got.Label != tt.want || got.Type != tt.wantType {
+				t.Errorf("Resolve(%q,%q,%s) = %s/%s; want %s/%s", tt.typ, tt.period, tt.defaultType, got.Label, got.Type, tt.want, tt.wantType)
+			}
+		})
+	}
+}
+
+func TestPeriodNavResolveForList(t *testing.T) {
+	n := navAt(2025, 8, 15)
+	tests := []struct {
+		name, typ, period, ruleID string
+		want                      string
+	}{
+		{"普通进入流水页：上个月", "", "", "", "2025-07"},
+		{"带 rule_id：当前季度", "", "", "r-1", "2025Q3"},
+		{"rule_id 空白：按普通处理", "", "", " ", "2025-07"},
+		{"rule_id + 显式 period：显式优先", "monthly", "2026-03", "r-1", "2026-03"},
+		{"rule_id + 只显式 type：该 type 的默认", "annual", "", "r-1", "2024"},
+		{"rule_id + 只显式 period：显式优先", "", "2026-03", "r-1", "2026-03"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := n.ResolveForList(tt.typ, tt.period, tt.ruleID, domain.PeriodMonthly)
+			if err != nil || got.Label != tt.want {
+				t.Errorf("ResolveForList = (%s, %v); want %s", got.Label, err, tt.want)
 			}
 		})
 	}

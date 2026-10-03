@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	"family-finances/internal/domain"
+	"family-finances/internal/port"
 )
 
 type CategoryRepo struct {
@@ -70,7 +71,7 @@ WHERE id = ?`, id)
 		return domain.CategoryRule{}, err
 	}
 	if len(rows) == 0 {
-		return domain.CategoryRule{}, sql.ErrNoRows
+		return domain.CategoryRule{}, port.ErrNotFound
 	}
 	return rows[0], nil
 }

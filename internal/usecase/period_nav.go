@@ -1,7 +1,6 @@
 package usecase
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -65,17 +64,43 @@ func ParsePeriodType(s string) domain.PeriodType {
 	}
 }
 
-// Resolve 解析 query 参数：period 显式给了就以它为准（type 被忽略，由标签形状决定），
-// 没给就用 Default(type)。
-func (n PeriodNav) Resolve(typeStr, periodStr string) (domain.Period, error) {
-	if strings.TrimSpace(periodStr) == "" {
-		return n.Default(ParsePeriodType(typeStr)), nil
+// Resolve 解析 query 参数里的 type / period，是 SSR 与 /api/v1 共用的唯一规则：
+//
+//   - type 为空 → 用 defaultType；type 非法 → 按季度。
+//   - period 为空 → 该 type 的默认周期（Default）。
+//   - period 非法（解析失败）→ ErrInvalidPeriod。
+//   - period 合法但与 type 对不上（如 type=annual&period=2026Q3）→ 退回该 type 的默认周期，
+//     而不是采用 period 自带的粒度。
+//
+// 最后一条的理由：这是 handler 既有、并由 period_query_test.go 钉住的行为；而且更稳妥——
+// type 与 period 对不上是客户端的 bug（典型场景：用户把「季」切成「年」，旧 label 还是 2026Q1），
+// 悄悄改变请求的粒度，比退回该粒度的默认周期更糟：用户点的是「年」，看到的却是一个季度。
+func (n PeriodNav) Resolve(typeStr, periodStr string, defaultType domain.PeriodType) (domain.Period, error) {
+	t := ParsePeriodType(typeStr)
+	if strings.TrimSpace(typeStr) == "" {
+		t = ParsePeriodType(string(defaultType))
 	}
-	p, err := domain.ParsePeriod(periodStr)
+	label := strings.TrimSpace(periodStr)
+	if label == "" {
+		return n.Default(t), nil
+	}
+	p, err := domain.ParsePeriod(label)
 	if err != nil {
-		return domain.Period{}, fmt.Errorf("周期格式不正确: %w", err)
+		return domain.Period{}, newUserError(ErrInvalidPeriod, "周期格式不正确："+label)
+	}
+	if p.Type != t {
+		return n.Default(t), nil
 	}
 	return p, nil
+}
+
+// ResolveForList 流水列表页的周期：Resolve 加上 ?rule_id= 的例外——带 ruleID 且 URL 里既没有
+// type 也没有 period 时用当前季度（原因见 ForRuleView）。URL 显式给了 type 或 period 一律以显式为准。
+func (n PeriodNav) ResolveForList(typeStr, periodStr, ruleID string, defaultType domain.PeriodType) (domain.Period, error) {
+	if strings.TrimSpace(ruleID) != "" && periodStr == "" && typeStr == "" {
+		return n.ForRuleView(), nil
+	}
+	return n.Resolve(typeStr, periodStr, defaultType)
 }
 
 // Nav 生成导航视图。HasNext 在当期（及未来期）上为 false：不让用户翻到未来。

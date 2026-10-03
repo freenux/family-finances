@@ -154,17 +154,6 @@ func splitCSV(s string) []string {
 	return out
 }
 
-func parseAccount(s string) domain.Account {
-	switch domain.Account(s) {
-	case domain.AccountHusband:
-		return domain.AccountHusband
-	case domain.AccountWife:
-		return domain.AccountWife
-	default:
-		return domain.AccountFamily
-	}
-}
-
 // Execute 归一参数 → 查询 → 装配 DTO
 func (q *TxQuery) Execute(ctx context.Context, req TxQueryRequest) (TxQueryResult, error) {
 	var res TxQueryResult
@@ -182,14 +171,15 @@ func (q *TxQuery) Execute(ctx context.Context, req TxQueryRequest) (TxQueryResul
 		rule, rulePtr = r, &r
 	}
 
-	var p domain.Period
-	var err error
-	if rulePtr != nil && strings.TrimSpace(req.Period) == "" && strings.TrimSpace(req.Type) == "" {
-		p = q.nav.ForRuleView() // ?rule_id= 的例外，原因见 ForRuleView
-	} else if p, err = q.nav.Resolve(req.Type, req.Period); err != nil {
+	ruleForPeriod := ""
+	if rulePtr != nil {
+		ruleForPeriod = ruleID
+	}
+	p, err := q.nav.ResolveForList(req.Type, req.Period, ruleForPeriod, domain.PeriodQuarterly)
+	if err != nil {
 		return res, err
 	}
-	acc := parseAccount(req.Account)
+	acc := domain.ParseAccount(req.Account)
 
 	dir := ""
 	if req.Direction == string(domain.DirectionIncome) || req.Direction == string(domain.DirectionExpense) {
@@ -394,7 +384,7 @@ func (q *TxQuery) ApplyRule(ctx context.Context, ruleID string, p domain.Period,
 		return 0, err
 	}
 	if rule.CategoryID == "" {
-		return 0, fmt.Errorf("该规则是「跳过导入」类规则，没有目标科目，无法批量应用")
+		return 0, newUserError(ErrRuleNotApplicable, "该规则是「跳过导入」类规则，没有目标科目，无法批量应用")
 	}
 	cats, err := q.catRepo.ListAll(ctx)
 	if err != nil {
@@ -405,10 +395,10 @@ func (q *TxQuery) ApplyRule(ctx context.Context, ruleID string, p domain.Period,
 			continue
 		}
 		if c.Type == domain.CategoryTypeIncome {
-			return 0, fmt.Errorf("规则指向收入科目 %s：分类器对收入流水不做自动分类，这是一条永远不会命中的死规则，不予批量应用", c.Name)
+			return 0, newUserError(ErrRuleNotApplicable, fmt.Sprintf("规则指向收入科目 %s：分类器对收入流水不做自动分类，这是一条永远不会命中的死规则，不予批量应用", c.Name))
 		}
 		// 方向与 Execute 的规则预筛同为 ruleDirection，保证两边集合相同
 		return q.txRepo.ApplyCategoryByRule(ctx, p, acc, rule, ruleDirection)
 	}
-	return 0, fmt.Errorf("规则指向的科目 %s 不存在", rule.CategoryID)
+	return 0, newUserError(ErrRuleNotApplicable, fmt.Sprintf("规则指向的科目 %s 不存在", rule.CategoryID))
 }

@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -170,7 +171,11 @@ func (r *TransactionRepo) Update(ctx context.Context, id string, patch port.Tran
 
 func (r *TransactionRepo) Get(ctx context.Context, id string) (domain.Transaction, error) {
 	row := r.db.QueryRowContext(ctx, selectTxSQL+" WHERE id = ?", id)
-	return scanTx(row)
+	t, err := scanTx(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.Transaction{}, port.ErrNotFound
+	}
+	return t, err
 }
 
 func (r *TransactionRepo) List(ctx context.Context, p domain.Period, account domain.Account) ([]domain.Transaction, error) {

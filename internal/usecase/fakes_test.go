@@ -57,6 +57,9 @@ type fakeTransactionRepo struct {
 	// batchIDs / batchSpecialID 记录 SetSpecialForIDs 收到的入参
 	batchIDs       []string
 	batchSpecialID string
+	// updates / updateErr：Update 收到的 patch 序列，与可注入的返回错误
+	updates   []port.TransactionUpdate
+	updateErr error
 	// tops / topScopes：TopTransactions 的返回值与收到的口径序列。
 	// tops 按口径分组，用来验"Top 榜单跟随 scope"。
 	tops      map[domain.Scope][]port.TopTransaction
@@ -103,8 +106,9 @@ func (f *fakeTransactionRepo) InsertBatch(context.Context, domain.ImportBatch, [
 	return port.ImportResult{}, nil
 }
 
-func (f *fakeTransactionRepo) Update(context.Context, string, port.TransactionUpdate) error {
-	return nil
+func (f *fakeTransactionRepo) Update(_ context.Context, _ string, patch port.TransactionUpdate) error {
+	f.updates = append(f.updates, patch)
+	return f.updateErr
 }
 
 func (f *fakeTransactionRepo) Get(context.Context, string) (domain.Transaction, error) {

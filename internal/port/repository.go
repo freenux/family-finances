@@ -65,6 +65,7 @@ type TransactionRepo interface {
 	Insert(ctx context.Context, tx domain.Transaction) error
 	InsertBatch(ctx context.Context, batch domain.ImportBatch, rows []ImportRow) (ImportResult, error)
 	Update(ctx context.Context, id string, patch TransactionUpdate) error
+	// Get 未找到时返回 ErrNotFound
 	Get(ctx context.Context, id string) (domain.Transaction, error)
 	List(ctx context.Context, p domain.Period, account domain.Account) ([]domain.Transaction, error)
 	ListPendingCategory(ctx context.Context, limit int) ([]domain.Transaction, error)
@@ -139,6 +140,7 @@ type CategoryRepo interface {
 type CategoryRuleRepo interface {
 	ListRules(ctx context.Context) ([]domain.CategoryRule, error)
 	ListActiveRules(ctx context.Context) ([]domain.CategoryRule, error)
+	// GetRule 未找到时返回 ErrNotFound
 	GetRule(ctx context.Context, id string) (domain.CategoryRule, error)
 	InsertRule(ctx context.Context, rule domain.CategoryRule) error
 	UpdateRule(ctx context.Context, rule domain.CategoryRule) error

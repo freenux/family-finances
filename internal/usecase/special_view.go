@@ -102,11 +102,12 @@ func (uc *SpecialView) Get(ctx context.Context, id string) (domain.SpecialProjec
 	return uc.repo.Get(ctx, id)
 }
 
-// Ensure 校验专项存在，供归类前的入参校验用；不存在时给出面向用户的中文错误
+// Ensure 校验专项存在，供归类前的入参校验用。
+// 不存在时返回包装了 port.ErrNotFound 的错误（调用方用 errors.Is 判定）；其它错误是 DB 故障，原样返回。
 func (uc *SpecialView) Ensure(ctx context.Context, id string) error {
 	if _, err := uc.repo.Get(ctx, id); err != nil {
 		if errors.Is(err, port.ErrNotFound) {
-			return fmt.Errorf("专项不存在")
+			return fmt.Errorf("专项不存在: %w", err)
 		}
 		return err
 	}

@@ -11,7 +11,6 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"family-finances/internal/domain"
-	"family-finances/internal/port"
 	"family-finances/internal/usecase"
 )
 
@@ -31,16 +30,11 @@ type TxQuerier interface {
 	ApplyRule(ctx context.Context, ruleID string, p domain.Period, acc domain.Account) (int, error)
 }
 
-// TxWriter 单条/批量改流水，由 sqlite.TransactionRepo 满足。
-type TxWriter interface {
-	Update(ctx context.Context, id string, patch port.TransactionUpdate) error
-	SetSpecialForIDs(ctx context.Context, ids []string, specialID string) (int, error)
-}
+// TxWriter 单条/批量改流水，由 sqlite.TransactionRepo 满足（接口本体在 usecase）。
+type TxWriter = usecase.TxWriter
 
-// SpecialEnsurer 校验专项存在，由 *usecase.SpecialView 满足。
-type SpecialEnsurer interface {
-	Ensure(ctx context.Context, id string) error
-}
+// SpecialEnsurer 校验专项存在，由 *usecase.SpecialView 满足（接口本体在 usecase）。
+type SpecialEnsurer = usecase.SpecialEnsurer
 
 // Deps 构造参数。Specials / SpecialCheck 可为 nil（专项功能未启用：
 // meta 降级返回空数组，PATCH 里传非空 special_id 会被拒）。
@@ -56,13 +50,12 @@ type Deps struct {
 }
 
 type API struct {
-	categories   CategoryLister
-	specials     SpecialLister
-	specialCheck SpecialEnsurer
-	txQuery      TxQuerier
-	tx           TxWriter
-	nav          usecase.PeriodNav
-	log          *slog.Logger
+	categories CategoryLister
+	specials   SpecialLister
+	txQuery    TxQuerier
+	txUpdate   *usecase.UpdateTransaction
+	nav        usecase.PeriodNav
+	log        *slog.Logger
 }
 
 func New(d Deps) *API {
@@ -71,8 +64,10 @@ func New(d Deps) *API {
 		log = slog.Default()
 	}
 	return &API{
-		categories: d.Categories, specials: d.Specials, specialCheck: d.SpecialCheck,
-		txQuery: d.TxQuery, tx: d.Tx, nav: d.Nav, log: log,
+		categories: d.Categories, specials: d.Specials,
+		txQuery:  d.TxQuery,
+		txUpdate: usecase.NewUpdateTransaction(d.Tx, d.Categories, d.SpecialCheck),
+		nav:      d.Nav, log: log,
 	}
 }
 
