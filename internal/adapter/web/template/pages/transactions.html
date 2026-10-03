@@ -1,265 +1,343 @@
 {{define "content"}}
-<script id="data-transactions" type="application/json">{{rawJSON .TransactionsJSON}}</script>
-<script id="data-categories" type="application/json">{{rawJSON .CategoriesJSON}}</script>
-<script id="data-rule" type="application/json">{{rawJSON .RuleJSON}}</script>
-<script id="data-specials" type="application/json">{{rawJSON .SpecialsJSON}}</script>
+<script id="data-transactions" type="application/json">{{rawJSON .ResultJSON}}</script>
+<style>
+  /* 本页专属小样式；等 app.css 开放后可并入 */
+  /* 多了勾选列，且原先成员列没分到宽度，这里整体重分 */
+  table.tx-list .tx-col-select { width: 3%; }
+  table.tx-list .tx-col-date { width: 8%; }
+  table.tx-list .tx-col-source { width: 6%; }
+  table.tx-list .tx-col-account { width: 8%; }
+  table.tx-list .tx-col-member { width: 7%; }
+  table.tx-list .tx-col-direction { width: 5%; }
+  table.tx-list .tx-col-description { width: 15%; }
+  table.tx-list .tx-col-amount { width: 10%; }
+  table.tx-list .tx-col-category { width: 12%; }
+  table.tx-list .tx-col-special { width: 9%; }
+  table.tx-list .tx-col-note { width: 8%; }
+  table.tx-list .tx-col-status { width: 9%; }
+  .tx-member-input { width: 100%; max-width: 90px; }
+  .tx-head-actions > :not(template) ~ :not(template) { margin-left: 14px; }
+  .tx-batch-actions { display: flex; align-items: center; }
+  .tx-batch-actions > :not(template) ~ :not(template) { margin-left: 8px; }
+  .tx-pager { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; margin: 14px 0; }
+  .tx-pager > * { margin: 4px 8px; }
+  .tx-pager label { display: inline-flex; align-items: center; white-space: nowrap; }
+  .tx-pager label select { margin: 0 6px; }
+  .tx-sort-mobile { display: none; align-items: center; margin: 0 0 12px; }
+  .tx-sort-mobile > select { flex: 1 1 auto; min-width: 0; }
+  .tx-sort-mobile > select + select { margin-left: 8px; }
+  .tx-sort-mobile > .label { margin-right: 8px; color: var(--muted); white-space: nowrap; }
+  .tx-loading { opacity: 0.5; }
+  .tx-error { color: var(--negative); }
+  .tx-flash { padding: 10px 14px; margin-bottom: 14px; background: var(--accent-soft); color: var(--accent); }
+  @media (max-width: 700px) {
+    .tx-sort-mobile { display: flex; }
+    .tx-head-actions > :not(template) ~ :not(template) { margin-left: 0; }
+  }
+</style>
 
 <div x-data="txTable()"
-     data-initial-period="{{.Period.Label}}"
-     data-initial-granularity="{{.Period.Type}}"
      data-initial-account="{{.Account}}"
      x-cloak>
   <datalist id="member-list">
-    <template x-for="m in memberOptions" :key="m"><option :value="m"></option></template>
+    <template x-for="m in facets.members" :key="m.value">
+      <template x-if="m.value !== '__none__'"><option :value="m.value"></option></template>
+    </template>
   </datalist>
   <div class="stats-head">
     <div>
-      <h2 class="title-zh"><span x-text="periodKey">{{.Period.Label}}</span> 收支流水</h2>
-      <div class="subtitle">共 <span x-text="rows.length">{{len .Transactions}}</span> 条记录 · 点击列头排序 · 下拉就地改分类</div>
+      <h2 class="title-zh"><span x-text="period.label">{{.Result.Period.Label}}</span> 收支流水</h2>
+      <div class="subtitle">共 <span x-text="pageInfo.total">{{.Result.Page.Total}}</span> 条记录 · 点击列头排序 · 下拉就地改分类</div>
     </div>
-    <div class="flex-row" style="gap:14px;align-items:center">
-      {{template "period_bar" .}}
+    <div class="flex-row tx-head-actions">
+      <div class="period-nav">
+        <button type="button" @click="shiftPeriod(-1)" :disabled="loading" title="上一期">◀</button>
+        <span class="cur" x-text="period.key">{{.Result.Period.Key}}</span>
+        <button type="button" @click="shiftPeriod(1)" :disabled="loading || !period.has_next" title="下一期">▶</button>
+      </div>
+      <div class="seg">
+        <span class="seg-label">周期</span>
+        <button type="button" :class="period.type==='monthly'   ? 'active' : ''" @click="setPeriodType('monthly')">月度</button>
+        <button type="button" :class="period.type==='quarterly' ? 'active' : ''" @click="setPeriodType('quarterly')">季度</button>
+        <button type="button" :class="period.type==='annual'    ? 'active' : ''" @click="setPeriodType('annual')">年度</button>
+      </div>
       <a class="btn" href="/imports">＋ 导入账单</a>
     </div>
   </div>
 
   {{if .Flash}}
-    <div class="section" style="padding:10px 14px;margin-bottom:14px;background:var(--accent-soft);color:var(--accent)">
-      ✅ {{.Flash}}
-    </div>
+    <div class="section tx-flash">✅ {{.Flash}}</div>
   {{end}}
 
   <template x-if="errorMsg">
-    <div class="empty" style="color:var(--negative)">加载失败：<span x-text="errorMsg"></span></div>
+    <div class="empty tx-error">加载失败：<span x-text="errorMsg"></span></div>
   </template>
 
-  <template x-if="!loading && rows.length === 0">
-    <div class="empty">本期间暂无流水，点击右上角「＋ 导入账单」上传微信/支付宝账单。</div>
-  </template>
+  <div :class="loading ? 'tx-loading' : ''">
+    <div class="tx-toolbar">
+      <input class="tx-search" type="search" placeholder="搜索对方 / 说明 / 备注"
+             x-model="keyword">
 
-  <template x-if="rows.length > 0">
-    <div :style="loading ? 'opacity:0.5' : ''">
-      <div class="tx-toolbar">
-        <input class="tx-search" type="search" placeholder="搜索对方 / 说明 / 备注"
-               x-model.debounce.200ms="keyword">
+      <div class="tx-filter-group">
+        <span class="label">方向：</span>
+        <label><input type="radio" value="all"     x-model="direction"> 全部</label>
+        <label><input type="radio" value="expense" x-model="direction"> 支出</label>
+        <label><input type="radio" value="income"  x-model="direction"> 收入</label>
+      </div>
 
-        <div class="tx-filter-group">
-          <span class="label">方向：</span>
-          <label><input type="radio" value="all"     x-model="directionFilter"> 全部</label>
-          <label><input type="radio" value="expense" x-model="directionFilter"> 支出</label>
-          <label><input type="radio" value="income"  x-model="directionFilter"> 收入</label>
+      <div class="tx-filter-group">
+        <span class="label">来源：</span>
+        <label><input type="checkbox" value="alipay" x-model="source"> 支付宝</label>
+        <label><input type="checkbox" value="wechat" x-model="source"> 微信</label>
+        <label><input type="checkbox" value="manual" x-model="source"> 手填</label>
+        <label><input type="checkbox" value="csv" x-model="source"> CSV</label>
+      </div>
+
+      <div class="tx-filter-group">
+        <span class="label">账户：</span>
+        <select x-model="account" x-effect="syncSelect($el, account, metaReady)">
+          <template x-if="!metaReady"><option :value="account" x-text="account"></option></template>
+          <template x-for="a in accountViews" :key="a.value">
+            <option :value="a.value" x-text="a.label"></option>
+          </template>
+        </select>
+      </div>
+
+      <div class="tx-filter-group">
+        <span class="label">分类：</span>
+        <select x-model="category" x-effect="syncSelect($el, category, metaReady)">
+          <option value="">全部</option>
+          <option value="__none__">⚠️ 未分类</option>
+          <template x-for="g in categories" :key="g.group_id">
+            <optgroup :label="g.group_name">
+              <template x-for="c in g.items" :key="c.id">
+                <option :value="c.id" x-text="c.name"></option>
+              </template>
+            </optgroup>
+          </template>
+        </select>
+      </div>
+
+      <div class="tx-filter-group">
+        <span class="label">成员：</span>
+        <select x-model="member" x-effect="syncSelect($el, member, facets)">
+          <option value="">全部</option>
+          <template x-for="m in facets.members" :key="m.value">
+            <option :value="m.value" x-text="m.label"></option>
+          </template>
+        </select>
+      </div>
+
+      <div class="tx-filter-group">
+        <span class="label">专项：</span>
+        <select x-model="special" x-effect="syncSelect($el, special, metaReady)">
+          <option value="">全部</option>
+          <option value="__none__">仅日常（不含专项）</option>
+          <option value="__any__">仅专项（任意）</option>
+          <template x-for="s in specials" :key="s.id">
+            <option :value="s.id" x-text="s.name"></option>
+          </template>
+        </select>
+      </div>
+
+      <div class="tx-filter-group">
+        <span class="label">状态：</span>
+        <label><input type="checkbox" value="pending_review" x-model="status"> 待处理</label>
+        <label><input type="checkbox" value="confirmed"      x-model="status"> 已确认</label>
+        <label><input type="checkbox" value="excluded"       x-model="status"> 已排除</label>
+      </div>
+
+      <button class="btn secondary" type="button" @click="resetFilters()">清空筛选</button>
+    </div>
+
+    <div class="tx-summary">
+      <span>筛选结果：<b x-text="pageInfo.total"></b> 条（以下合计为全部筛选结果，不止当页）</span>
+      <span>收入 <b class="positive" x-text="totals.income_text"></b></span>
+      <span>支出 <b class="negative" x-text="totals.expense_text"></b></span>
+      <span>净额 <b :class="totals.net_fen >= 0 ? 'positive' : 'negative'" x-text="totals.net_text"></b></span>
+    </div>
+
+    <template x-if="rule">
+      <div class="rule-apply-bar">
+        <div>
+          <strong>规则匹配</strong>
+          <span x-text="rule.label"></span>
+          <span>命中 <b x-text="pageInfo.total"></b> 条（仅支出流水），应用后分类为</span>
+          <b x-text="rule.category_name || '—'"></b>
+          <span>。应用范围是本期内全部命中的支出流水，不受下方其它筛选影响。</span>
         </div>
+        <button class="btn" type="button" @click="applyRule()" :disabled="applyingRule || pageInfo.total === 0">
+          <span x-text="applyingRule ? '应用中...' : '应用到本期命中流水'"></span>
+        </button>
+      </div>
+    </template>
 
-        <div class="tx-filter-group">
-          <span class="label">来源：</span>
-          <label><input type="checkbox" value="alipay" x-model="sourceFilter"> 支付宝</label>
-          <label><input type="checkbox" value="wechat" x-model="sourceFilter"> 微信</label>
-          <label><input type="checkbox" value="manual" x-model="sourceFilter"> 手填</label>
-          <label><input type="checkbox" value="csv" x-model="sourceFilter"> CSV</label>
+    <template x-if="specials.length > 0">
+      <div class="rule-apply-bar">
+        <div>
+          <strong>批量归入专项</strong>
+          <span>先勾选下方流水（已选 <b x-text="selected.length"></b> 条），再一次挂到某个专项上（装修一次几十上百笔，逐条改不现实）</span>
         </div>
-
-        <div class="tx-filter-group">
-          <span class="label">账户：</span>
-          <label><input type="checkbox" value="husband" x-model="accountFilter"> 男主</label>
-          <label><input type="checkbox" value="wife"    x-model="accountFilter"> 女主</label>
-        </div>
-
-        <div class="tx-filter-group">
-          <span class="label">分类：</span>
-          <select x-model="categoryFilter">
-            <option value="">全部</option>
-            <option value="__none__">⚠️ 未分类</option>
-            <template x-for="g in groupedCategories" :key="g.groupId">
-              <optgroup :label="g.groupName">
-                <template x-for="c in g.items" :key="c.id">
-                  <option :value="c.id" x-text="c.name"></option>
-                </template>
-              </optgroup>
-            </template>
-          </select>
-        </div>
-
-        <div class="tx-filter-group">
-          <span class="label">成员：</span>
-          <select x-model="memberFilter">
-            <option value="">全部</option>
-            <option value="__none__">未标注</option>
-            <template x-for="m in memberOptions" :key="m">
-              <option :value="m" x-text="m"></option>
-            </template>
-          </select>
-        </div>
-
-        <div class="tx-filter-group">
-          <span class="label">专项：</span>
-          <select x-model="specialFilter">
-            <option value="">全部</option>
-            <option value="__none__">仅日常（不含专项）</option>
-            <option value="__any__">仅专项（任意）</option>
+        <div class="tx-batch-actions">
+          <select class="inline-select" x-ref="batchSpecial" x-model="batchSpecialID">
+            <option value="">— 选择专项 —</option>
+            <option value="__clear__">清除专项（归回日常）</option>
             <template x-for="s in specials" :key="s.id">
               <option :value="s.id" x-text="s.name"></option>
             </template>
           </select>
-        </div>
-
-        <div class="tx-filter-group">
-          <span class="label">状态：</span>
-          <label><input type="checkbox" value="pending_review" x-model="statusFilter"> 待处理</label>
-          <label><input type="checkbox" value="confirmed"      x-model="statusFilter"> 已确认</label>
-          <label><input type="checkbox" value="excluded"       x-model="statusFilter"> 已排除</label>
-        </div>
-
-        <button class="btn secondary" @click="resetFilters()">清空筛选</button>
-      </div>
-
-      <div class="tx-summary">
-        <span>筛选结果：<b x-text="filtered.length"></b> 条</span>
-        <span>收入 <b class="positive" x-text="fmtYuan(totals.income)"></b></span>
-        <span>支出 <b class="negative" x-text="fmtYuan(totals.expense)"></b></span>
-        <span>净额 <b :class="totals.net >= 0 ? 'positive' : 'negative'" x-text="fmtYuan(totals.net)"></b></span>
-      </div>
-
-      <template x-if="activeRule">
-        <div class="rule-apply-bar">
-          <div>
-            <strong>规则匹配</strong>
-            <span x-text="ruleLabel()"></span>
-            <span>命中 <b x-text="filtered.length"></b> 条，应用后分类为</span>
-            <b x-text="activeRule.category_name"></b>
-            <span>，待应用 <b x-text="ruleApplyTargets.length"></b> 条</span>
-          </div>
-          <button class="btn" type="button" @click="applyRule()" :disabled="applyingRule || ruleApplyTargets.length === 0">
-            <span x-text="applyingRule ? '应用中...' : (ruleApplyTargets.length === 0 ? '无需应用' : '应用到当前匹配流水')"></span>
+          <button class="btn" type="button" @click="applyBatchSpecial()"
+                  :disabled="batching || !batchSpecialID || selected.length === 0">
+            <span x-text="batching ? '处理中...' : '应用到已勾选'"></span>
           </button>
         </div>
-      </template>
+      </div>
+    </template>
 
-      <template x-if="specials.length > 0">
-        <div class="rule-apply-bar">
-          <div>
-            <strong>批量归入专项</strong>
-            <span>把当前筛选出的 <b x-text="filtered.length"></b> 条流水一次挂到某个专项上（装修一次几十上百笔，逐条改不现实）</span>
-          </div>
-          <div class="flex-row" style="gap:8px;align-items:center">
-            <select class="inline-select" x-model="batchSpecialID">
-              <option value="">— 选择专项 —</option>
-              <option value="__clear__">清除专项（归回日常）</option>
-              <template x-for="s in specials" :key="s.id">
-                <option :value="s.id" x-text="s.name"></option>
-              </template>
-            </select>
-            <button class="btn" type="button" @click="applyBatchSpecial()"
-                    :disabled="batching || !batchSpecialID || filtered.length === 0">
-              <span x-text="batching ? '处理中...' : '应用到当前筛选'"></span>
-            </button>
-          </div>
-        </div>
-      </template>
-
-      <table class="tx-list editable">
-        <colgroup>
-          <col class="tx-col-date">
-          <col class="tx-col-source">
-          <col class="tx-col-account">
-          <col class="tx-col-member">
-          <col class="tx-col-direction">
-          <col class="tx-col-description">
-          <col class="tx-col-amount">
-          <col class="tx-col-category">
-          <col class="tx-col-special">
-          <col class="tx-col-note">
-          <col class="tx-col-status">
-        </colgroup>
-        <thead>
-          <tr>
-            <th @click="sortBy('occurred_at')" class="sortable">日期 <span x-text="sortIcon('occurred_at')"></span></th>
-            <th @click="sortBy('source')"      class="sortable">来源 <span x-text="sortIcon('source')"></span></th>
-            <th @click="sortBy('account')"     class="sortable">账户 <span x-text="sortIcon('account')"></span></th>
-            <th @click="sortBy('member')"      class="sortable">成员 <span x-text="sortIcon('member')"></span></th>
-            <th @click="sortBy('direction')"   class="sortable">方向 <span x-text="sortIcon('direction')"></span></th>
-            <th @click="sortBy('counterparty')" class="sortable">对方 / 说明 <span x-text="sortIcon('counterparty')"></span></th>
-            <th @click="sortBy('amount_fen')"  class="sortable">金额 <span x-text="sortIcon('amount_fen')"></span></th>
-            <th @click="sortBy('category_id')" class="sortable">分类 <span x-text="sortIcon('category_id')"></span></th>
-            <th @click="sortBy('special_id')"  class="sortable">专项 <span x-text="sortIcon('special_id')"></span></th>
-            <th>备注</th>
-            <th>状态</th>
-          </tr>
-        </thead>
-        <tbody>
-          <template x-for="t in filtered" :key="t.id">
-            <tr :class="{ 'needs-review': !t.category_id }">
-              <td x-text="t.occurred_at"></td>
-              <td x-text="sourceLabel(t.source)"></td>
-              <td>
-                <select class="inline-select"
-                        @change="patchAccount(t, $event.target.value)">
-                  <option value="husband" :selected="t.account === 'husband'">男主</option>
-                  <option value="wife"    :selected="t.account === 'wife'">女主</option>
-                </select>
-              </td>
-              <td>
-                <input class="inline-input" type="text" placeholder="成员" list="member-list" style="width:70px"
-                       :value="t.member"
-                       @blur="patchMember(t, $event.target.value)"
-                       @keydown.enter="$event.target.blur()">
-              </td>
-              <td>
-                <span :class="t.direction === 'income' ? 'badge' : 'badge warn'"
-                      x-text="t.direction === 'income' ? '收' : '支'"></span>
-              </td>
-              <td>
-                <div x-text="t.counterparty || '—'"></div>
-                <div class="meta-sm" x-text="t.description"></div>
-              </td>
-              <td class="amount" :class="t.direction === 'income' ? 'positive' : 'negative'"
-                  x-text="fmtYuan(t.amount_fen)"></td>
-              <td>
-                <select class="inline-select"
-                        @change="patchCategory(t, $event.target.value)">
-                  <option value="" :selected="!t.category_id">— 未分类 —</option>
-                  <template x-for="g in groupedCategories" :key="g.groupId">
-                    <optgroup :label="g.groupName">
-                      <template x-for="c in g.items" :key="c.id">
-                        <option :value="c.id" :selected="t.category_id === c.id" x-text="c.name"></option>
-                      </template>
-                    </optgroup>
-                  </template>
-                </select>
-              </td>
-              <td>
-                {{/* 传 <select> 元素本身：选到「＋ 新建专项…」时要把它的值复位回真实归属 */}}
-                <select class="inline-select"
-                        @change="patchSpecial(t, $event.target)">
-                  <option value="" :selected="!t.special_id">— 日常 —</option>
-                  <template x-for="s in specials" :key="s.id">
-                    <option :value="s.id" :selected="t.special_id === s.id" x-text="s.name"></option>
-                  </template>
-                  <option value="__new__">＋ 新建专项…</option>
-                </select>
-              </td>
-              <td>
-                <input class="inline-input" type="text" placeholder="备注"
-                       :value="t.note"
-                       @blur="patchNote(t, $event.target.value)"
-                       @keydown.enter="$event.target.blur()">
-              </td>
-              <td>
-                <select class="inline-select"
-                        @change="patchStatus(t, $event.target.value)">
-                  <option value="pending_review" :selected="t.status === 'pending_review'">待处理</option>
-                  <option value="confirmed"      :selected="t.status === 'confirmed'">已确认</option>
-                  <option value="excluded"       :selected="t.status === 'excluded'">已排除</option>
-                </select>
-              </td>
-            </tr>
-          </template>
-          <tr x-show="filtered.length === 0">
-            <td colspan="11" class="empty" style="padding:30px">没有匹配当前筛选条件的记录。</td>
-          </tr>
-        </tbody>
-      </table>
+    <div class="tx-sort-mobile">
+      <span class="label">排序</span>
+      <select x-model="sortKey" aria-label="排序键">
+        <option value="occurred_at">日期</option>
+        <option value="amount">金额</option>
+        <option value="counterparty">对方</option>
+        <option value="category">分类</option>
+        <option value="special">专项</option>
+        <option value="status">状态</option>
+        <option value="member">成员</option>
+        <option value="account">账户</option>
+        <option value="source">来源</option>
+        <option value="direction">方向</option>
+      </select>
+      <select x-model="sortOrder" aria-label="升降序">
+        <option value="desc">降序</option>
+        <option value="asc">升序</option>
+      </select>
     </div>
-  </template>
+
+    <table class="tx-list editable stacked-on-mobile">
+      <colgroup>
+        <col class="tx-col-select">
+        <col class="tx-col-date">
+        <col class="tx-col-source">
+        <col class="tx-col-account">
+        <col class="tx-col-member">
+        <col class="tx-col-direction">
+        <col class="tx-col-description">
+        <col class="tx-col-amount">
+        <col class="tx-col-category">
+        <col class="tx-col-special">
+        <col class="tx-col-note">
+        <col class="tx-col-status">
+      </colgroup>
+      <thead>
+        <tr>
+          <th><input type="checkbox" aria-label="全选当页" :checked="allSelected()" @change="toggleAll($event.target.checked)"></th>
+          <th @click="sortBy('occurred_at')" class="sortable">日期 <span x-text="sortIcon('occurred_at')"></span></th>
+          <th @click="sortBy('source')"      class="sortable">来源 <span x-text="sortIcon('source')"></span></th>
+          <th @click="sortBy('account')"     class="sortable">账户 <span x-text="sortIcon('account')"></span></th>
+          <th @click="sortBy('member')"      class="sortable">成员 <span x-text="sortIcon('member')"></span></th>
+          <th @click="sortBy('direction')"   class="sortable">方向 <span x-text="sortIcon('direction')"></span></th>
+          <th @click="sortBy('counterparty')" class="sortable">对方 / 说明 <span x-text="sortIcon('counterparty')"></span></th>
+          <th @click="sortBy('amount')"      class="sortable">金额 <span x-text="sortIcon('amount')"></span></th>
+          <th @click="sortBy('category')"    class="sortable">分类 <span x-text="sortIcon('category')"></span></th>
+          <th @click="sortBy('special')"     class="sortable">专项 <span x-text="sortIcon('special')"></span></th>
+          <th>备注</th>
+          <th>状态</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="t in rows" :key="t.id">
+          <tr :class="{ 'needs-review': !t.category_id }">
+            <td data-label="">
+              <label class="tap-target"><input type="checkbox" :value="t.id" x-model="selected" aria-label="勾选这条流水"></label>
+            </td>
+            <td data-label="日期" x-text="t.occurred_text"></td>
+            <td data-label="来源" x-text="t.source_text"></td>
+            <td data-label="账户">
+              <select class="inline-select" @change="patchAccount(t, $event.target.value)">
+                <template x-if="!metaReady"><option selected :value="t.account" x-text="t.account_text"></option></template>
+                <template x-for="a in accounts" :key="a.value">
+                  <option :value="a.value" :selected="t.account === a.value" x-text="a.label"></option>
+                </template>
+              </select>
+            </td>
+            <td data-label="成员">
+              <input class="inline-input tx-member-input" type="text" placeholder="成员" list="member-list"
+                     :value="t.member"
+                     @blur="patchMember(t, $event.target.value)"
+                     @keydown.enter="$event.target.blur()">
+            </td>
+            <td data-label="方向">
+              <span :class="t.direction === 'income' ? 'badge' : 'badge warn'" x-text="t.direction_text"></span>
+            </td>
+            <td data-label="对方 / 说明">
+              <div x-text="t.counterparty || '—'"></div>
+              <div class="meta-sm" x-text="t.description"></div>
+            </td>
+            <td data-label="金额" class="amount" :class="t.direction === 'income' ? 'positive' : 'negative'"
+                x-text="t.amount_text"></td>
+            <td data-label="分类">
+              <select class="inline-select" @change="patchCategory(t, $event.target.value)">
+                <template x-if="!metaReady"><option selected :value="t.category_id" x-text="t.category_text || '— 未分类 —'"></option></template>
+                <option value="" :selected="!t.category_id">— 未分类 —</option>
+                <template x-for="g in categories" :key="g.group_id">
+                  <optgroup :label="g.group_name">
+                    <template x-for="c in g.items" :key="c.id">
+                      <option :value="c.id" :selected="t.category_id === c.id" x-text="c.name"></option>
+                    </template>
+                  </optgroup>
+                </template>
+              </select>
+            </td>
+            <td data-label="专项">
+              {{/* 传 <select> 元素本身：选到「＋ 新建专项…」时要把它的值复位回真实归属 */}}
+              <select class="inline-select" @change="patchSpecial(t, $event.target)">
+                <template x-if="!metaReady && t.special_id"><option selected :value="t.special_id" x-text="t.special_text"></option></template>
+                <option value="" :selected="!t.special_id">— 日常 —</option>
+                <template x-for="s in specials" :key="s.id">
+                  <option :value="s.id" :selected="t.special_id === s.id" x-text="s.name"></option>
+                </template>
+                <option value="__new__">＋ 新建专项…</option>
+              </select>
+            </td>
+            <td data-label="备注">
+              <input class="inline-input" type="text" placeholder="备注"
+                     :value="t.note"
+                     @blur="patchNote(t, $event.target.value)"
+                     @keydown.enter="$event.target.blur()">
+            </td>
+            <td data-label="状态">
+              <select class="inline-select" @change="patchStatus(t, $event.target.value)">
+                <template x-if="!metaReady"><option selected :value="t.status" x-text="t.status_text"></option></template>
+                <template x-for="s in statuses" :key="s.value">
+                  <option :value="s.value" :selected="t.status === s.value" x-text="s.label"></option>
+                </template>
+              </select>
+            </td>
+          </tr>
+        </template>
+        <tr x-show="!loading && rows.length === 0">
+          <td colspan="12" class="empty tx-empty">
+            <span x-show="pageInfo.total === 0">没有符合条件的流水。可调整周期或筛选条件，或点右上角「＋ 导入账单」上传微信/支付宝账单。</span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="tx-pager" x-show="pageInfo.total_pages > 0">
+      <button class="btn secondary" type="button" @click="goPage(pageNo - 1)" :disabled="loading || pageNo <= 1">上一页</button>
+      <span>第 <b x-text="pageInfo.page"></b> / 共 <b x-text="pageInfo.total_pages"></b> 页</span>
+      <button class="btn secondary" type="button" @click="goPage(pageNo + 1)" :disabled="loading || pageNo >= pageInfo.total_pages">下一页</button>
+      <label>每页
+        <select class="inline-select" x-model.number="pageSize" aria-label="每页条数">
+          <option :value="20">20</option>
+          <option :value="50">50</option>
+          <option :value="100">100</option>
+          <option :value="200">200</option>
+        </select> 条
+      </label>
+    </div>
+  </div>
 </div>
 {{end}}
 

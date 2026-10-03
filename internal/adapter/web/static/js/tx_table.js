@@ -1,335 +1,265 @@
-// Alpine 组件：流水列表的排序 / 筛选 / 汇总 / 就地编辑 + 周期切换。
-// 首屏通过 SSR 嵌入的 #data-transactions / #data-categories bootstrap，
-// 周期切换时 GET /api/transactions 刷新 rows。依赖 period_utils.js。
+// Alpine 组件：流水列表（薄客户端）。
+// 只做三件事：持有筛选 / 排序 / 分页状态 → 拼 query → GET /api/v1/transactions，
+// 然后把响应里的 rows / totals / page / facets / period 原样渲染。
+// 筛选、排序、合计、金额与枚举的中文、分类/专项名、周期进位、规则匹配全在服务端，
+// 这里不做任何推导（契约 docs/CLIENT-API-DESIGN.md §0）。
+// 首屏由 SSR 把同一个 DTO 嵌进 #data-transactions，省一次请求；下拉选项来自 /api/v1/meta。
+// JS 目标 ES2017：不用 ?. ?? 对象展开等。
 function txTable() {
-  const txData = JSON.parse(document.getElementById('data-transactions').textContent || '[]');
-  const catData = JSON.parse(document.getElementById('data-categories').textContent || '[]');
-  const ruleEl = document.getElementById('data-rule');
-  const ruleData = ruleEl ? JSON.parse(ruleEl.textContent || 'null') : null;
-  const specialEl = document.getElementById('data-specials');
-  const specialData = specialEl ? JSON.parse(specialEl.textContent || '[]') : [];
-
-  const specialNameById = {};
-  for (const s of specialData) specialNameById[s.id] = s.name;
-
-  // 按一级分组组装二级科目，给下拉用
-  const groups = [];
-  const groupIndex = {};
-  for (const c of catData) {
-    if (c.level === 1) {
-      const g = { groupId: c.id, groupName: c.name, items: [] };
-      groupIndex[c.id] = g;
-      groups.push(g);
-    }
-  }
-  for (const c of catData) {
-    if (c.level === 2 && groupIndex[c.parent_id]) {
-      groupIndex[c.parent_id].items.push(c);
-    }
-  }
-
-  const catNameById = {};
-  for (const c of catData) catNameById[c.id] = c.name;
+  const boot = JSON.parse(document.getElementById('data-transactions').textContent || 'null') || {};
 
   // 筛选器默认值的唯一来源：初始 state 与「清空筛选」共用。
-  // 每次都返回新数组——sourceFilter 这些是 x-model 直接改的引用，共享一份会串味。
+  // 每次返回新数组——source / status 是 x-model 直接改的引用，共享一份会串味。
   const defaultFilters = () => ({
     keyword: '',
-    directionFilter: 'all',
-    memberFilter: '',
-    sourceFilter: ['alipay', 'wechat', 'manual', 'csv'],
-    accountFilter: ['husband', 'wife'],
-    statusFilter: ['pending_review', 'confirmed'],
-    categoryFilter: '',
-    specialFilter: '',
+    direction: 'all',
+    member: '',
+    source: ['alipay', 'wechat', 'manual', 'csv'],
+    status: ['pending_review', 'confirmed'],
+    category: '',
+    special: '',
   });
+  const sameSet = (a, b) => a.slice().sort().join(',') === b.slice().sort().join(',');
 
-  return {
-    rows: txData,
-    groupedCategories: groups,
-    catNameById,
-    specials: specialData,
-    specialNameById,
+  // 信封解包：成功 {"data":...}，失败 {"error":{"code","message"}}；失败时抛出 error.message
+  async function api(method, url, body) {
+    const opt = { method: method, headers: { Accept: 'application/json' } };
+    if (body !== undefined) {
+      opt.headers['Content-Type'] = 'application/json';
+      opt.body = JSON.stringify(body);
+    }
+    let r;
+    try {
+      r = await fetch(url, opt);
+    } catch (e) {
+      throw new Error('网络异常，请稍后重试');
+    }
+    let j = null;
+    try { j = await r.json(); } catch (e) { /* 非 JSON（如网关错误页） */ }
+    if (!r.ok || !j || j.error) {
+      throw new Error((j && j.error && j.error.message) || ('请求失败（HTTP ' + r.status + '）'));
+    }
+    return j.data;
+  }
 
-    // 周期状态
-    granularity: 'month',
-    periodKey:   '',
-    account:     'family',
-    loading:     false,
-    errorMsg:    '',
-    activeRule:  ruleData,
-    applyingRule: false,
+  return Object.assign(defaultFilters(), {
+    // ---- 服务端结果（原样渲染）----
+    rows: [],
+    totals: { income_text: '0.00', expense_text: '0.00', net_text: '0.00', net_fen: 0 },
+    pageInfo: { page: 1, page_size: 50, total: 0, total_pages: 0 },
+    facets: { members: [] },
+    period: { type: '', key: '', label: '', prev: '', next: '', has_next: false },
+    rule: null,
 
-    // 批量归入专项
+    // ---- /api/v1/meta ----
+    metaReady: false,
+    categories: [], // 已是「分组 → 科目」的树
+    specials: [],
+    accounts: [],
+    accountViews: [],
+    statuses: [],
+
+    // ---- 视图状态 ----
+    account: 'family',
+    ruleId: '',
+    sortKey: 'occurred_at', // 服务端白名单里的名字
+    sortOrder: 'desc',
+    pageNo: 1,
+    pageSize: 50,
+    loading: false,
+    errorMsg: '',
+    selected: [], // 勾选的流水 id（只在当页）
     batchSpecialID: '',
     batching: false,
-
-    ...defaultFilters(),
-
-    sortKey: 'occurred_at',
-    sortDir: 'desc',
+    applyingRule: false,
+    _timer: null,
+    _seq: 0,
 
     init() {
       const el = this.$el;
-      this.granularity = granularityFromPeriodType(el.dataset.initialGranularity || 'monthly');
-      this.periodKey = el.dataset.initialPeriod || defaultPeriodKey(this.granularity);
       this.account = el.dataset.initialAccount || 'family';
-      // 顶部账户与「账户」复选框保持一致：family 展开成两项都勾，单个账户只勾那一项
-      // （SSR 那批 rows 本来就已经按 account 过滤过了，这里只是让复选框 UI 别看着对不上）。
-      this.accountFilter = this.account === 'family' ? ['husband', 'wife'] : [this.account];
-
-      if (this.activeRule) {
-        // 从「分类规则」页应用规则跳转过来（?rule_id=...）：按规则本身预筛，
-        // 其余筛选保持 defaultFilters() 的默认值
-        this.keyword = this.activeRule.pattern || '';
-        return;
-      }
-
-      // 从仪表盘「双击科目 / 双击柱子」跳转过来：按 URL 参数预设筛选状态。
-      // member 目前仪表盘还不会传，但先支持上，以后仪表盘加了成员维度直接能用。
+      this.applyResult(boot);
+      // URL 上的筛选参数本来就是 API 参数（仪表盘穿透、分享链接、刷新），原样读回来即可
       const q = new URLSearchParams(window.location.search);
-      const dir = q.get('direction');
-      if (dir === 'income' || dir === 'expense') this.directionFilter = dir;
-      if (q.has('category')) this.categoryFilter = q.get('category');
-      if (q.has('special'))  this.specialFilter = q.get('special');
-      if (q.has('member'))   this.memberFilter = q.get('member');
+      const f = {};
+      ['keyword', 'direction', 'category', 'special', 'member'].forEach((k) => { if (q.has(k)) f[k] = q.get(k); });
+      if (q.get('source')) f.source = q.get('source').split(',');
+      if (q.get('status')) f.status = q.get('status').split(',');
+      Object.assign(this, f);
+      this.ruleId = q.get('rule_id') || '';
+      this.sortKey = q.get('sort') || 'occurred_at';
+      this.sortOrder = q.get('order') || 'desc';
+
+      // 筛选 / 排序 / 每页条数一变就回第 1 页重查（同一个定时器合并多字段的连续变化；关键词稍作防抖）
+      ['direction', 'member', 'source', 'status', 'category', 'special', 'account', 'sortKey', 'sortOrder', 'pageSize']
+        .forEach((k) => this.$watch(k, () => this.refilter(0)));
+      this.$watch('keyword', () => this.refilter(300));
+
+      this.loadMeta();
     },
 
-    setGranularity(g) {
-      if (this.granularity === g) return;
-      this.granularity = g;
-      this.periodKey = defaultPeriodKey(g);
-      this.fetchTransactions();
+    async loadMeta() {
+      try {
+        const m = await api('GET', '/api/v1/meta');
+        this.categories = m.categories;
+        this.specials = m.specials;
+        this.accounts = m.accounts;
+        this.accountViews = m.account_views;
+        this.statuses = m.statuses;
+        this.metaReady = true;
+      } catch (e) {
+        this.errorMsg = '加载下拉选项失败：' + e.message;
+      }
     },
 
-    shiftPeriod(delta) {
-      const next = shiftPeriodKey(this.granularity, this.periodKey, delta);
-      if (!next) return;
-      this.periodKey = next;
-      this.fetchTransactions();
-    },
-
-    // apiParams 后端 /api/transactions 认得的参数，只有这几个
-    apiParams() {
-      const q = new URLSearchParams({
-        type:    periodTypeFromGranularity(this.granularity),
-        period:  this.periodKey,
-        account: this.account,
-      });
-      if (this.activeRule) q.set('rule_id', this.activeRule.id);
+    // ---- 拼 query / 同步 URL ----
+    // 这些参数和 /api/v1/transactions 的入参一一对应，同一份既用来请求也用来写地址栏。
+    query() {
+      const q = new URLSearchParams();
+      if (this.period.type) q.set('type', this.period.type);
+      if (this.period.key) q.set('period', this.period.key);
+      q.set('account', this.account);
+      if (this.direction !== 'all') q.set('direction', this.direction);
+      if (!sameSet(this.source, defaultFilters().source)) q.set('source', this.source.join(','));
+      if (!sameSet(this.status, defaultFilters().status)) q.set('status', this.status.join(','));
+      ['category', 'special', 'member'].forEach((k) => { if (this[k]) q.set(k, this[k]); });
+      if (this.keyword.trim()) q.set('keyword', this.keyword.trim());
+      if (this.ruleId) q.set('rule_id', this.ruleId);
+      if (this.sortKey !== 'occurred_at' || this.sortOrder !== 'desc') {
+        q.set('sort', this.sortKey);
+        q.set('order', this.sortOrder);
+      }
+      if (this.pageNo > 1) q.set('page', String(this.pageNo));
+      if (this.pageSize !== 50) q.set('page_size', String(this.pageSize));
       return q;
     },
 
-    // syncURL 把当前视图完整写回地址栏。除了后端参数，还要带上 direction / category /
-    // special / member 这几个纯前端的穿透筛选（init() 读的就是它们）——否则从仪表盘穿透
-    // 过来再点一次「上一期」，URL 就只剩周期，刷新或把链接发给别人时筛选全部回默认。
     syncURL() {
-      const q = this.apiParams();
-      if (this.directionFilter !== 'all') q.set('direction', this.directionFilter);
-      if (this.categoryFilter) q.set('category', this.categoryFilter);
-      if (this.specialFilter)  q.set('special',  this.specialFilter);
-      if (this.memberFilter)   q.set('member',   this.memberFilter);
-      const s = q.toString();
+      const s = this.query().toString();
       window.history.replaceState(null, '', window.location.pathname + (s ? '?' + s : ''));
     },
 
-    async fetchTransactions() {
-      this.loading = true;
+    applyResult(d) {
+      this.rows = d.rows || [];
+      this.totals = d.totals || this.totals;
+      this.pageInfo = d.page || this.pageInfo;
+      this.facets = d.facets || { members: [] };
+      this.period = d.period || this.period;
+      this.rule = d.rule || null;
+      this.pageNo = this.pageInfo.page;
+      this.pageSize = this.pageInfo.page_size; // 服务端钳制后的实际值
+    },
+
+    // silent：编辑后的静默刷新，不闪「加载中」、不清勾选
+    async load(silent) {
+      const seq = ++this._seq;
+      if (!silent) { this.loading = true; this.selected = []; }
       this.errorMsg = '';
-      const q = this.apiParams();
       this.syncURL();
       try {
-        const r = await fetch('/api/transactions?' + q.toString());
-        if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (await r.text()));
-        const data = await r.json();
-        this.rows = data.transactions || [];
+        const d = await api('GET', '/api/v1/transactions?' + this.query().toString());
+        if (seq !== this._seq) return; // 已有更新的请求在路上，丢弃这次的结果
+        this.applyResult(d);
+        if (silent) {
+          const ids = {};
+          this.rows.forEach((t) => { ids[t.id] = true; });
+          this.selected = this.selected.filter((id) => ids[id]);
+        }
+        // 翻页期间数据变少导致落在末页之后：回到最后一页
+        if (this.rows.length === 0 && this.pageInfo.total > 0 && this.pageInfo.total_pages > 0
+            && this.pageNo !== this.pageInfo.total_pages) {
+          this.pageNo = this.pageInfo.total_pages;
+          return this.load(silent);
+        }
       } catch (e) {
-        this.errorMsg = e.message;
+        if (seq === this._seq) this.errorMsg = e.message;
       } finally {
-        this.loading = false;
+        if (seq === this._seq) this.loading = false;
       }
     },
 
-    get filtered() {
-      const kw = this.keyword.trim().toLowerCase();
-      const dir = this.directionFilter;
-      const sources = new Set(this.sourceFilter);
-      const accounts = new Set(this.accountFilter);
-      const statuses = new Set(this.statusFilter);
-      const catFilter = this.categoryFilter;
-      const specialFilter = this.specialFilter;
-
-      const memberFilter = this.memberFilter;
-      let out = this.rows.filter((t) => {
-        if (dir !== 'all' && t.direction !== dir) return false;
-        if (memberFilter === '__none__') {
-          if (t.member) return false;
-        } else if (memberFilter && t.member !== memberFilter) {
-          return false;
-        }
-        // csv:<模板名> 归并到 'csv' 复选项
-        const srcKey = t.source && t.source.startsWith('csv:') ? 'csv' : t.source;
-        if (!sources.has(srcKey)) return false;
-        if (t.account && !accounts.has(t.account)) return false;
-        if (!statuses.has(t.status)) return false;
-        if (catFilter === '__none__') {
-          if (t.category_id) return false;
-        } else if (catFilter && t.category_id !== catFilter) {
-          return false;
-        }
-        if (specialFilter === '__none__') {
-          if (t.special_id) return false;
-        } else if (specialFilter === '__any__') {
-          if (!t.special_id) return false;
-        } else if (specialFilter && t.special_id !== specialFilter) {
-          return false;
-        }
-        if (kw) {
-          const hay = (
-            (t.counterparty || '') + ' ' +
-            (t.description || '') + ' ' +
-            (t.note || '') + ' ' +
-            (t.raw_row || '')
-          ).toLowerCase();
-          if (!hay.includes(kw)) return false;
-        }
-        if (this.activeRule && !this.matchesRule(t, this.activeRule)) return false;
-        return true;
-      });
-
-      const key = this.sortKey;
-      const sign = this.sortDir === 'asc' ? 1 : -1;
-      out.sort((a, b) => {
-        let av = a[key], bv = b[key];
-        if (key === 'category_id') {
-          av = catNameById[av] || '';
-          bv = catNameById[bv] || '';
-        } else if (key === 'special_id') {
-          av = specialNameById[av] || '';
-          bv = specialNameById[bv] || '';
-        }
-        if (av == null) av = '';
-        if (bv == null) bv = '';
-        if (typeof av === 'number' && typeof bv === 'number') {
-          return (av - bv) * sign;
-        }
-        return String(av).localeCompare(String(bv), 'zh-CN') * sign;
-      });
-      return out;
+    refilter(delay) {
+      clearTimeout(this._timer);
+      this.pageNo = 1;
+      this._timer = setTimeout(() => this.load(), delay || 0);
     },
 
-    get memberOptions() {
-      const set = new Set();
-      for (const t of this.rows) if (t.member) set.add(t.member);
-      return [...set].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+    // ---- 周期：只用服务端给的 prev / next / has_next ----
+    shiftPeriod(delta) {
+      const key = delta < 0 ? this.period.prev : (this.period.has_next ? this.period.next : '');
+      if (!key) return;
+      this.period = Object.assign({}, this.period, { key: key });
+      this.pageNo = 1;
+      this.load();
     },
 
-    get totals() {
-      let income = 0, expense = 0;
-      for (const t of this.filtered) {
-        if (t.direction === 'income') income += t.amount_fen;
-        else expense += t.amount_fen;
-      }
-      return { income, expense, net: income - expense };
+    // 换粒度：只传 type 不传 period，让服务端给该粒度的默认周期
+    setPeriodType(t) {
+      if (this.period.type === t) return;
+      this.period = Object.assign({}, this.period, { type: t, key: '' });
+      this.pageNo = 1;
+      this.load();
     },
 
+    goPage(n) {
+      if (n < 1 || (this.pageInfo.total_pages && n > this.pageInfo.total_pages) || n === this.pageNo) return;
+      this.pageNo = n;
+      this.load();
+    },
+
+    // ---- 排序：点列头（PC）与排序下拉（手机）都只是改 sortKey / sortOrder ----
     sortBy(key) {
       if (this.sortKey === key) {
-        this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+        this.sortOrder = this.sortOrder === 'asc' ? 'desc' : 'asc';
       } else {
         this.sortKey = key;
-        this.sortDir = 'desc';
+        this.sortOrder = 'desc';
       }
     },
 
     sortIcon(key) {
       if (this.sortKey !== key) return '↕';
-      return this.sortDir === 'asc' ? '↑' : '↓';
-    },
-
-    sourceLabel(s) {
-      if (s && s.startsWith('csv:')) return 'CSV·' + s.slice(4);
-      return { alipay: '支付宝', wechat: '微信', manual: '手填' }[s] || s;
-    },
-
-    fmtYuan(fen) {
-      const sign = fen < 0 ? '-' : '';
-      fen = Math.abs(fen);
-      const yuan = Math.floor(fen / 100);
-      const cents = fen % 100;
-      const s = yuan.toLocaleString('en-US');
-      return `${sign}${s}.${String(cents).padStart(2, '0')}`;
+      return this.sortOrder === 'asc' ? '↑' : '↓';
     },
 
     resetFilters() {
       Object.assign(this, defaultFilters());
-      this.activeRule = null;
-      // 筛选清空了，URL 里的 rule_id / 穿透参数也要一起清掉，否则一刷新又被捡回来
-      this.syncURL();
+      this.ruleId = ''; // 规则预筛也是筛选条件之一，清空时一起去掉
+      this.refilter(0);
     },
 
-    ruleLabel() {
-      if (!this.activeRule) return '';
-      const field = {
-        any: '任意字段',
-        counterparty: '交易对方',
-        description: '商品说明',
-        platform_category: '平台分类',
-      }[this.activeRule.field] || '任意字段';
-      const kind = this.activeRule.pattern_type === 'exact' ? '等于' : '包含';
-      return `${field} ${kind}「${this.activeRule.pattern}」`;
+    // 带异步选项的筛选下拉：x-model 先于选项渲染，值落空会停在第一项。
+    // x-effect 里把 deps（meta / facets 加载状态）传进来以便重新同步，等选项就位后再回填。
+    syncSelect(el, value) {
+      this.$nextTick(() => { el.value = value; });
     },
 
-    matchesRule(t, rule) {
-      const pattern = String(rule.pattern || '').trim().toLowerCase();
-      if (!pattern) return false;
-      const values = this.ruleFieldValues(t, rule.field);
-      return values.some((value) => {
-        value = String(value || '').toLowerCase();
-        if (rule.pattern_type === 'exact') return value === pattern;
-        return value.includes(pattern);
-      });
+    // ---- 勾选 ----
+    allSelected() {
+      return this.rows.length > 0 && this.selected.length === this.rows.length;
+    },
+    toggleAll(checked) {
+      this.selected = checked ? this.rows.map((t) => t.id) : [];
     },
 
-    ruleFieldValues(t, field) {
-      if (field === 'counterparty') return [t.counterparty];
-      if (field === 'description') return [t.description];
-      if (field === 'platform_category') return [t.platform_category];
-      return [t.counterparty, t.description, t.platform_category, t.note, t.raw_row];
-    },
-
-    get ruleApplyTargets() {
-      if (!this.activeRule || !this.activeRule.category_id) return [];
-      const categoryID = this.activeRule.category_id;
-      return this.filtered.filter((t) => !(t.category_id === categoryID && t.status === 'confirmed'));
-    },
-
+    // ---- 规则批量应用：一次 POST，服务端单事务 ----
     async applyRule() {
-      const targets = [...this.ruleApplyTargets];
-      if (!this.activeRule || targets.length === 0 || this.applyingRule) return;
+      if (!this.rule || this.applyingRule) return;
       this.applyingRule = true;
-      const categoryID = this.activeRule.category_id;
-      let okCount = 0;
       try {
-        for (const t of targets) {
-          const prevCategory = t.category_id;
-          const prevStatus = t.status;
-          t.category_id = categoryID;
-          t.status = 'confirmed';
-          const ok = await this._patch(t.id, { category_id: categoryID });
-          if (!ok) {
-            t.category_id = prevCategory;
-            t.status = prevStatus;
-            break;
-          }
-          okCount++;
-        }
-        if (okCount > 0) alert(`已应用 ${okCount} 条流水。`);
+        const d = await api('POST', '/api/v1/rules/' + encodeURIComponent(this.rule.id) + '/apply', {
+          type: this.period.type, period: this.period.key, account: this.account,
+        });
+        alert('已应用 ' + d.updated + ' 条流水。');
+        await this.load(true);
+      } catch (e) {
+        alert('应用规则失败：' + e.message);
       } finally {
         this.applyingRule = false;
       }
     },
 
+    // ---- 就地编辑：乐观更新，失败回滚；成功后静默重查（编辑可能改变筛选 / 排序 / 合计）----
     async patchCategory(t, value) {
       const prev = t.category_id;
       t.category_id = value;
@@ -342,7 +272,7 @@ function txTable() {
       if (value === t.note) return;
       const prev = t.note;
       t.note = value;
-      const ok = await this._patch(t.id, { note: value });
+      const ok = await this._patch(t.id, { note: value }, true);
       if (!ok) t.note = prev;
     },
 
@@ -369,10 +299,9 @@ function txTable() {
       if (!ok) t.account = prev;
     },
 
-    // patchSpecial 行内改专项（收 <select> 元素本身，因为 __new__ 分支要写回它的值）。
-    // 选到「＋ 新建专项…」就跳去 /specials 建，跳转前必须把下拉复位到这条流水的真实归属：
-    // t.special_id 压根没变，Alpine 的 :selected 不会重算，浏览器后退（含 bfcache）回来时
-    // 下拉会停在「＋ 新建专项…」，界面就在声称这条流水属于一个还不存在的专项。
+    // patchSpecial 收 <select> 元素本身，因为 __new__ 分支要写回它的值：
+    // 选到「＋ 新建专项…」就跳去 /specials 建，跳转前必须把下拉复位到这条流水的真实归属，
+    // 否则浏览器后退（含 bfcache）回来时下拉会停在「＋ 新建专项…」。
     async patchSpecial(t, el) {
       const value = el.value;
       if (value === '__new__') {
@@ -387,37 +316,24 @@ function txTable() {
       if (!ok) t.special_id = prev;
     },
 
-    // applyBatchSpecial 把当前筛选出的流水一次归入（或移出）某个专项。
-    // 走 PATCH /api/transactions/batch，失败整体回滚本地状态。
+    // 把勾选的流水一次归入（或移出）某个专项：PATCH /api/v1/transactions/batch，失败整体回滚本地状态。
     async applyBatchSpecial() {
-      if (this.batching || !this.batchSpecialID) return;
-      const targets = this.filtered.filter(
-        (t) => t.special_id !== (this.batchSpecialID === '__clear__' ? '' : this.batchSpecialID),
-      );
-      if (targets.length === 0) {
-        alert('当前筛选的流水已经是该专项，无需处理。');
-        return;
-      }
+      if (this.batching || !this.batchSpecialID || this.selected.length === 0) return;
       const specialID = this.batchSpecialID === '__clear__' ? '' : this.batchSpecialID;
-      const label = specialID ? (this.specialNameById[specialID] || specialID) : '日常';
-      if (!confirm(`把 ${targets.length} 条流水归入「${label}」？`)) return;
+      const sel = this.$refs.batchSpecial;
+      const label = specialID ? sel.options[sel.selectedIndex].text : '日常';
+      const ids = this.selected.slice();
+      if (!confirm('把勾选的 ' + ids.length + ' 条流水归入「' + label + '」？')) return;
 
       this.batching = true;
+      const targets = this.rows.filter((t) => ids.indexOf(t.id) >= 0);
       const prev = targets.map((t) => t.special_id);
       targets.forEach((t) => { t.special_id = specialID; });
       try {
-        const r = await fetch('/api/transactions/batch', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids: targets.map((t) => t.id), special_id: specialID }),
-        });
-        if (!r.ok) {
-          targets.forEach((t, i) => { t.special_id = prev[i]; });
-          alert('批量归类失败：' + (await r.text()));
-          return;
-        }
-        const data = await r.json();
-        alert(`已归类 ${data.updated} 条流水。`);
+        const d = await api('PATCH', '/api/v1/transactions/batch', { ids: ids, special_id: specialID });
+        alert('已归类 ' + d.updated + ' 条流水。');
+        this.selected = [];
+        await this.load(true);
       } catch (e) {
         targets.forEach((t, i) => { t.special_id = prev[i]; });
         alert('批量归类失败：' + e.message);
@@ -426,22 +342,15 @@ function txTable() {
       }
     },
 
-    async _patch(id, body) {
+    async _patch(id, body, skipReload) {
       try {
-        const r = await fetch(`/api/transactions/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        if (!r.ok) {
-          alert('保存失败：' + (await r.text()));
-          return false;
-        }
-        return true;
+        await api('PATCH', '/api/v1/transactions/' + encodeURIComponent(id), body);
       } catch (e) {
         alert('保存失败：' + e.message);
         return false;
       }
+      if (!skipReload) this.load(true);
+      return true;
     },
-  };
+  });
 }

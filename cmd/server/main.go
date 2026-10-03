@@ -130,6 +130,7 @@ func main() {
 		TemplateRepo: templateRepo,
 		SpecialView:  specialView,
 		Nav:          nav,
+		TxQuery:      txQuery,
 		Log:          log,
 		AuthKey:      cfg.AuthKey,
 	})

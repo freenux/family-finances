@@ -51,6 +51,7 @@ type Handler struct {
 	templateRepo port.ImportTemplateRepo
 	specialView  *usecase.SpecialView
 	nav          usecase.PeriodNav
+	txQuery      txLister
 	log          *slog.Logger
 	flash        *flashStore
 	auth         *authManager
@@ -85,6 +86,7 @@ type Deps struct {
 	TemplateRepo port.ImportTemplateRepo
 	SpecialView  *usecase.SpecialView
 	Nav          usecase.PeriodNav // 零值可用（系统时钟）
+	TxQuery      txLister          // 流水列表用例（SSR 首屏与 /api/v1 共用）
 	Log          *slog.Logger
 	AuthKey      string
 }
@@ -118,6 +120,7 @@ func New(d Deps) *Handler {
 		templateRepo: d.TemplateRepo,
 		specialView:  d.SpecialView,
 		nav:          d.Nav,
+		txQuery:      d.TxQuery,
 		log:          d.Log,
 		flash:        newFlashStore(),
 		auth:         newAuthManager(d.AuthKey),
@@ -564,13 +567,6 @@ type txRowJSON struct {
 	RawRow           string `json:"raw_row"`
 }
 
-// specialJSON 流水页专项下拉用
-type specialJSON struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Active bool   `json:"active"`
-}
-
 func txRowJSONFrom(t domain.Transaction) txRowJSON {
 	return txRowJSON{
 		ID:               t.ID,
@@ -591,59 +587,22 @@ func txRowJSONFrom(t domain.Transaction) txRowJSON {
 	}
 }
 
-type catJSON struct {
-	ID        string `json:"id"`
-	ParentID  string `json:"parent_id"`
-	Name      string `json:"name"`
-	GroupName string `json:"group_name"`
-	Type      string `json:"type"`
-	Level     int    `json:"level"`
-}
-
-type ruleJSON struct {
-	ID           string `json:"id"`
-	Pattern      string `json:"pattern"`
-	PatternType  string `json:"pattern_type"`
-	Field        string `json:"field"`
-	CategoryID   string `json:"category_id"`
-	CategoryName string `json:"category_name"`
+// txLister 流水列表用例（*usecase.TxQuery 满足）。SSR 首屏与 /api/v1/transactions 调的是同一个，
+// DTO 形状只有一份。
+type txLister interface {
+	Execute(ctx context.Context, req usecase.TxQueryRequest) (usecase.TxQueryResult, error)
 }
 
 type txListVM struct {
 	pageBase
-	Transactions []domain.Transaction
-	Categories   []domain.Category
-
-	// 给 Alpine 用的 JSON 内联数据
-	TransactionsJSON string
-	CategoriesJSON   string
-	RuleJSON         string
-	SpecialsJSON     string
-}
-
-func ruleJSONFromDomain(rule domain.CategoryRule, cats []domain.Category) ruleJSON {
-	name := rule.CategoryID
-	if name == "" {
-		name = "跳过导入"
-	}
-	for _, c := range cats {
-		if c.ID == rule.CategoryID {
-			name = c.Name
-			break
-		}
-	}
-	return ruleJSON{
-		ID:           rule.ID,
-		Pattern:      rule.Pattern,
-		PatternType:  rule.PatternType,
-		Field:        rule.Field,
-		CategoryID:   rule.CategoryID,
-		CategoryName: name,
-	}
+	Result usecase.TxQueryResult
+	// ResultJSON 整个 TxQueryResult 序列化后的 JSON，模板用 {{rawJSON}} 嵌进页面给 Alpine 首屏 hydrate
+	ResultJSON string
 }
 
 // txListPeriod 解析流水页的周期：纯委托 usecase.PeriodNav.ResolveForList
 // （默认「上个月」；带 ?rule_id= 且 URL 里既没有 type 也没有 period 时用当前季度，原因见 ForRuleView）。
+// 现在仅供测试钉住这条规则；ListTransactions 把同样的 type/period/rule_id 交给 TxQuery，由它内部走 ResolveForList。
 func (h *Handler) txListPeriod(r *http.Request) (domain.Period, error) {
 	return txListPeriodWith(h.nav, r)
 }
@@ -658,111 +617,58 @@ func txListPeriod(r *http.Request) (domain.Period, error) {
 	return txListPeriodWith(usecase.PeriodNav{}, r)
 }
 
+// ListTransactions 流水页 SSR：调 usecase.TxQuery 取首屏（筛选/排序/分页/合计都在用例里），
+// 整体序列化嵌进页面。不再自己拼行 DTO，也不再把整期流水全塞给前端。
 func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
-	p, err := h.txListPeriod(r)
-	if err != nil {
+	q := r.URL.Query()
+	typ := q.Get("type")
+	// TxQuery 的缺省粒度是季度（/api/v1 的约定），而本页缺省是月度。
+	// 唯一不能补的情形是「带 rule_id 且 type/period 都没给」：那要留给 ResolveForList 落到当前季度。
+	ruleOnly := strings.TrimSpace(q.Get("rule_id")) != "" && q.Get("period") == "" && typ == ""
+	if typ == "" && !ruleOnly {
+		typ = string(domain.PeriodMonthly)
+	}
+	res, err := h.txQuery.Execute(r.Context(), usecase.TxQueryRequest{
+		Type: typ, Period: q.Get("period"), Account: q.Get("account"),
+		Direction: q.Get("direction"), Source: q.Get("source"), Status: q.Get("status"),
+		Category: q.Get("category"), Special: q.Get("special"),
+		Member: q.Get("member"), Keyword: q.Get("keyword"), RuleID: q.Get("rule_id"),
+		Sort: q.Get("sort"), Order: q.Get("order"),
+		Page: q.Get("page"), PageSize: q.Get("page_size"),
+	})
+	switch {
+	case errors.Is(err, usecase.ErrInvalidPeriod):
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	case errors.Is(err, port.ErrNotFound):
+		http.Error(w, "规则不存在", http.StatusNotFound)
+		return
+	case err != nil:
+		h.serverError(w, err)
+		return
 	}
-	acc := parseAccountFromQuery(r)
-	txs, err := h.txRepo.List(r.Context(), p, acc)
+	p, _ := domain.ParsePeriod(res.Period.Key) // key 来自 PeriodNav，必然可解析
+	resBytes, err := json.Marshal(res)
 	if err != nil {
 		h.serverError(w, err)
 		return
 	}
-	cats, err := h.catRepo.ListAll(r.Context())
-	if err != nil {
-		h.serverError(w, err)
-		return
-	}
-
-	txJSON := make([]txRowJSON, 0, len(txs))
-	for _, t := range txs {
-		txJSON = append(txJSON, txRowJSONFrom(t))
-	}
-
-	specials, err := h.listSpecialsJSON(r.Context())
-	if err != nil {
-		h.serverError(w, err)
-		return
-	}
-
-	catNameByID := make(map[string]string, len(cats))
-	for _, c := range cats {
-		if c.Level == 1 {
-			catNameByID[c.ID] = c.Name
-		}
-	}
-	catJSONs := make([]catJSON, 0, len(cats))
-	for _, c := range cats {
-		groupName := ""
-		if c.Level == 2 {
-			groupName = catNameByID[c.ParentID]
-		}
-		catJSONs = append(catJSONs, catJSON{
-			ID:        c.ID,
-			ParentID:  c.ParentID,
-			Name:      c.Name,
-			GroupName: groupName,
-			Type:      string(c.Type),
-			Level:     c.Level,
-		})
-	}
-
-	txBytes, _ := json.Marshal(txJSON)
-	catBytes, _ := json.Marshal(catJSONs)
-	specialBytes, _ := json.Marshal(specials)
-	ruleBytes := []byte("null")
-	if ruleID := strings.TrimSpace(r.URL.Query().Get("rule_id")); ruleID != "" {
-		rule, err := h.ruleRepo.GetRule(r.Context(), ruleID)
-		if errors.Is(err, port.ErrNotFound) {
-			http.Error(w, "规则不存在", http.StatusNotFound)
-			return
-		}
-		if err != nil {
-			h.serverError(w, err)
-			return
-		}
-		ruleBytes, _ = json.Marshal(ruleJSONFromDomain(rule, cats))
-	}
-
-	vm := txListVM{
+	h.renderPage(w, http.StatusOK, "transactions", txListVM{
 		pageBase: pageBase{
 			Title:   "收支流水",
 			Nav:     "transactions",
 			Period:  p,
 			Flash:   h.flash.pop(w, r),
-			Account: acc,
+			Account: parseAccountFromQuery(r),
 		},
-		Transactions:     txs,
-		Categories:       cats,
-		TransactionsJSON: string(txBytes),
-		CategoriesJSON:   string(catBytes),
-		RuleJSON:         string(ruleBytes),
-		SpecialsJSON:     string(specialBytes),
-	}
-	h.renderPage(w, http.StatusOK, "transactions", vm)
+		Result:     res,
+		ResultJSON: string(resBytes),
+	})
 }
 
 // specialsEnabled 专项功能是否可用。main.go 里无条件注入，只有裁剪过依赖的
 // 测试/嵌入场景会为 nil——这时整块专项功能降级而不是 panic。
 func (h *Handler) specialsEnabled() bool { return h.specialView != nil }
-
-// listSpecialsJSON 专项下拉选项（进行中的排前面，由 repo 的排序保证）
-func (h *Handler) listSpecialsJSON(ctx context.Context) ([]specialJSON, error) {
-	if !h.specialsEnabled() {
-		return []specialJSON{}, nil
-	}
-	projects, err := h.specialView.ListAll(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]specialJSON, 0, len(projects))
-	for _, p := range projects {
-		out = append(out, specialJSON{ID: p.ID, Name: p.Name, Active: p.IsActive()})
-	}
-	return out, nil
-}
 
 // ListTransactionsAPI: GET /api/transactions?type=...&period=...&account=...
 // 返回与列表页 SSR 嵌入 JSON 相同的 txRowJSON 数组，供前端切换周期时客户端刷新。

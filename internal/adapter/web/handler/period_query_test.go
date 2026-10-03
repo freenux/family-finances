@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -423,6 +424,8 @@ func TestListTransactionsWithRuleIDLoadsCurrentQuarter(t *testing.T) {
 	}{
 		{"带 rule_id", "/transactions?rule_id=r-1", domain.CurrentQuarter(now).Label},
 		{"不带 rule_id", "/transactions", domain.CurrentMonth(now).Previous().Label},
+		{"只给 period 不给 type：沿用本页缺省粒度 monthly", "/transactions?period=2026-03", "2026-03"},
+		{"空白 rule_id 不触发当前季度", "/transactions?rule_id=%20", domain.CurrentMonth(now).Previous().Label},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -430,6 +433,7 @@ func TestListTransactionsWithRuleIDLoadsCurrentQuarter(t *testing.T) {
 			h := &Handler{
 				render:      renderer,
 				txRepo:      txRepo,
+				txQuery:     usecase.NewTxQuery(txRepo, stubCatRepo{}, stubRuleRepo{}),
 				catRepo:     stubCatRepo{},
 				ruleRepo:    stubRuleRepo{},
 				specialView: usecase.NewSpecialView(&stubSpecialRepo{}),
@@ -441,8 +445,8 @@ func TestListTransactionsWithRuleIDLoadsCurrentQuarter(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status = %d; want 200（body=%s）", rec.Code, rec.Body.String())
 			}
-			if len(txRepo.listPeriods) != 1 || txRepo.listPeriods[0].Label != tt.wantLabel {
-				t.Fatalf("List 收到周期 %v; want [%s]", txRepo.listPeriods, tt.wantLabel)
+			if len(txRepo.queries) != 1 || txRepo.queries[0].Period.Label != tt.wantLabel {
+				t.Fatalf("QueryTransactions 收到查询 %v; want 周期 [%s]", txRepo.queries, tt.wantLabel)
 			}
 		})
 	}
@@ -462,3 +466,44 @@ func (stubRuleRepo) SetRuleActive(context.Context, string, bool) error     { ret
 func (stubRuleRepo) DeleteRule(context.Context, string) error              { return nil }
 
 var _ port.CategoryRuleRepo = stubRuleRepo{}
+
+// TestListTransactionsEmbedsUsecaseResult SSR 首屏把 TxQuery 的结果整体嵌进 #data-transactions：
+// 必须是能被 JSON.parse 的原始 JSON（rawJSON），而不是被 html/template 再字符串化的一串引号，
+// 并且形状就是 usecase.TxQueryResult（与 /api/v1/transactions 同一份 DTO）。
+func TestListTransactionsEmbedsUsecaseResult(t *testing.T) {
+	renderer, err := web.NewRenderer()
+	if err != nil {
+		t.Fatalf("NewRenderer() error = %v", err)
+	}
+	txRepo := newStubTxRepo()
+	h := &Handler{
+		render:      renderer,
+		txRepo:      txRepo,
+		txQuery:     usecase.NewTxQuery(txRepo, stubCatRepo{}, stubRuleRepo{}),
+		catRepo:     stubCatRepo{},
+		ruleRepo:    stubRuleRepo{},
+		specialView: usecase.NewSpecialView(&stubSpecialRepo{}),
+		flash:       newFlashStore(),
+		log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	rec := httptest.NewRecorder()
+	h.ListTransactions(rec, httptest.NewRequest(http.MethodGet, "/transactions?type=monthly&period=2026-03", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	const open = `<script id="data-transactions" type="application/json">`
+	i := strings.Index(body, open)
+	if i < 0 {
+		t.Fatalf("页面里没有 #data-transactions")
+	}
+	rest := body[i+len(open):]
+	raw := rest[:strings.Index(rest, "</script>")]
+	var got usecase.TxQueryResult
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("嵌入的 JSON 解析失败: %v（raw=%.80s）——多半是没用 rawJSON，被 html/template 再字符串化了", err, raw)
+	}
+	if got.Period.Key != "2026-03" || got.Rows == nil {
+		t.Fatalf("period.key = %q, rows = %v; want 2026-03 与非 nil 的空数组（前端 x-for 不能拿到 null）", got.Period.Key, got.Rows)
+	}
+}

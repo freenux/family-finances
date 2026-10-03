@@ -1,4 +1,11 @@
-// 共享的周期工具函数，供仪表盘/流水/统计三个页面的 Alpine 组件使用。
+// 周期工具函数。
+//
+// 过渡期说明：周期规则（默认周期、上下期进位）的唯一来源是服务端 usecase.PeriodNav。
+// 流水页（tx_table.js）已切到服务端，只消费响应里的 period.prev / next / has_next，不再依赖本文件。
+// 下面的 defaultPeriodKey / shiftPeriodKey 是前端的另一份实现，目前仅剩 dashboard_page.js 与
+// stats_page.js 两个页面在用（资产页 assets.js 并未引用）——待它们切到 /api/v1 后删除这两个函数。
+// 在那之前改周期规则必须两处同步，见 CLAUDE.md「默认周期」一节。
+// granularityFromPeriodType / periodTypeFromGranularity 是纯词表映射，可长期保留。
 
 // defaultPeriodKey 返回给定粒度「上一个完整周期」的 key：当期还没走完，数字有误导性
 // （环比/同比都会失真），所以三个页面的默认周期统一取上一期，而不是当期。

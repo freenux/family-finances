@@ -170,13 +170,13 @@ PATCH 的业务逻辑——叶子科目校验、status 白名单、`IsStorageAcc
 - 模板函数（`render.go` 的 `funcMap`）：`rawJSON`、`yuan`、`pct`、`goalPct`、`formatDate`、`categoryName`、`groupCategories`。新增函数加到那里。
 - **htmx 与 alpinejs 是本地固定版本**，放在 `static/js/vendor/`（`htmx-1.9.12.min.js`、`alpinejs-3.14.1.min.js`），由 `base.html` `defer` 引入，**不走 CDN**。自有 JS 同样放 `static/js/` 并在 `base.html` `<head>` 里 `defer` 引入。
 
-### 默认周期（前后端两处实现，必须同步改）
+### 默认周期（规则只在服务端 `usecase.PeriodNav`；前端还剩一份待删的旧实现）
 
 - 仪表盘 `/`、收支流水 `/transactions`、现金流表 `/cashflow` 这三个页面（以及 `/reports`、`/assets`、`/api/stats`）的默认周期一律是**上一个完整周期**，不是当期——当期没走完，环比同比都会失真。
-- 后端唯一入口 `defaultPeriodFor(type, now)`（`handler/handler.go`）：annual → 去年，monthly → 上月，quarterly（以及任何非法值）→ 上季度。`parsePeriodFromQuery` 与 `StatsAPI`（先把 `month/quarter/year` 短别名翻成 `PeriodType`）都复用它。
-- 前端唯一入口 `defaultPeriodKey(granularity)`（`static/js/period_utils.js`），内部复用 `shiftPeriodKey(..., -1)`；`stats_page.js` / `dashboard_page.js` / `tx_table.js` 都调它。
-- **这是两份独立实现，改规则必须两处一起改**，否则首屏 SSR 的周期和 Alpine 接管后显示的周期会打架。（后端侧 `type` 与 `period` 对不上 → 退回该 `type` 的默认周期，规则只在 `usecase.PeriodNav.Resolve` 一处；`handler` 里的 `parsePeriodFromQuery` / `defaultPeriodFor` / `txListPeriod` 是纯委托，不得再写自己的判断。）
-- **唯一例外**：流水页带 `?rule_id=`（从「分类规则」页点「查看流水」跳过来，且 URL 里既没有 `type` 也没有 `period`）时改用**当前季度**，见 `txListPeriod`。这里不能复用 `defaultPeriodFor`——它给的是上一个完整季度，同样盖不住当月刚导入待核对的那批流水，页面会误报"这条规则没匹配到任何流水"。URL 显式给了 `type` 或 `period` 时一律以显式为准。
+- **规则的唯一来源是 `usecase.PeriodNav`**（`Default` / `Resolve` / `ResolveForList` / `Nav`）：annual → 去年，monthly → 上月，quarterly（以及任何非法值）→ 上季度；`type` 与 `period` 对不上 → 退回该 `type` 的默认周期。`handler` 里的 `parsePeriodFromQuery` / `defaultPeriodFor` / `txListPeriod` 是纯委托，不得再写自己的判断；`StatsAPI` 先把 `month/quarter/year` 短别名翻成 `PeriodType` 再交给它。`/api/v1` 与 SSR 共用同一个 `PeriodNav`。
+- **客户端只消费，不计算**：每个带周期的 `/api/v1` 响应都内嵌 `period{type,key,label,prev,next,has_next}`，翻页用 `prev` / `next`，`has_next=false` 时禁用「下一期」，换粒度则只传 `type` 不传 `period`、让服务端给默认周期。**目前只有流水页（`tx_table.js`）已按此切换**，它不再依赖 `period_utils.js`。
+- **仍未统一的部分（如实记录）**：仪表盘（`dashboard_page.js`）与统计页（`stats_page.js`）还在用 `period_utils.js` 里的 `defaultPeriodKey` / `shiftPeriodKey`——那是前端的另一份实现。在这两页切到 `/api/v1` 之前，改默认周期规则或进位逻辑**仍须两处同步**（`PeriodNav` 与 `period_utils.js`），否则这两页首屏 SSR 的周期和 Alpine 接管后显示的周期会打架。这两页切过去之后，`period_utils.js` 里这两个函数就能删，本节也随之只剩服务端一处。
+- **唯一例外**：流水页带 `?rule_id=`（从「分类规则」页点「查看流水」跳过来，且 URL 里既没有 `type` 也没有 `period`）时改用**当前季度**，规则在 `PeriodNav.ResolveForList`（`ForRuleView`）。这里不能复用 `Default`——它给的是上一个完整季度，同样盖不住当月刚导入待核对的那批流水，页面会误报"这条规则没匹配到任何流水"。URL 显式给了 `type` 或 `period` 时一律以显式为准。流水页 SSR 在 `type` 缺省时补 `monthly`（`TxQuery` 自己的缺省粒度是季度），唯独「带 `rule_id` 且 type/period 都没给」的情形不补，留给 `ResolveForList`。
 
 ### 数据库
 

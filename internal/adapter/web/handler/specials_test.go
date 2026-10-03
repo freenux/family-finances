@@ -32,6 +32,7 @@ type stubTxRepo struct {
 	bucketCalls  int                                 // SumByBuckets 被调用次数（一次拿两组，不按口径各查一遍）
 	topScopes    []domain.Scope                      // TopTransactions 收到的口径序列
 	listPeriods  []domain.Period                     // List 收到的周期序列（验默认周期）
+	queries      []port.TransactionQuery             // QueryTransactions 收到的查询（流水页 SSR 走这条）
 	batchIDs     []string                            // SetSpecialForIDs 收到的 id
 	batchSpecial string                              // SetSpecialForIDs 收到的专项 id
 }
@@ -63,6 +64,19 @@ func (r *stubTxRepo) Get(context.Context, string) (domain.Transaction, error) {
 func (r *stubTxRepo) List(_ context.Context, p domain.Period, _ domain.Account) ([]domain.Transaction, error) {
 	r.listPeriods = append(r.listPeriods, p)
 	return nil, nil
+}
+
+// QueryTransactions / DistinctMembers / ApplyCategoryByRule 满足 port.TransactionQueryRepo，
+// 流水页 SSR 经 usecase.TxQuery 调到这里；只记录收到的查询，返回空页。
+func (r *stubTxRepo) QueryTransactions(_ context.Context, q port.TransactionQuery) (port.TransactionPage, error) {
+	r.queries = append(r.queries, q)
+	return port.TransactionPage{}, nil
+}
+func (r *stubTxRepo) DistinctMembers(context.Context, domain.Period, domain.Account) ([]string, error) {
+	return nil, nil
+}
+func (r *stubTxRepo) ApplyCategoryByRule(context.Context, domain.Period, domain.Account, domain.CategoryRule, string) (int, error) {
+	return 0, nil
 }
 func (r *stubTxRepo) ListPendingCategory(context.Context, int) ([]domain.Transaction, error) {
 	return nil, nil
