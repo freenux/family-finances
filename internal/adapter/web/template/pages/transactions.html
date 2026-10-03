@@ -1,40 +1,6 @@
 {{define "content"}}
 <script id="data-transactions" type="application/json">{{rawJSON .ResultJSON}}</script>
-<style>
-  /* 本页专属小样式；等 app.css 开放后可并入 */
-  /* 多了勾选列，且原先成员列没分到宽度，这里整体重分 */
-  table.tx-list .tx-col-select { width: 3%; }
-  table.tx-list .tx-col-date { width: 8%; }
-  table.tx-list .tx-col-source { width: 6%; }
-  table.tx-list .tx-col-account { width: 8%; }
-  table.tx-list .tx-col-member { width: 7%; }
-  table.tx-list .tx-col-direction { width: 5%; }
-  table.tx-list .tx-col-description { width: 15%; }
-  table.tx-list .tx-col-amount { width: 10%; }
-  table.tx-list .tx-col-category { width: 12%; }
-  table.tx-list .tx-col-special { width: 9%; }
-  table.tx-list .tx-col-note { width: 8%; }
-  table.tx-list .tx-col-status { width: 9%; }
-  .tx-member-input { width: 100%; max-width: 90px; }
-  .tx-head-actions > :not(template) ~ :not(template) { margin-left: 14px; }
-  .tx-batch-actions { display: flex; align-items: center; }
-  .tx-batch-actions > :not(template) ~ :not(template) { margin-left: 8px; }
-  .tx-pager { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; margin: 14px 0; }
-  .tx-pager > * { margin: 4px 8px; }
-  .tx-pager label { display: inline-flex; align-items: center; white-space: nowrap; }
-  .tx-pager label select { margin: 0 6px; }
-  .tx-sort-mobile { display: none; align-items: center; margin: 0 0 12px; }
-  .tx-sort-mobile > select { flex: 1 1 auto; min-width: 0; }
-  .tx-sort-mobile > select + select { margin-left: 8px; }
-  .tx-sort-mobile > .label { margin-right: 8px; color: var(--muted); white-space: nowrap; }
-  .tx-loading { opacity: 0.5; }
-  .tx-error { color: var(--negative); }
-  .tx-flash { padding: 10px 14px; margin-bottom: 14px; background: var(--accent-soft); color: var(--accent); }
-  @media (max-width: 700px) {
-    .tx-sort-mobile { display: flex; }
-    .tx-head-actions > :not(template) ~ :not(template) { margin-left: 0; }
-  }
-</style>
+<script id="data-meta" type="application/json">{{rawJSON .MetaJSON}}</script>
 
 <div x-data="txTable()"
      data-initial-account="{{.Account}}"
@@ -95,23 +61,22 @@
 
       <div class="tx-filter-group">
         <span class="label">账户：</span>
-        <select x-model="account" x-effect="syncSelect($el, account, metaReady)">
-          <template x-if="!metaReady"><option :value="account" x-text="account"></option></template>
+        <select x-model="account">
           <template x-for="a in accountViews" :key="a.value">
-            <option :value="a.value" x-text="a.label"></option>
+            <option :value="a.value" :selected="account === a.value" x-text="a.label"></option>
           </template>
         </select>
       </div>
 
       <div class="tx-filter-group">
         <span class="label">分类：</span>
-        <select x-model="category" x-effect="syncSelect($el, category, metaReady)">
+        <select x-model="category">
           <option value="">全部</option>
           <option value="__none__">⚠️ 未分类</option>
           <template x-for="g in categories" :key="g.group_id">
             <optgroup :label="g.group_name">
               <template x-for="c in g.items" :key="c.id">
-                <option :value="c.id" x-text="c.name"></option>
+                <option :value="c.id" :selected="category === c.id" x-text="c.name"></option>
               </template>
             </optgroup>
           </template>
@@ -120,22 +85,22 @@
 
       <div class="tx-filter-group">
         <span class="label">成员：</span>
-        <select x-model="member" x-effect="syncSelect($el, member, facets)">
+        <select x-model="member">
           <option value="">全部</option>
           <template x-for="m in facets.members" :key="m.value">
-            <option :value="m.value" x-text="m.label"></option>
+            <option :value="m.value" :selected="member === m.value" x-text="m.label"></option>
           </template>
         </select>
       </div>
 
       <div class="tx-filter-group">
         <span class="label">专项：</span>
-        <select x-model="special" x-effect="syncSelect($el, special, metaReady)">
+        <select x-model="special">
           <option value="">全部</option>
           <option value="__none__">仅日常（不含专项）</option>
           <option value="__any__">仅专项（任意）</option>
           <template x-for="s in specials" :key="s.id">
-            <option :value="s.id" x-text="s.name"></option>
+            <option :value="s.id" :selected="special === s.id" x-text="s.name"></option>
           </template>
         </select>
       </div>
@@ -173,10 +138,10 @@
     </template>
 
     <template x-if="specials.length > 0">
-      <div class="rule-apply-bar">
+      <div class="rule-apply-bar tx-batch-bar">
         <div>
           <strong>批量归入专项</strong>
-          <span>先勾选下方流水（已选 <b x-text="selected.length"></b> 条），再一次挂到某个专项上（装修一次几十上百笔，逐条改不现实）</span>
+          <span>勾选下方流水（已选 <b x-text="selected.length"></b> 条）挂到某个专项上，或一次归入当前筛选的全部 <b x-text="pageInfo.total"></b> 条（含其它页；装修一次几十上百笔，逐条改不现实）</span>
         </div>
         <div class="tx-batch-actions">
           <select class="inline-select" x-ref="batchSpecial" x-model="batchSpecialID">
@@ -189,6 +154,10 @@
           <button class="btn" type="button" @click="applyBatchSpecial()"
                   :disabled="batching || !batchSpecialID || selected.length === 0">
             <span x-text="batching ? '处理中...' : '应用到已勾选'"></span>
+          </button>
+          <button class="btn secondary" type="button" @click="applyBatchSpecialByFilter()"
+                  :disabled="batching || !batchSpecialID || pageInfo.total === 0">
+            <span>归入当前筛选的全部 <span x-text="pageInfo.total"></span> 条</span>
           </button>
         </div>
       </div>
@@ -255,7 +224,6 @@
             <td data-label="来源" x-text="t.source_text"></td>
             <td data-label="账户">
               <select class="inline-select" @change="patchAccount(t, $event.target.value)">
-                <template x-if="!metaReady"><option selected :value="t.account" x-text="t.account_text"></option></template>
                 <template x-for="a in accounts" :key="a.value">
                   <option :value="a.value" :selected="t.account === a.value" x-text="a.label"></option>
                 </template>
@@ -278,7 +246,6 @@
                 x-text="t.amount_text"></td>
             <td data-label="分类">
               <select class="inline-select" @change="patchCategory(t, $event.target.value)">
-                <template x-if="!metaReady"><option selected :value="t.category_id" x-text="t.category_text || '— 未分类 —'"></option></template>
                 <option value="" :selected="!t.category_id">— 未分类 —</option>
                 <template x-for="g in categories" :key="g.group_id">
                   <optgroup :label="g.group_name">
@@ -292,7 +259,6 @@
             <td data-label="专项">
               {{/* 传 <select> 元素本身：选到「＋ 新建专项…」时要把它的值复位回真实归属 */}}
               <select class="inline-select" @change="patchSpecial(t, $event.target)">
-                <template x-if="!metaReady && t.special_id"><option selected :value="t.special_id" x-text="t.special_text"></option></template>
                 <option value="" :selected="!t.special_id">— 日常 —</option>
                 <template x-for="s in specials" :key="s.id">
                   <option :value="s.id" :selected="t.special_id === s.id" x-text="s.name"></option>
@@ -308,7 +274,6 @@
             </td>
             <td data-label="状态">
               <select class="inline-select" @change="patchStatus(t, $event.target.value)">
-                <template x-if="!metaReady"><option selected :value="t.status" x-text="t.status_text"></option></template>
                 <template x-for="s in statuses" :key="s.value">
                   <option :value="s.value" :selected="t.status === s.value" x-text="s.label"></option>
                 </template>

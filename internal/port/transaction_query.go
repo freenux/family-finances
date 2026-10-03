@@ -58,3 +58,12 @@ type TransactionQueryRepo interface {
 	// direction 非空时只改该方向（usecase 恒传 expense，与规则预筛集合一致）；excluded 的流水不动。rule.CategoryID 为空时返回错误。
 	ApplyCategoryByRule(ctx context.Context, p domain.Period, account domain.Account, rule domain.CategoryRule, direction string) (int, error)
 }
+
+// TransactionBulkRepo 按筛选条件批量改流水。独立于 TransactionQueryRepo：
+// handler 包的测试替身只实现了后者，不能因为加方法而破坏。
+type TransactionBulkRepo interface {
+	// SetSpecialByQuery 把满足 q（只看筛选字段，忽略排序与分页）的全部流水归入专项
+	// （specialID 空串 = 归回日常）。WHERE 与列表查询共用同一份构造；单事务单条 UPDATE，
+	// 返回命中行数。q.Period 为零值时拒绝执行，防止误改全表。
+	SetSpecialByQuery(ctx context.Context, q TransactionQuery, specialID string) (int, error)
+}

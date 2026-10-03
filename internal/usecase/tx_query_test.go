@@ -134,9 +134,14 @@ func TestTxQueryNormalizesParams(t *testing.T) {
 				t.Errorf("Special = %q; want __any__", q.Special)
 			}
 		}},
-		{"周期缺省 = 上一个完整季度", TxQueryRequest{}, func(t *testing.T, q port.TransactionQuery, res TxQueryResult) {
-			if q.Period.Label != "2025Q2" || res.Period.Key != "2025Q2" {
-				t.Errorf("period = %s/%s; want 2025Q2", q.Period.Label, res.Period.Key)
+		{"周期缺省 = 上月（流水视图缺省粒度 monthly）", TxQueryRequest{}, func(t *testing.T, q port.TransactionQuery, res TxQueryResult) {
+			if q.Period.Label != "2025-07" || res.Period.Key != "2025-07" || res.Period.Type != "monthly" {
+				t.Errorf("period = %s/%s/%s; want 2025-07/monthly（缺省粒度是视图的属性，网页与 /api/v1 共用）", q.Period.Label, res.Period.Key, res.Period.Type)
+			}
+		}},
+		{"显式 quarterly 不受缺省粒度影响", TxQueryRequest{Type: "quarterly"}, func(t *testing.T, q port.TransactionQuery, _ TxQueryResult) {
+			if q.Period.Label != "2025Q2" {
+				t.Errorf("period = %s; want 2025Q2", q.Period.Label)
 			}
 		}},
 		{"type=monthly 无 period", TxQueryRequest{Type: "monthly"}, func(t *testing.T, q port.TransactionQuery, _ TxQueryResult) {

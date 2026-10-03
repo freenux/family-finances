@@ -31,12 +31,22 @@ func (bareErrQuerier) ApplyRule(context.Context, string, domain.Period, domain.A
 	return 0, errors.New(leakText)
 }
 
+func (bareErrQuerier) ResolveFilter(context.Context, usecase.TxQueryRequest) (port.TransactionQuery, error) {
+	return port.TransactionQuery{}, errors.New(leakText)
+}
+
 type bareErrWriter struct{}
 
 func (bareErrWriter) Update(context.Context, string, port.TransactionUpdate) error {
 	return errors.New(leakText)
 }
 func (bareErrWriter) SetSpecialForIDs(context.Context, []string, string) (int, error) {
+	return 0, errors.New(leakText)
+}
+
+type bareErrBulk struct{}
+
+func (bareErrBulk) SetSpecialByQuery(context.Context, port.TransactionQuery, string) (int, error) {
 	return 0, errors.New(leakText)
 }
 
@@ -53,7 +63,7 @@ func (bareErrEnsurer) Ensure(context.Context, string) error { return errors.New(
 func TestBareRepoErrorsAreInternalAndNeverLeak(t *testing.T) {
 	api := New(Deps{
 		Categories: bareErrCats{}, SpecialCheck: bareErrEnsurer{},
-		TxQuery: bareErrQuerier{}, Tx: bareErrWriter{},
+		TxQuery: bareErrQuerier{}, Tx: bareErrWriter{}, TxBulk: bareErrBulk{},
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	h := api.Routes()
@@ -67,6 +77,8 @@ func TestBareRepoErrorsAreInternalAndNeverLeak(t *testing.T) {
 		{"单条写库失败", "PATCH", "/transactions/t1", `{"note":"x"}`},
 		{"批量校验专项遇到 DB 故障", "PATCH", "/transactions/batch", `{"ids":["a"],"special_id":"sp-1"}`},
 		{"批量写库失败", "PATCH", "/transactions/batch", `{"ids":["a"],"special_id":""}`},
+		{"按筛选批量：校验专项遇到 DB 故障", "PATCH", "/transactions/by-filter", `{"special_id":"sp-1"}`},
+		{"按筛选批量：筛选归一失败", "PATCH", "/transactions/by-filter", `{"special_id":""}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

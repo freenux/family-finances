@@ -154,32 +154,44 @@ func splitCSV(s string) []string {
 	return out
 }
 
-// Execute 归一参数 → 查询 → 装配 DTO
-func (q *TxQuery) Execute(ctx context.Context, req TxQueryRequest) (TxQueryResult, error) {
-	var res TxQueryResult
+// TxListDefaultType 流水视图的缺省粒度：月度。
+// 它是「这个视图」的属性而不是调用方的选择——网页 SSR 与 /api/v1 都不传，
+// 这样同一个视图不会因入口不同而出现两个缺省窗口。
+const TxListDefaultType = domain.PeriodMonthly
+
+// ResolveFilter 把原始请求归一成「筛选条件」：周期、账户、方向、来源、状态、分类、专项、成员、
+// 关键词、规则预筛。不含排序与分页。
+// 列表（Execute）与「按筛选批量改」（UpdateTransaction.AssignSpecialByFilter）共用这一份归一，
+// 再交给 repo 同一个 buildTxWhere，所以「改到的行」与「列表上看到的行」不会在边界上分叉。
+func (q *TxQuery) ResolveFilter(ctx context.Context, req TxQueryRequest) (port.TransactionQuery, error) {
+	f, _, err := q.resolve(ctx, req)
+	return f, err
+}
+
+// resolve 同 ResolveFilter，另返回命中的规则（Execute 要拿它装配 RuleView）。
+func (q *TxQuery) resolve(ctx context.Context, req TxQueryRequest) (port.TransactionQuery, *domain.CategoryRule, error) {
+	var f port.TransactionQuery
 	var rulePtr *domain.CategoryRule
-	var rule domain.CategoryRule
 	ruleID := strings.TrimSpace(req.RuleID)
 	if ruleID != "" {
 		r, err := q.ruleRepo.GetRule(ctx, ruleID)
 		if err != nil {
 			if errors.Is(err, port.ErrNotFound) {
-				return res, fmt.Errorf("规则不存在: %w", err)
+				return f, nil, fmt.Errorf("规则不存在: %w", err)
 			}
-			return res, err
+			return f, nil, err
 		}
-		rule, rulePtr = r, &r
+		rulePtr = &r
 	}
 
 	ruleForPeriod := ""
 	if rulePtr != nil {
 		ruleForPeriod = ruleID
 	}
-	p, err := q.nav.ResolveForList(req.Type, req.Period, ruleForPeriod, domain.PeriodQuarterly)
+	p, err := q.nav.ResolveForList(req.Type, req.Period, ruleForPeriod, TxListDefaultType)
 	if err != nil {
-		return res, err
+		return f, nil, err
 	}
-	acc := domain.ParseAccount(req.Account)
 
 	dir := ""
 	if req.Direction == string(domain.DirectionIncome) || req.Direction == string(domain.DirectionExpense) {
@@ -200,6 +212,24 @@ func (q *TxQuery) Execute(ctx context.Context, req TxQueryRequest) (TxQueryResul
 	if len(statuses) == 0 {
 		statuses = []string{string(domain.TxStatusPendingReview), string(domain.TxStatusConfirmed)}
 	}
+	return port.TransactionQuery{
+		Period: p, Account: domain.ParseAccount(req.Account), Direction: dir,
+		Sources:  splitCSV(req.Source),
+		Statuses: statuses,
+		Category: req.Category, Special: req.Special, Member: req.Member,
+		Keyword: strings.TrimSpace(req.Keyword),
+		Rule:    rulePtr,
+	}, rulePtr, nil
+}
+
+// Execute 归一参数 → 查询 → 装配 DTO
+func (q *TxQuery) Execute(ctx context.Context, req TxQueryRequest) (TxQueryResult, error) {
+	var res TxQueryResult
+	filter, rulePtr, err := q.resolve(ctx, req)
+	if err != nil {
+		return res, err
+	}
+	p, acc := filter.Period, filter.Account
 
 	sortKey, ok := txSortKeys[req.Sort]
 	if !ok {
@@ -219,16 +249,9 @@ func (q *TxQuery) Execute(ctx context.Context, req TxQueryRequest) (TxQueryResul
 		size = maxPageSize
 	}
 
-	out, err := q.txRepo.QueryTransactions(ctx, port.TransactionQuery{
-		Period: p, Account: acc, Direction: dir,
-		Sources:  splitCSV(req.Source),
-		Statuses: statuses,
-		Category: req.Category, Special: req.Special, Member: req.Member,
-		Keyword: strings.TrimSpace(req.Keyword),
-		Rule:    rulePtr,
-		SortBy:  sortKey, SortDesc: desc,
-		Offset: (page - 1) * size, Limit: size,
-	})
+	filter.SortBy, filter.SortDesc = sortKey, desc
+	filter.Offset, filter.Limit = (page-1)*size, size
+	out, err := q.txRepo.QueryTransactions(ctx, filter)
 	if err != nil {
 		return res, err
 	}
@@ -272,7 +295,7 @@ func (q *TxQuery) Execute(ctx context.Context, req TxQueryRequest) (TxQueryResul
 		res.Facets.Members = append(res.Facets.Members, FacetOption{Value: m, Label: m})
 	}
 	if rulePtr != nil {
-		res.Rule = &RuleView{ID: rule.ID, Label: RuleLabel(rule), CategoryID: rule.CategoryID, CategoryName: catName[rule.CategoryID]}
+		res.Rule = &RuleView{ID: rulePtr.ID, Label: RuleLabel(*rulePtr), CategoryID: rulePtr.CategoryID, CategoryName: catName[rulePtr.CategoryID]}
 	}
 	return res, nil
 }

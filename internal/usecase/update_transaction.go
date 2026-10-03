@@ -53,6 +53,22 @@ type UpdateTransaction struct {
 	tx       TxWriter
 	cats     LeafCategoryLister
 	specials SpecialEnsurer // nil = 专项功能未启用
+
+	// 「按筛选批量改」所需；未注入时 AssignSpecialByFilter 返回内部错误
+	filter FilterResolver
+	bulk   port.TransactionBulkRepo
+}
+
+// FilterResolver 把原始列表请求归一成筛选条件，由 *TxQuery 满足。
+type FilterResolver interface {
+	ResolveFilter(ctx context.Context, req TxQueryRequest) (port.TransactionQuery, error)
+}
+
+// WithFilter 注入「按筛选批量改」的依赖。resolver 必须就是列表用的那个 TxQuery，
+// 这样归一规则只有一份。
+func (uc *UpdateTransaction) WithFilter(r FilterResolver, bulk port.TransactionBulkRepo) *UpdateTransaction {
+	uc.filter, uc.bulk = r, bulk
+	return uc
 }
 
 // NewUpdateTransaction specials 可为 nil（专项功能未启用：传非空 special_id 会被拒）。
@@ -143,6 +159,28 @@ func (uc *UpdateTransaction) AssignSpecial(ctx context.Context, ids []string, sp
 	// 一个事务里一次写完：逐条 Update 会开上千个隐式事务（1000 条 332ms vs 18ms），
 	// 而且中途失败时前面已提交的部分回滚不掉，用户会拿到一个说不清改了多少的半成品。
 	return uc.tx.SetSpecialForIDs(ctx, clean, sid)
+}
+
+// AssignSpecialByFilter 把「与列表接口同一套筛选条件」命中的全部流水（不止当页）归入专项，
+// specialID 指向空串 = 归回日常，返回命中条数。排序与分页参数被忽略。
+// 专项校验与 AssignSpecial 同一套（不存在 = ErrInvalidInput，DB 故障原样返回）。
+func (uc *UpdateTransaction) AssignSpecialByFilter(ctx context.Context, req TxQueryRequest, specialID *string) (int, error) {
+	if specialID == nil {
+		return 0, newUserError(ErrInvalidInput, "缺少 special_id")
+	}
+	sid := strings.TrimSpace(*specialID)
+	if err := uc.ensureSpecial(ctx, sid); err != nil {
+		return 0, err
+	}
+	if uc.filter == nil || uc.bulk == nil {
+		return 0, errors.New("按筛选批量改未装配")
+	}
+	q, err := uc.filter.ResolveFilter(ctx, req)
+	if err != nil {
+		return 0, err
+	}
+	// 一个事务一条 UPDATE，WHERE 与列表查询共用 buildTxWhere
+	return uc.bulk.SetSpecialByQuery(ctx, q, sid)
 }
 
 // ensureLeafCategory category_id 必须是二级科目。ListAll 出错是内部故障，原样返回。

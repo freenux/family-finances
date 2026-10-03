@@ -240,4 +240,42 @@ func (r *TransactionRepo) ApplyCategoryByRule(ctx context.Context, p domain.Peri
 	return int(n), nil
 }
 
-var _ port.TransactionQueryRepo = (*TransactionRepo)(nil)
+// SetSpecialByQuery 见 port.TransactionBulkRepo。
+// WHERE 直接取自 buildTxWhere——列表看到的行和这里改的行是同一个集合，不另写一份筛选 SQL。
+// 排序与分页字段被忽略：「整个筛选结果」指全集，不是当页。
+func (r *TransactionRepo) SetSpecialByQuery(ctx context.Context, q port.TransactionQuery, specialID string) (int, error) {
+	if q.Period.Start.IsZero() {
+		return 0, fmt.Errorf("按筛选批量改必须带周期")
+	}
+	where, args := buildTxWhere(q)
+	set := "special_id = ?"
+	setArgs := []any{any(specialID), time.Now()}
+	if specialID == "" {
+		set = "special_id = NULL"
+		setArgs = setArgs[1:]
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx,
+		"UPDATE transactions SET "+set+", updated_at = ?"+where, append(setArgs, args...)...)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
+
+var (
+	_ port.TransactionQueryRepo = (*TransactionRepo)(nil)
+	_ port.TransactionBulkRepo  = (*TransactionRepo)(nil)
+)

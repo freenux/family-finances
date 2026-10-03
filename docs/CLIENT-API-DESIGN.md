@@ -87,7 +87,11 @@ internal/adapter/web/handler/          SSR 改为调同一个 usecase，不再�
 }}
 ```
 
-**分组装配在服务端做**（现在是 `tx_table.js` 里那段 `groupIndex` 循环），客户端直接拿树。
+**装配在 `usecase.Meta`**（`GroupCategories` 等跨端共享的数据整形不属于 HTTP 细节）。`apiv1.Meta` 与
+流水页 SSR（`handler.ListTransactions` 把同一份 `MetaView` 以 `{{rawJSON .MetaJSON}}` 嵌进 `#data-meta`）
+都只调它，所以网页首屏不需要再发一次 `/api/v1/meta`；小程序没有 SSR，仍在启动时拉一次。
+
+**分组装配在服务端做**（原先是 `tx_table.js` 里那段 `groupIndex` 循环），客户端直接拿树。
 `specials` 为空或专项功能未启用时返回空数组，不报错（沿用 `specialsEnabled()` 的降级姿势）。
 - **`accounts` 与 `account_views` 必须分开两个字段**，判据就是现成的 `domain.Account.IsStorageAccount()`：
   `accounts` 只含能写入 DB 的真实成员（husband / wife），用于「把这笔流水改成谁的账户」这种**可写**场景；
@@ -115,7 +119,8 @@ internal/adapter/web/handler/          SSR 改为调同一个 usecase，不再�
   （`2025Q3` 配 `quarterly`、`2025-07` 配 `monthly`、`2025` 配 `annual`）。
   `period` 合法但与 `type` 对不上（如 `type=annual&period=2026Q3`）时，**退回该 `type` 的默认周期**
   （此例得到去年），而不是采用 `period` 自带的粒度；只传 `period` 不传 `type` 时 `type` 取各端点的默认粒度
-  （`/api/v1/*` 为 `quarterly`），同样按此规则比对。理由：对不上是客户端的 bug，悄悄改变请求的粒度
+  （`GET /api/v1/transactions` 与 `/transactions` 页面为 `monthly`；`/periods/nav`、`rules/{id}/apply` 为 `quarterly`），
+  同样按此规则比对。理由：对不上是客户端的 bug，悄悄改变请求的粒度
   比退回该粒度的默认周期更糟。`period` 本身解析失败 → 400 `bad_request`。
   这条规则只在 `PeriodNav.Resolve` 里实现一份，SSR 页面（`period_query_test.go` 钉住）与 `/api/v1` 共用。
 - **响应里的 `period` 对象总是同时带 `type` 和 `key`**，客户端照原样把这两个字段回传
@@ -132,7 +137,7 @@ internal/adapter/web/handler/          SSR 改为调同一个 usecase，不再�
 ### 入参
 
 ```
-type, period, account                    周期与账户，同现有语义
+type, period, account                    周期与账户，同现有语义；type 缺省 = monthly（见下）
 direction  = all | income | expense      缺省 all
 source     = alipay,wechat,manual,csv    逗号分隔，缺省全选；csv 匹配所有 csv:<模板名>
 status     = pending_review,confirmed    缺省就是这两个，excluded 必须显式要求
@@ -146,6 +151,11 @@ order      = asc | desc                  缺省 occurred_at desc
 page       = 1                           1 起
 page_size  = 50                          缺省 50，上限 200，超出钳到上限而不报错
 ```
+
+**缺省粒度是流水视图自己的属性**（`usecase.TxListDefaultType = monthly`），不是调用方传的：
+`GET /api/v1/transactions` 与网页 `/transactions` 不带 `type` 时都是上月，handler / apiv1 不做任何周期判断。
+（`?rule_id=` 且 type/period 都没给时仍是当前季度，那个例外在 `PeriodNav.ResolveForList`。）
+测试钉住：`apiv1.TestListTransactionsDefaultPeriodIsLastMonth`、`handler.TestTransactionsDefaultPeriodSameAsAPI`。
 
 `sort` 必须走**白名单**映射到列名，绝不拼接用户输入。非法值回落到 `occurred_at`。
 白名单必须覆盖 `transactions.html` 表头今天已经提供的全部排序列（日期/来源/账户/成员/方向/
@@ -252,6 +262,26 @@ POST /api/v1/rules/{id}/apply        body {type, period, account}
   等于让批量应用比真实分类器更激进。
 - 规则的 `category_id` 在科目表里查不到、或为空（跳过导入类规则）时，返回错误且不改任何行。
   指向收入科目的规则在分类器眼里是一条死规则，同样返回错误并说明原因，而不是悄悄改支出行。
+
+### 6.3 把「整个筛选结果」归入专项
+
+服务端分页后客户端只持有当页，「把筛出的 118 条一次归入专项」必须由服务端按筛选条件做：
+
+```
+PATCH /api/v1/transactions/by-filter?<与 GET /api/v1/transactions 完全相同的筛选参数>
+body {"special_id": "sp-1"}            空串 = 归回日常
+→ {"data":{"updated":118}}
+```
+
+- 筛选参数就是 §5 的入参（type / period / account / direction / source / status / category /
+  special / member / keyword / rule_id），经同一个 `TxQuery.ResolveFilter` 归一；`sort` / `order` /
+  `page` / `page_size` 被忽略——作用于整个筛选结果，不是当页。
+- **WHERE 复用列表查询那一份 `buildTxWhere`**，不另写筛选 SQL，「被归类的行」与「列表显示的行」因此不会在边界上分叉
+  （`sqlite.TestSetSpecialByQueryMatchesListForAnyFilter` 钉住）。单事务单条 `UPDATE`；
+  repo 拒绝没有周期的筛选，防止误改全表。
+- 专项校验与 `batch` 共用：不存在 → 400，DB 故障 → 500（走 `ErrInvalidInput` 与裸错误的区分）。
+- 路由：与 `/transactions/batch`、`/transactions/{id}` 同挂 `PATCH`，静态段优先，互不吞噬
+  （`TestByFilterRouteOwnership` 钉住）。勾选行的 `batch` 保留，选少数几条时更顺手。
 
 ---
 

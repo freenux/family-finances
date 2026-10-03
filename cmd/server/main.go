@@ -141,6 +141,7 @@ func main() {
 		SpecialCheck: specialView,
 		TxQuery:      txQuery,
 		Tx:           txRepo,
+		TxBulk:       txRepo,
 		Nav:          nav,
 		Log:          log,
 	})

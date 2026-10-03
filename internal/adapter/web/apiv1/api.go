@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"family-finances/internal/domain"
+	"family-finances/internal/port"
 	"family-finances/internal/usecase"
 )
 
@@ -28,6 +29,7 @@ type SpecialLister interface {
 type TxQuerier interface {
 	Execute(ctx context.Context, req usecase.TxQueryRequest) (usecase.TxQueryResult, error)
 	ApplyRule(ctx context.Context, ruleID string, p domain.Period, acc domain.Account) (int, error)
+	ResolveFilter(ctx context.Context, req usecase.TxQueryRequest) (port.TransactionQuery, error)
 }
 
 // TxWriter 单条/批量改流水，由 sqlite.TransactionRepo 满足（接口本体在 usecase）。
@@ -45,6 +47,7 @@ type Deps struct {
 	SpecialCheck SpecialEnsurer
 	TxQuery      TxQuerier
 	Tx           TxWriter
+	TxBulk       port.TransactionBulkRepo // 可为 nil：by-filter 接口返回 500
 	Nav          usecase.PeriodNav
 	Log          *slog.Logger
 }
@@ -53,6 +56,7 @@ type API struct {
 	categories CategoryLister
 	specials   SpecialLister
 	txQuery    TxQuerier
+	meta       *usecase.Meta
 	txUpdate   *usecase.UpdateTransaction
 	nav        usecase.PeriodNav
 	log        *slog.Logger
@@ -66,7 +70,8 @@ func New(d Deps) *API {
 	return &API{
 		categories: d.Categories, specials: d.Specials,
 		txQuery:  d.TxQuery,
-		txUpdate: usecase.NewUpdateTransaction(d.Tx, d.Categories, d.SpecialCheck),
+		meta:     usecase.NewMeta(d.Categories, d.Specials, d.Nav),
+		txUpdate: usecase.NewUpdateTransaction(d.Tx, d.Categories, d.SpecialCheck).WithFilter(d.TxQuery, d.TxBulk),
 		nav:      d.Nav, log: log,
 	}
 }
@@ -79,7 +84,9 @@ func (a *API) Routes() http.Handler {
 	r.Get("/transactions", a.ListTransactions)
 	// /batch 与 /{id} 都挂在 PATCH 下：同 method 内静态段优先，互不吞噬。
 	// 切勿把其中一个改挂到别的 method，否则 chi 会让静态段回退到占位段（见 CLAUDE.md）。
+	// /by-filter 同理：与 /batch、/{id} 同挂 PATCH，静态段优先，互不吞噬（v1_test 钉住归属）。
 	r.Patch("/transactions/batch", a.BatchUpdateTransactions)
+	r.Patch("/transactions/by-filter", a.BatchUpdateTransactionsByFilter)
 	r.Patch("/transactions/{id}", a.UpdateTransaction)
 	r.Post("/rules/{id}/apply", a.ApplyRule)
 	r.NotFound(func(w http.ResponseWriter, _ *http.Request) {

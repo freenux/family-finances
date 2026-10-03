@@ -3,10 +3,13 @@
 // 然后把响应里的 rows / totals / page / facets / period 原样渲染。
 // 筛选、排序、合计、金额与枚举的中文、分类/专项名、周期进位、规则匹配全在服务端，
 // 这里不做任何推导（契约 docs/CLIENT-API-DESIGN.md §0）。
-// 首屏由 SSR 把同一个 DTO 嵌进 #data-transactions，省一次请求；下拉选项来自 /api/v1/meta。
+// 首屏由 SSR 把查询结果嵌进 #data-transactions、下拉选项嵌进 #data-meta（与 /api/v1/meta 同一份 usecase.Meta），
+// 打开页面不需要额外请求。
 // JS 目标 ES2017：不用 ?. ?? 对象展开等。
 function txTable() {
-  const boot = JSON.parse(document.getElementById('data-transactions').textContent || 'null') || {};
+  const readJSON = (id) => JSON.parse(document.getElementById(id).textContent || 'null') || {};
+  const boot = readJSON('data-transactions');
+  const meta = readJSON('data-meta');
 
   // 筛选器默认值的唯一来源：初始 state 与「清空筛选」共用。
   // 每次返回新数组——source / status 是 x-model 直接改的引用，共享一份会串味。
@@ -51,13 +54,12 @@ function txTable() {
     period: { type: '', key: '', label: '', prev: '', next: '', has_next: false },
     rule: null,
 
-    // ---- /api/v1/meta ----
-    metaReady: false,
-    categories: [], // 已是「分组 → 科目」的树
-    specials: [],
-    accounts: [],
-    accountViews: [],
-    statuses: [],
+    // ---- 下拉选项（SSR 首屏嵌入的 meta，形状同 /api/v1/meta）----
+    categories: meta.categories || [], // 已是「分组 → 科目」的树
+    specials: meta.specials || [],
+    accounts: meta.accounts || [],
+    accountViews: meta.account_views || [],
+    statuses: meta.statuses || [],
 
     // ---- 视图状态 ----
     account: 'family',
@@ -95,21 +97,6 @@ function txTable() {
         .forEach((k) => this.$watch(k, () => this.refilter(0)));
       this.$watch('keyword', () => this.refilter(300));
 
-      this.loadMeta();
-    },
-
-    async loadMeta() {
-      try {
-        const m = await api('GET', '/api/v1/meta');
-        this.categories = m.categories;
-        this.specials = m.specials;
-        this.accounts = m.accounts;
-        this.accountViews = m.account_views;
-        this.statuses = m.statuses;
-        this.metaReady = true;
-      } catch (e) {
-        this.errorMsg = '加载下拉选项失败：' + e.message;
-      }
     },
 
     // ---- 拼 query / 同步 URL ----
@@ -228,12 +215,6 @@ function txTable() {
       this.refilter(0);
     },
 
-    // 带异步选项的筛选下拉：x-model 先于选项渲染，值落空会停在第一项。
-    // x-effect 里把 deps（meta / facets 加载状态）传进来以便重新同步，等选项就位后再回填。
-    syncSelect(el, value) {
-      this.$nextTick(() => { el.value = value; });
-    },
-
     // ---- 勾选 ----
     allSelected() {
       return this.rows.length > 0 && this.selected.length === this.rows.length;
@@ -337,6 +318,28 @@ function txTable() {
       } catch (e) {
         targets.forEach((t, i) => { t.special_id = prev[i]; });
         alert('批量归类失败：' + e.message);
+      } finally {
+        this.batching = false;
+      }
+    },
+
+    // 把「当前筛选的全部结果」（不止当页）一次归入专项：PATCH /api/v1/transactions/by-filter。
+    // 筛选参数就是 query() 里同一份（服务端忽略 sort / page），命中哪些行完全由服务端按列表同一套 WHERE 决定。
+    async applyBatchSpecialByFilter() {
+      if (this.batching || !this.batchSpecialID || this.pageInfo.total === 0) return;
+      const specialID = this.batchSpecialID === '__clear__' ? '' : this.batchSpecialID;
+      const sel = this.$refs.batchSpecial;
+      const label = specialID ? sel.options[sel.selectedIndex].text : '日常';
+      const n = this.pageInfo.total;
+      if (!confirm('把当前筛选的全部 ' + n + ' 条流水（含其它页，不止当页）归入「' + label + '」？')) return;
+
+      this.batching = true;
+      try {
+        const d = await api('PATCH', '/api/v1/transactions/by-filter?' + this.query().toString(), { special_id: specialID });
+        alert('已归类 ' + d.updated + ' 条流水。');
+        await this.load();
+      } catch (e) {
+        alert('按筛选归类失败：' + e.message);
       } finally {
         this.batching = false;
       }

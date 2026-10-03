@@ -598,6 +598,8 @@ type txListVM struct {
 	Result usecase.TxQueryResult
 	// ResultJSON 整个 TxQueryResult 序列化后的 JSON，模板用 {{rawJSON}} 嵌进页面给 Alpine 首屏 hydrate
 	ResultJSON string
+	// MetaJSON usecase.MetaView 序列化后的 JSON（下拉选项），同样用 {{rawJSON}} 嵌入
+	MetaJSON string
 }
 
 // txListPeriod 解析流水页的周期：纯委托 usecase.PeriodNav.ResolveForList
@@ -609,7 +611,7 @@ func (h *Handler) txListPeriod(r *http.Request) (domain.Period, error) {
 
 func txListPeriodWith(nav usecase.PeriodNav, r *http.Request) (domain.Period, error) {
 	q := r.URL.Query()
-	return nav.ResolveForList(q.Get("type"), q.Get("period"), q.Get("rule_id"), domain.PeriodMonthly)
+	return nav.ResolveForList(q.Get("type"), q.Get("period"), q.Get("rule_id"), usecase.TxListDefaultType)
 }
 
 // txListPeriod 包级薄壳，同 parsePeriodFromQuery。
@@ -621,15 +623,8 @@ func txListPeriod(r *http.Request) (domain.Period, error) {
 // 整体序列化嵌进页面。不再自己拼行 DTO，也不再把整期流水全塞给前端。
 func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	typ := q.Get("type")
-	// TxQuery 的缺省粒度是季度（/api/v1 的约定），而本页缺省是月度。
-	// 唯一不能补的情形是「带 rule_id 且 type/period 都没给」：那要留给 ResolveForList 落到当前季度。
-	ruleOnly := strings.TrimSpace(q.Get("rule_id")) != "" && q.Get("period") == "" && typ == ""
-	if typ == "" && !ruleOnly {
-		typ = string(domain.PeriodMonthly)
-	}
 	res, err := h.txQuery.Execute(r.Context(), usecase.TxQueryRequest{
-		Type: typ, Period: q.Get("period"), Account: q.Get("account"),
+		Type: q.Get("type"), Period: q.Get("period"), Account: q.Get("account"),
 		Direction: q.Get("direction"), Source: q.Get("source"), Status: q.Get("status"),
 		Category: q.Get("category"), Special: q.Get("special"),
 		Member: q.Get("member"), Keyword: q.Get("keyword"), RuleID: q.Get("rule_id"),
@@ -653,6 +648,17 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		h.serverError(w, err)
 		return
 	}
+	// 下拉选项首屏就绪：与 /api/v1/meta 同一份 usecase.Meta，页面不必再多发一次请求
+	meta, err := h.metaView(r.Context())
+	if err != nil {
+		h.serverError(w, err)
+		return
+	}
+	metaBytes, err := json.Marshal(meta)
+	if err != nil {
+		h.serverError(w, err)
+		return
+	}
 	h.renderPage(w, http.StatusOK, "transactions", txListVM{
 		pageBase: pageBase{
 			Title:   "收支流水",
@@ -663,7 +669,17 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		},
 		Result:     res,
 		ResultJSON: string(resBytes),
+		MetaJSON:   string(metaBytes),
 	})
+}
+
+// metaView 装配 usecase.Meta。专项功能未启用（specialView 为 nil）时必须传真 nil 接口。
+func (h *Handler) metaView(ctx context.Context) (usecase.MetaView, error) {
+	var specials usecase.MetaSpecialLister
+	if h.specialsEnabled() {
+		specials = h.specialView
+	}
+	return usecase.NewMeta(h.catRepo, specials, h.nav).Execute(ctx)
 }
 
 // specialsEnabled 专项功能是否可用。main.go 里无条件注入，只有裁剪过依赖的

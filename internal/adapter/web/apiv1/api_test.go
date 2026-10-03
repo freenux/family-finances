@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"family-finances/internal/domain"
+	"family-finances/internal/usecase"
 )
 
 type fakeCats struct {
@@ -182,14 +183,14 @@ func TestMetaAccountsSplit(t *testing.T) {
 	rec := get(newAPI(fakeCats{}, nil), "/meta")
 	var resp struct {
 		Data struct {
-			Accounts     []option `json:"accounts"`
-			AccountViews []option `json:"account_views"`
+			Accounts     []usecase.MetaOption `json:"accounts"`
+			AccountViews []usecase.MetaOption `json:"account_views"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	has := func(l []option, v string) bool {
+	has := func(l []usecase.MetaOption, v string) bool {
 		for _, o := range l {
 			if o.Value == v {
 				return true
