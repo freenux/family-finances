@@ -57,7 +57,9 @@ func NewCreateTransaction(tx TxInserter, cats LeafCategoryLister) *CreateTransac
 
 // Execute 校验并落库，返回写入的流水（适配器要用它的 ID、账户、发生时间做响应/跳转）。
 // 校验顺序：时间 → 账户 → 方向 → 金额 → 科目 → 成员。
-// 状态恒为 confirmed（手填就是用户亲手确认的，页面文案也是「录入一条已确认流水」）；
+// 状态与导入约定一致：给了科目 → confirmed；没给科目 → pending_review，交给 ClassifyPending
+// （LLM 兜底，只捞 pending_review 且无科目的行）或人工补科目。
+// 不能落成 confirmed：那样界面上像已处理，却没有科目进不了任何聚合，LLM 也永远看不见它。
 // 来源恒为 manual。
 func (uc *CreateTransaction) Execute(ctx context.Context, in NewTransactionInput) (domain.Transaction, error) {
 	now := uc.now()
@@ -91,6 +93,10 @@ func (uc *CreateTransaction) Execute(ctx context.Context, in NewTransactionInput
 		}
 	}
 
+	status := domain.TxStatusConfirmed
+	if in.CategoryID == "" {
+		status = domain.TxStatusPendingReview
+	}
 	member, err := normalizeMember(in.Member)
 	if err != nil {
 		return domain.Transaction{}, err
@@ -106,7 +112,7 @@ func (uc *CreateTransaction) Execute(ctx context.Context, in NewTransactionInput
 		Note:         strings.TrimSpace(in.Note),
 		Amount:       in.AmountFen,
 		Direction:    dir,
-		Status:       domain.TxStatusConfirmed,
+		Status:       status,
 		CategoryID:   in.CategoryID,
 		CreatedAt:    now,
 		UpdatedAt:    now,

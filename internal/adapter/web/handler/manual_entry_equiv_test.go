@@ -123,3 +123,80 @@ func TestManualEntryFormKeepsErrorMessages(t *testing.T) {
 		})
 	}
 }
+
+// 手填不给科目：SSR 表单与 /api/v1 都必须落成 pending_review（给了科目则 confirmed），
+// 并且真的能被 ListPendingCategory 捞到——这正是 LLM 兜底（ClassifyPending）的入口。
+// 若落成 confirmed，这笔流水既不进聚合又没人来分类，录进去就消失。
+func TestManualEntryWithoutCategoryIsPickedUpByClassifier(t *testing.T) {
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := sqlite.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	txRepo := sqlite.NewTransactionRepo(db)
+	catRepo := sqlite.NewCategoryRepo(db)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := &Handler{txRepo: txRepo, catRepo: catRepo, flash: newFlashStore(), log: log}
+	api := apiv1.New(apiv1.Deps{Categories: catRepo, Tx: txRepo, TxInsert: txRepo, Log: log}).Routes()
+
+	const cat = "expense.discretion.shopping"
+	postForm := func(counterparty, category string) {
+		form := url.Values{
+			"occurred_at": {"2025-07-03T14:22"}, "account": {"wife"}, "direction": {"expense"},
+			"amount": {"12.34"}, "category_id": {category}, "counterparty": {counterparty},
+		}
+		req := httptest.NewRequest(http.MethodPost, "/imports/manual", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		h.ManualEntrySubmit(rec, req)
+		if rec.Code != http.StatusSeeOther {
+			t.Fatalf("表单 status = %d; want 303（%s）", rec.Code, rec.Body)
+		}
+	}
+	postAPI := func(counterparty, category string) {
+		body := `{"occurred_at":"2025-07-03 14:22","account":"wife","direction":"expense","amount_fen":1234,` +
+			`"category_id":"` + category + `","counterparty":"` + counterparty + `"}`
+		rec := httptest.NewRecorder()
+		api.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/transactions", strings.NewReader(body)))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("API status = %d; want 200（%s）", rec.Code, rec.Body)
+		}
+	}
+	postForm("表单无科目", "")
+	postForm("表单有科目", cat)
+	postAPI("API无科目", "")
+	postAPI("API有科目", cat)
+
+	p, _ := domain.ParsePeriod("2025-07")
+	all, err := txRepo.List(context.Background(), p, domain.AccountFamily)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]domain.TxStatus{
+		"表单无科目": domain.TxStatusPendingReview, "API无科目": domain.TxStatusPendingReview,
+		"表单有科目": domain.TxStatusConfirmed, "API有科目": domain.TxStatusConfirmed,
+	}
+	if len(all) != len(want) {
+		t.Fatalf("库里 %d 条; want %d", len(all), len(want))
+	}
+	for _, tx := range all {
+		if tx.Status != want[tx.Counterparty] {
+			t.Errorf("%s: status = %v; want %v（无科目必须待核对，有科目才算已确认）", tx.Counterparty, tx.Status, want[tx.Counterparty])
+		}
+	}
+
+	pending, err := txRepo.ListPendingCategory(context.Background(), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, tx := range pending {
+		got[tx.Counterparty] = true
+	}
+	if len(pending) != 2 || !got["表单无科目"] || !got["API无科目"] {
+		t.Errorf("ListPendingCategory = %+v; want 恰为两条无科目手填（LLM 兜底只能看见这一类）", got)
+	}
+}

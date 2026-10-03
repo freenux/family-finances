@@ -921,7 +921,11 @@ func (h *Handler) ManualEntrySubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.flash.set(w, fmt.Sprintf("手工录入成功（%s）：%s ¥%s", tx.Account.Label(), string(tx.Direction), amountStr))
+	msg := fmt.Sprintf("手工录入成功（%s）：%s ¥%s", tx.Account.Label(), string(tx.Direction), amountStr)
+	if tx.Status == domain.TxStatusPendingReview {
+		msg += "；未选科目，已记为待核对"
+	}
+	h.flash.set(w, msg)
 	http.Redirect(w, r, transactionsRedirectURL(tx.Account, tx.OccurredAt), http.StatusSeeOther)
 }
 

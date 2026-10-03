@@ -252,10 +252,11 @@ page_size  = 50                          缺省 50，上限 200，超出钳到�
   `direction` 只能是 `income | expense`；`category_id` 可空，非空必须是二级科目（见 §3 `categories`）。
   `member` / `counterparty` / `description` / `note` 可空，服务端 trim；
   `member` 限 20 字（与 `PATCH` 同一常量 `maxMemberRunes`，超出 → 400）。
-- 服务端装配：`source = manual`；`status = confirmed`（手填就是用户亲手确认的）；`id` 由服务端生成。
-  **注意**：不给 `category_id` 时仍然是 `confirmed`（沿用 SSR 表单既有行为），这类流水
-  因为没有科目不会进任何聚合，也不会被 LLM 兜底分类——客户端应引导用户选科目，
-  事后可用 `PATCH /api/v1/transactions/{id}` 补。
+- 服务端装配：`source = manual`；`id` 由服务端生成；`status` 与导入约定一致：
+  给了 `category_id` → `confirmed`；**没给 → `pending_review`**（待核对），由后台 `ClassifyPending`
+  （LLM 兜底，只捞 `pending_review` 且无科目的行）自动归类，或事后用
+  `PATCH /api/v1/transactions/{id}` 补科目（补上即自动转 `confirmed`）。
+  不能把无科目的手填落成 `confirmed`：那样看着像已处理，却既进不了聚合、LLM 也永远捞不到。
 - 校验全在 `usecase.CreateTransaction`（SSR 表单与本接口共用），失败返回 `ErrInvalidInput`
   → 400 `bad_request`，`message` 是中文原话（「金额必须为正数」「请选择有效的二级分类」……）；
   DB 故障 → 500，细节只进日志。

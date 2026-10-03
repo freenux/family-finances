@@ -291,3 +291,31 @@ func TestMemberLimitSharedByCreateAndUpdate(t *testing.T) {
 		t.Errorf("PATCH 21 字 err = %v; want ErrInvalidInput", err)
 	}
 }
+
+// 手填状态与导入约定一致：给科目 → confirmed；不给 → pending_review。
+// 不给科目却落 confirmed 是个真 bug：界面像已处理，聚合按科目汇总看不见它，
+// ClassifyPending 又只捞 pending_review，这笔钱从此没人处理。
+func TestCreateTransactionStatusByCategory(t *testing.T) {
+	tests := []struct {
+		name       string
+		categoryID string
+		want       domain.TxStatus
+	}{
+		{"给了科目 → confirmed", "expense.discretion.shopping", domain.TxStatusConfirmed},
+		{"没给科目 → pending_review，等 LLM 或人工", "", domain.TxStatusPendingReview},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uc, repo := newCreateUC(t)
+			in := validInput()
+			in.CategoryID = tt.categoryID
+			got, err := uc.Execute(context.Background(), in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Status != tt.want || repo.inserted[0].Status != tt.want {
+				t.Errorf("status = %v（落库 %v）; want %v", got.Status, repo.inserted[0].Status, tt.want)
+			}
+		})
+	}
+}

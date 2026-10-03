@@ -91,6 +91,7 @@ internal/
 - **DiscretionRatio 告警阈值 35%**（`computeKPI` in `usecase/query_report.go`，`k.DiscretionWarning = k.DiscretionRatio > 0.35`）。**分子分母都是日常口径**：分子是 `expense.discretion` 组在日常分组里的小计，分母是 `KPI.DailyExpense` 而**不是** `TotalExpense`——用全口径的话一次装修把分母从 4 万抬到 18.5 万，占比被稀释到阈值以下，告警正好在最该响的时候静默关掉。改阈值或新增 KPI 就改 `computeKPI` 这一处。
 - **Transaction.Status**：`pending_review | confirmed | excluded`。聚合 SQL 只算 `confirmed`。
   - 导入时：命中本地规则 → `confirmed`；未命中 → `pending_review`（等 LLM 或人工）。
+  - 手填（`/imports/manual` 与 `POST /api/v1/transactions`，同走 `CreateTransaction`）：给了科目 → `confirmed`；没给科目 → `pending_review`（同导入未命中，等 LLM 或人工）。**不能落 `confirmed`**：无科目的 `confirmed` 进不了任何聚合，`ClassifyPending` 又只捞 `pending_review`，这笔钱就永远没人看见。
   - 人工在列表页下拉改分类 / LLM 补上分类 → 自动转 `confirmed`。
   - 用户想彻底忽略某笔（如误记）→ 改为 `excluded`，不参与季/年报。
 - **Transaction.SpecialID**：所属专项（`special_projects.id`），**空 = 日常开支**。跟 `excluded` 是两回事：专项**仍然计入支出合计**（`ReportKPI.TotalExpense`、现金流表的「支出合计 (B)」都含它），只是可以按统计口径被剔除；`excluded` 才是彻底不参与任何聚合。判据是"非经常性"而不是"金额大"，所以只能人工标注（流水页单条下拉，或勾选后批量 `PATCH /api/v1/transactions/batch`，或把整个筛选结果归入 `PATCH /api/v1/transactions/by-filter`），不做金额阈值自动判定。
