@@ -1,0 +1,7 @@
+.pick { line-height: 88rpx; flex: 1; }
+.navbtn { min-width: 160rpx; min-height: 88rpx; line-height: 88rpx; color: #1a73e8; text-align: center; }
+.mask { position: fixed; left: 0; right: 0; top: 0; bottom: 0; background: rgba(0,0,0,0.45); z-index: 100; }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; background: #fff; border-radius: 24rpx 24rpx 0 0; padding: 24rpx 32rpx calc(24rpx + env(safe-area-inset-bottom)); }
+.sheet-body { max-height: 60vh; }
+.g { color: #8a8f98; font-size: 26rpx; margin-top: 20rpx; }
+.opt { min-height: 88rpx; line-height: 88rpx; font-size: 32rpx; border-bottom: 2rpx solid #f0f0f0; }

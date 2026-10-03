@@ -1,0 +1,14 @@
+<view class="page">
+  <view class="card entry" bindtap="goNew">
+    <view class="title">记一笔</view>
+    <view class="muted">手填一笔收入或支出</view>
+  </view>
+  <view class="card entry" bindtap="goList">
+    <view class="title">流水</view>
+    <view class="muted">查看流水、就地修改分类</view>
+  </view>
+  <view class="card entry" bindtap="goReport">
+    <view class="title">季/年报</view>
+    <view class="muted">结余、自由裁量占比、现金流</view>
+  </view>
+</view>

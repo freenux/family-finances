@@ -1,0 +1,16 @@
+.navbtn { min-width: 160rpx; min-height: 88rpx; line-height: 88rpx; color: #1a73e8; text-align: center; font-size: 30rpx; }
+.navbtn.dis { color: #c4c7cc; }
+.plabel { font-size: 32rpx; font-weight: 600; }
+.chips { white-space: nowrap; display: flex; }
+.cp { font-size: 32rpx; font-weight: 600; max-width: 480rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.amt { font-size: 32rpx; font-weight: 600; }
+.amt.income { color: #137333; }
+.amt.expense { color: #1f2329; }
+.cat { color: #1a73e8; }
+.pager { margin-top: 8rpx; }
+.totals { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-around; background: #fff; padding: 24rpx 16rpx calc(24rpx + env(safe-area-inset-bottom)); font-size: 28rpx; border-top: 2rpx solid #eee; }
+.mask { position: fixed; left: 0; right: 0; top: 0; bottom: 0; background: rgba(0,0,0,0.45); z-index: 100; }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; background: #fff; border-radius: 24rpx 24rpx 0 0; padding: 24rpx 32rpx calc(24rpx + env(safe-area-inset-bottom)); }
+.sheet-body { max-height: 60vh; }
+.g { color: #8a8f98; font-size: 26rpx; margin-top: 20rpx; }
+.opt { min-height: 88rpx; line-height: 88rpx; font-size: 32rpx; border-bottom: 2rpx solid #f0f0f0; }

@@ -1,0 +1,59 @@
+<view class="page">
+  <view class="row card" wx:if="{{period}}">
+    <view class="navbtn" bindtap="goPrev">‹ 上一期</view>
+    <view class="plabel">{{period.label}}</view>
+    <view class="navbtn {{period.has_next ? '' : 'dis'}}" bindtap="goNext">下一期 ›</view>
+  </view>
+
+  <scroll-view scroll-x class="chips" enable-flex>
+    <text class="chip {{direction === '' ? 'on' : ''}}" bindtap="setDirection" data-v="">全部</text>
+    <text class="chip {{direction === d.value ? 'on' : ''}}" wx:for="{{directions}}" wx:for-item="d" wx:key="value" bindtap="setDirection" data-v="{{d.value}}">{{d.label}}</text>
+  </scroll-view>
+
+  <input class="input" style="margin:16rpx 0" placeholder="搜索对方 / 说明 / 备注" confirm-type="search" value="{{keyword}}" bindconfirm="onSearch" />
+
+  <view class="card" wx:for="{{rows}}" wx:key="id" bindtap="openPicker" data-id="{{item.id}}">
+    <view class="row">
+      <text class="cp">{{item.counterparty || item.description}}</text>
+      <text class="amt {{item.direction}}">{{item.amount_text}}</text>
+    </view>
+    <view class="muted">{{item.occurred_text}} · {{item.account_text}} · {{item.source_text}}</view>
+    <view class="muted">
+      <text class="cat">{{item.category_text || '未分类'}}</text>
+      <text wx:if="{{item.special_text}}"> · {{item.special_text}}</text>
+      · {{item.status_text}}
+    </view>
+    <view class="muted" wx:if="{{item.note}}">备注：{{item.note}}</view>
+  </view>
+
+  <view class="empty" wx:if="{{!loading && !rows.length}}">没有符合条件的流水</view>
+
+  <view class="row pager" wx:if="{{page.total_pages > 0}}">
+    <view class="navbtn {{page.page > 1 ? '' : 'dis'}}" bindtap="prevPage">上一页</view>
+    <text class="muted">{{page.page}} / {{page.total_pages}}（共 {{page.total}} 笔）</text>
+    <view class="navbtn {{page.page < page.total_pages ? '' : 'dis'}}" bindtap="nextPage">下一页</view>
+  </view>
+
+  <!-- 底部合计：整个筛选结果集的合计（服务端 totals），不是当页 -->
+  <view class="totals" wx:if="{{totals}}">
+    <text>收入 {{totals.income_text}}</text>
+    <text>支出 {{totals.expense_text}}</text>
+    <text>净额 {{totals.net_text}}</text>
+  </view>
+  <view style="height:120rpx"></view>
+
+  <view class="mask" wx:if="{{pickerId}}" bindtap="closePicker">
+    <view class="sheet" catchtap="noop">
+      <view class="row" style="margin-bottom:12rpx">
+        <text style="font-weight:600">选择分类</text>
+        <text class="navbtn" bindtap="closePicker">取消</text>
+      </view>
+      <scroll-view scroll-y class="sheet-body">
+        <block wx:for="{{categories}}" wx:key="group_id" wx:for-item="g">
+          <view class="g">{{g.group_name}}</view>
+          <view class="opt" wx:for="{{g.items}}" wx:for-item="c" wx:key="id" bindtap="pick" data-id="{{c.id}}">{{c.name}}</view>
+        </block>
+      </scroll-view>
+    </view>
+  </view>
+</view>

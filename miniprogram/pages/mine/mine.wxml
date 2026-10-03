@@ -1,0 +1,6 @@
+<view class="page">
+  <view class="card">
+    <view class="muted">导入账单、分类规则维护、AI 财报请使用网页端。</view>
+  </view>
+  <button class="btn btn-danger" bindtap="logout">退出登录</button>
+</view>

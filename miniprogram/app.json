@@ -1,0 +1,36 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/login/login",
+    "pages/mine/mine"
+  ],
+  "subPackages": [
+    {
+      "root": "pkg",
+      "name": "main_features",
+      "pages": [
+        "pages/tx_list/tx_list",
+        "pages/tx_new/tx_new",
+        "pages/report/report"
+      ]
+    }
+  ],
+  "tabBar": {
+    "color": "#8a8f98",
+    "selectedColor": "#1a73e8",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      { "pagePath": "pages/index/index", "text": "首页" },
+      { "pagePath": "pages/mine/mine", "text": "我的" }
+    ]
+  },
+  "window": {
+    "navigationBarTitleText": "家庭财务",
+    "navigationBarBackgroundColor": "#ffffff",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f5f6f8"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

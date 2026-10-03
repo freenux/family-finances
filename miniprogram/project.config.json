@@ -1,0 +1,12 @@
+{
+  "description": "家庭财务小程序客户端",
+  "miniprogramRoot": "./",
+  "compileType": "miniprogram",
+  "appid": "touristappid",
+  "projectname": "family-finances-miniprogram",
+  "setting": {
+    "urlCheck": true,
+    "es6": true,
+    "minified": true
+  }
+}

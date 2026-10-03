@@ -1,0 +1,7 @@
+<view class="page">
+  <view class="card">
+    <view class="label">认证 key</view>
+    <input class="input" password="{{true}}" placeholder="请输入认证 key" value="{{key}}" bindinput="onKey" confirm-type="done" bindconfirm="submit" />
+    <button class="btn" style="margin-top:32rpx" bindtap="submit" disabled="{{loading}}">登录</button>
+  </view>
+</view>

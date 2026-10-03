@@ -1,0 +1,50 @@
+<view class="page">
+  <view class="row" style="margin-bottom:16rpx">
+    <view>
+      <text class="chip {{type === 'quarterly' ? 'on' : ''}}" bindtap="setType" data-type="quarterly">季报</text>
+      <text class="chip {{type === 'annual' ? 'on' : ''}}" bindtap="setType" data-type="annual">年报</text>
+    </view>
+  </view>
+
+  <block wx:if="{{report}}">
+    <view class="row card">
+      <view class="navbtn" bindtap="goPrev">‹ 上一期</view>
+      <view class="plabel">{{report.period.label}}</view>
+      <view class="navbtn {{report.period.has_next ? '' : 'dis'}}" bindtap="goNext">下一期 ›</view>
+    </view>
+
+    <picker range="{{accountViews}}" range-key="label" bindchange="onAccount">
+      <view class="card row"><text class="muted">账户视图</text><text>{{report.account_text}} ▾</text></view>
+    </picker>
+
+    <view class="card {{report.kpi.discretion_warning ? 'warn' : 'ok'}}">
+      <view class="muted" style="color:inherit">自由裁量占日常支出 {{report.kpi.discretion_ratio_text}}</view>
+      <view>{{report.kpi.discretion_note}}</view>
+    </view>
+
+    <view class="card">
+      <view class="row kv"><text>总收入</text><text class="num">{{report.kpi.total_income_text}}</text></view>
+      <view class="row kv"><text>总支出</text><text class="num">{{report.kpi.total_expense_text}}</text></view>
+      <view class="row kv"><text>结余（全口径）</text><text class="num">{{report.kpi.surplus_text}}（{{report.kpi.surplus_rate_text}}）</text></view>
+      <view class="row kv"><text>日常结余（不含专项）</text><text class="num">{{report.kpi.daily_surplus_text}}（{{report.kpi.daily_surplus_rate_text}}）</text></view>
+    </view>
+
+    <view class="card">
+      <view class="row kv head"><text class="c1">口径</text><text class="c2">收入</text><text class="c2">支出</text><text class="c2">结余</text></view>
+      <view class="row kv" wx:for="{{report.cashflow}}" wx:key="key">
+        <text class="c1">{{item.label}}</text>
+        <text class="c2">{{item.income_text}}</text>
+        <text class="c2">{{item.expense_text}}</text>
+        <text class="c2">{{item.surplus_text}}</text>
+      </view>
+    </view>
+
+    <view class="card" wx:if="{{report.special_by_project.length}}">
+      <view class="muted">专项开支</view>
+      <view class="row kv" wx:for="{{report.special_by_project}}" wx:key="special_id">
+        <text>{{item.name}}</text><text class="num">{{item.amount_text}}</text>
+      </view>
+    </view>
+  </block>
+  <view class="empty" wx:elif="{{loading}}">加载中…</view>
+</view>
