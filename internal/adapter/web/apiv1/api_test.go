@@ -135,9 +135,6 @@ func TestMetaEnums(t *testing.T) {
 			t.Errorf("body 缺少 %s（枚举中文说法须与现有 UI 一致）", want)
 		}
 	}
-	if strings.Contains(rec.Body.String(), "default_period") {
-		t.Errorf("default_period 属于下一阶段，本阶段不应输出")
-	}
 }
 
 func TestErrorEnvelope(t *testing.T) {

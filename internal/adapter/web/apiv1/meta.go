@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"family-finances/internal/domain"
+	"family-finances/internal/usecase"
 )
 
 type option struct {
@@ -37,7 +38,8 @@ type metaResp struct {
 	Sources      []option        `json:"sources"`
 	Statuses     []option        `json:"statuses"`
 	Directions   []option        `json:"directions"`
-	// default_period 依赖 usecase.PeriodNav，属于下一阶段，本阶段不输出。
+	// 三个粒度各自的默认周期（上一个完整周期），形状与 /periods/nav 一致
+	DefaultPeriod map[string]usecase.PeriodNavView `json:"default_period"`
 }
 
 // Meta GET /api/v1/meta：客户端启动时拉一次的 bootstrap。
@@ -71,6 +73,11 @@ func (a *API) Meta(w http.ResponseWriter, r *http.Request) {
 			{"pending_review", "待处理"}, {"confirmed", "已确认"}, {"excluded", "已排除"},
 		},
 		Directions: []option{{"income", "收入"}, {"expense", "支出"}},
+		DefaultPeriod: map[string]usecase.PeriodNavView{
+			string(domain.PeriodMonthly):   a.nav.Nav(a.nav.Default(domain.PeriodMonthly)),
+			string(domain.PeriodQuarterly): a.nav.Nav(a.nav.Default(domain.PeriodQuarterly)),
+			string(domain.PeriodAnnual):    a.nav.Nav(a.nav.Default(domain.PeriodAnnual)),
+		},
 	})
 }
 

@@ -99,6 +99,9 @@ func main() {
 		log.Error("init renderer", "err", err)
 		os.Exit(1)
 	}
+	// 周期规则的唯一来源：SSR handler 与 /api/v1 共用同一个 PeriodNav
+	nav := usecase.PeriodNav{}
+	txQuery := usecase.NewTxQuery(txRepo, catRepo, catRepo).WithSpecialRepo(specialRepo).WithNav(nav)
 	h := handler.New(handler.Deps{
 		Render:       renderer,
 		ImportBill:   importBill,
@@ -126,11 +129,20 @@ func main() {
 		DigestSender: digestSender,
 		TemplateRepo: templateRepo,
 		SpecialView:  specialView,
+		Nav:          nav,
 		Log:          log,
 		AuthKey:      cfg.AuthKey,
 	})
 
-	apiV1 := apiv1.New(apiv1.Deps{Categories: catRepo, Specials: specialRepo, Log: log})
+	apiV1 := apiv1.New(apiv1.Deps{
+		Categories:   catRepo,
+		Specials:     specialRepo,
+		SpecialCheck: specialView,
+		TxQuery:      txQuery,
+		Tx:           txRepo,
+		Nav:          nav,
+		Log:          log,
+	})
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)

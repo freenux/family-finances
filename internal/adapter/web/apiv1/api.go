@@ -11,6 +11,8 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"family-finances/internal/domain"
+	"family-finances/internal/port"
+	"family-finances/internal/usecase"
 )
 
 // 只声明本包真正用到的方法，由 sqlite 的具体 repo 隐式满足。
@@ -23,17 +25,44 @@ type SpecialLister interface {
 	ListAll(ctx context.Context) ([]domain.SpecialProject, error)
 }
 
-// Deps 构造参数。Specials 可为 nil（专项功能未启用，meta 降级返回空数组）。
+// TxQuerier 流水列表与规则批量应用，由 *usecase.TxQuery 满足。
+type TxQuerier interface {
+	Execute(ctx context.Context, req usecase.TxQueryRequest) (usecase.TxQueryResult, error)
+	ApplyRule(ctx context.Context, ruleID string, p domain.Period, acc domain.Account) (int, error)
+}
+
+// TxWriter 单条/批量改流水，由 sqlite.TransactionRepo 满足。
+type TxWriter interface {
+	Update(ctx context.Context, id string, patch port.TransactionUpdate) error
+	SetSpecialForIDs(ctx context.Context, ids []string, specialID string) (int, error)
+}
+
+// SpecialEnsurer 校验专项存在，由 *usecase.SpecialView 满足。
+type SpecialEnsurer interface {
+	Ensure(ctx context.Context, id string) error
+}
+
+// Deps 构造参数。Specials / SpecialCheck 可为 nil（专项功能未启用：
+// meta 降级返回空数组，PATCH 里传非空 special_id 会被拒）。
+// Nav 零值可用（用系统时钟）。
 type Deps struct {
-	Categories CategoryLister
-	Specials   SpecialLister
-	Log        *slog.Logger
+	Categories   CategoryLister
+	Specials     SpecialLister
+	SpecialCheck SpecialEnsurer
+	TxQuery      TxQuerier
+	Tx           TxWriter
+	Nav          usecase.PeriodNav
+	Log          *slog.Logger
 }
 
 type API struct {
-	categories CategoryLister
-	specials   SpecialLister
-	log        *slog.Logger
+	categories   CategoryLister
+	specials     SpecialLister
+	specialCheck SpecialEnsurer
+	txQuery      TxQuerier
+	tx           TxWriter
+	nav          usecase.PeriodNav
+	log          *slog.Logger
 }
 
 func New(d Deps) *API {
@@ -41,13 +70,23 @@ func New(d Deps) *API {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &API{categories: d.Categories, specials: d.Specials, log: log}
+	return &API{
+		categories: d.Categories, specials: d.Specials, specialCheck: d.SpecialCheck,
+		txQuery: d.TxQuery, tx: d.Tx, nav: d.Nav, log: log,
+	}
 }
 
 // Routes 返回 /api/v1 子树的处理器，调用方应挂在 "/api/v1" 下（chi Mount 会剥掉前缀）。
 func (a *API) Routes() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/meta", a.Meta)
+	r.Get("/periods/nav", a.PeriodsNav)
+	r.Get("/transactions", a.ListTransactions)
+	// /batch 与 /{id} 都挂在 PATCH 下：同 method 内静态段优先，互不吞噬。
+	// 切勿把其中一个改挂到别的 method，否则 chi 会让静态段回退到占位段（见 CLAUDE.md）。
+	r.Patch("/transactions/batch", a.BatchUpdateTransactions)
+	r.Patch("/transactions/{id}", a.UpdateTransaction)
+	r.Post("/rules/{id}/apply", a.ApplyRule)
 	r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
 		WriteError(w, http.StatusNotFound, "not_found", "接口不存在")
 	})

@@ -91,7 +91,7 @@ func (h *Handler) Reports(w http.ResponseWriter, r *http.Request) {
 	if label == "" {
 		// 与现金流表/流水页/StatsAPI 同一套默认：上一个完整季度。
 		// 各页面各自默认会让"现金流表看 2026Q2、点进财报却默认 2026Q3"。
-		label = defaultPeriodFor(domain.PeriodQuarterly, time.Now()).Label
+		label = h.nav.Default(domain.PeriodQuarterly).Label
 	}
 	p, err := domain.ParsePeriod(label)
 	if err != nil || (p.Type != domain.PeriodQuarterly && p.Type != domain.PeriodAnnual) {

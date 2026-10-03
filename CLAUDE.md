@@ -68,6 +68,8 @@ internal/
     web/
       render.go            html/template 渲染器，template/ 与 static/ 均 //go:embed
       handler/             HTTP handler（chi），Request → usecase → ViewModel → 模板；按功能拆成十几个文件
+      apiv1/               平台无关 JSON API（/api/v1，手机浏览器/小程序共用），与 handler 平级；
+                           依赖方向只能 handler → apiv1（复用信封），apiv1 不得 import handler
       template/            layout/base.html + pages/*.html（19 个）+ partials/*.html（4 个）
       static/css/          app.css
       static/js/           每页一个 Alpine 组件（tx_table / stats_page / dashboard_page / budget_page /
@@ -151,6 +153,7 @@ internal/
 - **chi 的静态段 vs 占位段（v5.1.0 实测；早先文档里"`{id}` 会吞掉同级字面量段（即使不同 method）"的说法是错的，别照着它绕路）**：
   - **同 method 下静态段优先，且与注册顺序无关。** `PATCH /api/transactions/batch` 与 `PATCH /api/transactions/{id}` 安心共存：`/batch` 落静态处理器，`/batchx`、`/tx-1` 正确落到 `{id}`。同理 `POST /specials/{id}/delete` 和 `GET|POST /specials` 之间没有任何冲突。
   - **真正会踩的是"同一段路径上，静态段和占位段挂在不同 method 上"**：静态节点没有该 method 的 endpoint 时，chi 会**回退到占位节点**而不是返回 405。例如同时有 `GET /transactions/new` 和 `PATCH /transactions/{id}` 时，`PATCH /transactions/new` 会静默落到 `{id}` 且 `id="new"`，返回 200 而不是 405。要让某个字面量段当"保留字"防守住所有 method，就得给 API 加 `/api` 前缀跟页面路由分开——**只有这种情况需要绕**。
+- **`/api/v1/*` 是给多端薄客户端的 JSON API**（实现在 `adapter/web/apiv1/`），挂在 `RequireAuth` 之内，仅 `/api/v1/auth/token` 在鉴权组之外；契约以 `docs/CLIENT-API-DESIGN.md` 为准。
 - 模板组织：`base.html`（layout，定义 `{{define "base"}}`）+ 每个 `pages/*.html`（定义 `{{define "content"}}` 和 `{{define "page"}}{{template "base" .}}{{end}}`）+ `partials/*.html`（独立 `define`，HTMX 局部刷新用）。
 - `Renderer.RenderPage(w, "dashboard", vm)` 渲染整页；`RenderPartial(w, "report_view", vm)` 给 HTMX 返回片段。新加页面时按 `pages/` 文件名即为 key，模板自动被 `NewRenderer` 注册。
 - 模板函数（`render.go` 的 `funcMap`）：`rawJSON`、`yuan`、`pct`、`goalPct`、`formatDate`、`categoryName`、`groupCategories`。新增函数加到那里。
@@ -175,7 +178,7 @@ internal/
 ## 协作约定
 
 - UI 文本、错误信息、模板注释用简体中文；代码注释按需简短。
-- 新增 Repository 方法：先在 `internal/port/` 加接口，再在 `internal/infrastructure/sqlite/` 加实现，usecase 通过接口依赖。
+- 新增 Repository 方法：先在 `internal/port/` 加接口，再在 `internal/infrastructure/sqlite/` 加实现，usecase 通过接口依赖。宽接口加方法的代价由所有替身承担，新增查询能力优先开窄接口（现成的例子是 `port.TransactionQueryRepo`）。
 - 新增聚合查询：先决定统计口径（见上方「统计口径（Scope）」），基线类的一律传 `domain.ScopeDaily`；SQL 里加了 `special_id` 过滤就检查覆盖索引。
 - 新增分类规则：优先在"分类规则"页面维护，规则存入 `category_rules` 表；需要默认自带的规则时新增迁移种子。LLM 只是兜底，不要把"期望永远命中"的规则丢给它。
 - 新增账单来源：固定版式的平台账单在 `internal/adapter/bill/` 下加 `xxx.go` 实现 `Parser` 接口，然后在 `bill.go` 的 `ParserFor` 里注册，再在 handler 上传表单里加 option；版式随手而变的第三方 CSV 优先用 `/imports/csv` 的列映射模板，不必新写解析器。
