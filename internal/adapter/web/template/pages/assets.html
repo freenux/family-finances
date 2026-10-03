@@ -13,7 +13,7 @@
       <h2 class="title-zh">{{.CurrentPeriod}} 资产快照</h2>
       <div class="subtitle">每季度手填各账户余额（科目沿用点分命名空间 asset.* / liability.*），净值 = 资产 − 负债</div>
     </div>
-    <div class="flex-row" style="gap:12px;align-items:center">
+    <div class="flex-row row-sp12">
       <div class="period-nav">
         <a href="/assets?period={{.PrevPeriodLabel}}" title="上一季">◀</a>
         <span class="cur">{{.CurrentPeriod}}</span>
@@ -108,7 +108,7 @@
 
     <div>
       <div class="section">
-        <div class="section-title"><span>净值曲线（季度）</span><span class="hint">悬停查看明细</span></div>
+        <div class="section-title"><span>净值曲线（季度）</span><span class="hint">悬停或触摸曲线查看明细</span></div>
         <div class="chart-wrap" id="nw-chart-wrap">
           <template x-if="curve.length === 0">
             <div class="empty" style="padding:40px 16px">暂无快照数据，保存第一份季度快照后这里会出现净值曲线。</div>

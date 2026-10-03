@@ -1,6 +1,6 @@
 // Alpine 组件：资产快照页（/assets）。
 // SSR 嵌入 #data-asset-data（code→分）与 #data-asset-curve（净值序列），
-// 就地编辑重算合计，保存按钮 PUT /api/assets/{period}，右侧 SVG 净值曲线带 hover tooltip。
+// 就地编辑重算合计，保存按钮 PUT /api/assets/{period}，右侧 SVG 净值曲线带 hover / 触摸 tooltip。
 function assetsPage() {
   const data = JSON.parse(document.getElementById('data-asset-data').textContent || '{}');
   const curve = JSON.parse(document.getElementById('data-asset-curve').textContent || '[]');
@@ -186,7 +186,7 @@ function assetsPage() {
       g += `<text x="${x(last) - 6}" y="${y(pts[last].net_worth) - 10}" text-anchor="end" font-size="11" font-weight="600" fill="#0d253d">${(pts[last].net_worth / 1000000).toFixed(0)}万</text>`;
       g += `<line id="nw-cross" x1="0" y1="${NW.pt}" x2="0" y2="${NW.H - NW.pb}" stroke="#a8c3de" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>`;
       g += `<circle id="nw-dot" r="4" fill="#2a78d6" stroke="#fff" stroke-width="2" opacity="0"/>`;
-      g += `<rect x="${NW.pl}" y="${NW.pt}" width="${NW.W - NW.pl - NW.pr}" height="${NW.H - NW.pt - NW.pb}" fill="transparent" id="nw-hit"/>`;
+      g += `<rect x="${NW.pl}" y="${NW.pt}" width="${NW.W - NW.pl - NW.pr}" height="${NW.H - NW.pt - NW.pb}" fill="transparent" id="nw-hit" style="touch-action:pan-y"/>`;
       svg.innerHTML = g;
       this.bindHover(NW);
     },
@@ -217,6 +217,7 @@ function assetsPage() {
       if (!hit) return;
       const { x, y } = this.scale(NW);
       const pts = this.curve;
+      // e 只要有 clientX 就行：鼠标事件与 Touch 对象都满足，PC 与触屏共用这一套定位逻辑
       const move = (e) => {
         const r = svg.getBoundingClientRect();
         const sx = ((e.clientX - r.left) * NW.W) / r.width;
@@ -235,7 +236,10 @@ function assetsPage() {
         tip.innerHTML = `${p.period} 净资产 <b>¥${this.fmtYuan(p.net_worth)}</b>` +
           (delta !== null ? `<br>环比 <b>${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%</b>` : '');
         const wr = wrap.getBoundingClientRect();
-        tip.style.left = (r.left - wr.left + (px * r.width) / NW.W) + 'px';
+        // tooltip 以锚点居中（translate -50%）；靠边的点要夹回容器内，否则窄屏上最后一个点的明细会被裁掉
+        const half = tip.offsetWidth / 2;
+        const left = r.left - wr.left + (px * r.width) / NW.W;
+        tip.style.left = Math.max(half, Math.min(wr.width - half, left)) + 'px';
         tip.style.top = (r.top - wr.top + (py * r.height) / NW.H) + 'px';
         tip.style.opacity = 1;
       };
@@ -246,6 +250,43 @@ function assetsPage() {
       };
       hit.addEventListener('mousemove', move);
       hit.addEventListener('mouseleave', leave);
+
+      // 触屏：按下 / 滑动都显示最近一个点的明细，抬手后保留（手指挡着看不见，抬手后才读得清），
+      // 点曲线以外的地方再收起。
+      // 只在曲线区域内拦截滚动，且只拦「横向拖动」：竖着划仍然让页面滚走，不会把整页锁死。
+      // hit 上另有 touch-action: pan-y，浏览器自己也只把竖向手势留给页面滚动；
+      // 这里的方向判断是给不认 touch-action 的旧内核（旧 X5 / 旧 WKWebView）兜底。
+      let touch = null; // {x, y, horizontal: null | true | false}
+      hit.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 1) return;
+        const t = e.touches[0];
+        touch = { x: t.clientX, y: t.clientY, horizontal: null };
+        move(t);
+      }, { passive: true });
+      hit.addEventListener('touchmove', (e) => {
+        if (!touch || e.touches.length !== 1) return;
+        const t = e.touches[0];
+        if (touch.horizontal === null) {
+          const dx = Math.abs(t.clientX - touch.x);
+          const dy = Math.abs(t.clientY - touch.y);
+          if (dx < 4 && dy < 4) return; // 抖动不算方向
+          touch.horizontal = dx > dy;
+        }
+        if (!touch.horizontal) return; // 竖向：交给页面滚动
+        if (e.cancelable) e.preventDefault();
+        move(t);
+      }, { passive: false });
+      hit.addEventListener('touchend', () => { touch = null; });
+      hit.addEventListener('touchcancel', () => { touch = null; });
+      // 点到曲线以外收起 tooltip。曲线每次重绘都会重新 bindHover，document 上只挂一次，指向最新的 leave
+      this._tipLeave = leave;
+      if (!this._tipDocBound) {
+        this._tipDocBound = true;
+        document.addEventListener('touchstart', (e) => {
+          const h = document.getElementById('nw-hit');
+          if (h && !h.contains(e.target) && this._tipLeave) this._tipLeave();
+        }, { passive: true });
+      }
     },
   };
 }

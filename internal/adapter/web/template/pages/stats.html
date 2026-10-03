@@ -104,6 +104,15 @@
     outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
+  .cat-item { display: block; }
+  /* 手机端「查看流水」：同一行右侧一个 >= 44x44 的点击区（触屏没有双击） */
+  .cat-item .tx-go {
+    min-width: 44px; min-height: 44px; padding: 0 4px;
+    font-size: 12px; color: var(--accent); text-decoration: none; white-space: nowrap;
+  }
+  .bar-actions { display: none; margin-top: 12px; }
+  .bar-actions > .btn { min-height: 44px; flex: 1 1 0; text-align: center; justify-content: center; white-space: nowrap; }
+  .bar-actions > .btn + .btn { margin-left: 10px; }
   .cat-row .dot {
     width: 10px; height: 10px; border-radius: 2px;
   }
@@ -127,6 +136,13 @@
     position: absolute; inset: 0 auto 0 0;
     background: currentColor; opacity: .75;
     border-radius: 2px;
+  }
+  @media (max-width: 700px) {
+    .cat-item { display: flex; align-items: center; }
+    .cat-item > .cat-row { flex: 1 1 auto; min-width: 0; }
+    .cat-row .pct { min-width: 40px; }
+    .cat-row .amt { min-width: 80px; }
+    .bar-actions.m-only { display: flex; }
   }
 
   /* column-chart bars */
@@ -255,8 +271,8 @@
 
 <div class="stats-wrap" x-data="statsPage()" x-cloak>
 
-  <div class="stats-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
-    <div class="flex-row" style="gap:10px;align-items:center;flex-wrap:wrap">
+  <div class="stats-head stats-head--wrap">
+    <div class="flex-row row-wrap row-sp10">
       <div class="seg">
         <button :class="account==='husband' ? 'active' : ''" @click="setAccount('husband')">男主</button>
         <button :class="account==='wife'    ? 'active' : ''" @click="setAccount('wife')">女主</button>
@@ -349,18 +365,24 @@
             </div>
             <div class="cat-list">
               <template x-for="(c, i) in view.categories" :key="c.name">
-                <div class="cat-row" :style="'color:' + c.color"
-                     tabindex="0" role="button"
-                     :aria-label="'查看「' + c.name + '」的流水'"
-                     title="双击查看该科目的流水"
-                     @dblclick="goToTransactions(c.category_id)"
-                     @keydown.enter.prevent="goToTransactions(c.category_id)"
-                     @keydown.space.prevent="goToTransactions(c.category_id)">
-                  <span class="dot" :style="'background:' + c.color"></span>
-                  <span class="name" style="color:var(--text)" x-text="c.name"></span>
-                  <span class="pct" x-text="pctOf(c.amount)"></span>
-                  <span class="amt" style="color:var(--text)" x-text="fmtYuan(c.amount)"></span>
-                  <div class="bar"><span :style="'width:' + barPct(c.amount) + '%'"></span></div>
+                <div class="cat-item">
+                  <div class="cat-row" :style="'color:' + c.color"
+                       tabindex="0" role="button"
+                       :aria-label="'查看「' + c.name + '」的流水'"
+                       title="双击查看该科目的流水"
+                       @dblclick="goToTransactions(c.category_id)"
+                       @keydown.enter.prevent="goToTransactions(c.category_id)"
+                       @keydown.space.prevent="goToTransactions(c.category_id)">
+                    <span class="dot" :style="'background:' + c.color"></span>
+                    <span class="name" style="color:var(--text)" x-text="c.name"></span>
+                    <span class="pct" x-text="pctOf(c.amount)"></span>
+                    <span class="amt" style="color:var(--text)" x-text="fmtYuan(c.amount)"></span>
+                    <div class="bar"><span :style="'width:' + barPct(c.amount) + '%'"></span></div>
+                  </div>
+                  {{/* 触屏没有双击：手机断点下给一个显式入口（PC 隐藏，双击照旧）。
+                       不能塞进上面的 role=button 里，按钮里嵌链接是非法的交互嵌套 */}}
+                  <a class="tx-go m-only" :href="txURL(c.category_id)"
+                     :aria-label="'查看「' + c.name + '」的流水'">查看流水</a>
                 </div>
               </template>
             </div>
@@ -370,7 +392,7 @@
 
       <div class="panel">
         <h3>
-          <span>月度对比 <span class="hint" style="margin-left:4px" x-text="'近 6 个月 · ' + scopeLabel() + '口径 · 点击切换当期 · 双击切换仪表盘周期'"></span></span>
+          <span>月度对比 <span class="hint" style="margin-left:4px" x-text="'近 6 个月 · ' + scopeLabel() + '口径 · 点击切换当期'"></span><span class="hint pc-only" x-text="' · 双击切换仪表盘周期'"></span></span>
           <span class="special-legend" x-show="hasSpecial(view.monthlyCompare)"><i></i>专项</span>
           <span class="hint" x-text="'当期 ' + (focusMonth() || '—')"></span>
         </h3>
@@ -408,12 +430,20 @@
               </button>
             </template>
           </div>
+          {{/* 触屏没有双击：当期柱（点柱子选中，或默认的当期）旁给两个显式入口，PC 隐藏 */}}
+          <div class="bar-actions m-only" x-show="focusMonth()">
+            <button type="button" class="btn ghost" @click="jumpToPeriod('month', focusMonth())"
+                    x-show="!(granularity === 'month' && periodKey === focusMonth())"
+                    x-text="'切换到 ' + focusMonth()"></button>
+            <a class="btn ghost" :href="txURL('', 'month', focusMonth())"
+               x-text="'查看 ' + focusMonth() + ' 流水'"></a>
+          </div>
         </div>
       </div>
 
       <div class="panel">
         <h3>
-          <span>季度对比 <span class="hint" style="margin-left:4px" x-text="'近 4 季 · ' + scopeLabel() + '口径 · 点击切换当期 · 双击切换仪表盘周期'"></span></span>
+          <span>季度对比 <span class="hint" style="margin-left:4px" x-text="'近 4 季 · ' + scopeLabel() + '口径 · 点击切换当期'"></span><span class="hint pc-only" x-text="' · 双击切换仪表盘周期'"></span></span>
           <span class="special-legend" x-show="hasSpecial(view.quarterlyCompare)"><i></i>专项</span>
           <span class="hint" x-text="'当期 ' + (focusQuarter() || '—')"></span>
         </h3>
@@ -450,6 +480,14 @@
                 </span>
               </button>
             </template>
+          </div>
+          {{/* 触屏没有双击：当期柱（点柱子选中，或默认的当期）旁给两个显式入口，PC 隐藏 */}}
+          <div class="bar-actions m-only" x-show="focusQuarter()">
+            <button type="button" class="btn ghost" @click="jumpToPeriod('quarter', focusQuarter())"
+                    x-show="!(granularity === 'quarter' && periodKey === focusQuarter())"
+                    x-text="'切换到 ' + focusQuarter()"></button>
+            <a class="btn ghost" :href="txURL('', 'quarter', focusQuarter())"
+               x-text="'查看 ' + focusQuarter() + ' 流水'"></a>
           </div>
         </div>
       </div>

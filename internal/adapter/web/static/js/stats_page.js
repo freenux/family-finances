@@ -112,17 +112,23 @@ function statsPage() {
     // 双击「支出构成/收入构成」的科目行：带着当前仪表盘的筛选跳到流水页。
     // 参数名与含义对齐流水页 tx_table.js 的 init()（同一套 URL 参数约定）。
     goToTransactions(categoryID) {
+      window.location.href = this.txURL(categoryID);
+    },
+
+    // 拼穿透到流水页的 URL。双击（PC）与手机端的「查看流水」链接共用这一份，参数不会两边各写一遍。
+    // categoryID 可省（柱子穿透只带周期，不限科目）；kind/key 可省（缺省用当前主视图的粒度与周期）。
+    txURL(categoryID, kind, key) {
       const q = new URLSearchParams({
-        type:     periodTypeFromGranularity(this.granularity),
-        period:   this.periodKey,
+        type:     periodTypeFromGranularity(kind || this.granularity),
+        period:   key || this.periodKey,
         account:  this.account,
         direction: this.direction,
-        category: categoryID,
       });
+      if (categoryID) q.set('category', categoryID);
       // scope=all 对应流水页"全部"（不传 special，走默认），daily/special 才需要显式带上
       if (this.scope === 'daily')   q.set('special', '__none__');
       if (this.scope === 'special') q.set('special', '__any__');
-      window.location.href = '/transactions?' + q.toString();
+      return '/transactions?' + q.toString();
     },
 
     // --- 远端请求 ---

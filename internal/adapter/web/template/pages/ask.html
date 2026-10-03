@@ -12,7 +12,7 @@
       <div class="section">
         <div class="section-title"><span>提问</span><span class="hint">每问独立，无会话历史，不落库</span></div>
         <div class="ask-body">
-          <div class="stat-chips" style="margin-bottom:10px">
+          <div class="stat-chips ask-chips">
             {{range .Presets}}
             <button type="button" class="chip ask-chip" @click="askPreset('{{.}}')" {{if not $.LLMEnabled}}disabled{{end}}>{{.}}</button>
             {{end}}

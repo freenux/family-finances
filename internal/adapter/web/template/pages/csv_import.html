@@ -22,7 +22,7 @@
     <div class="section-title"><span>① 上传 CSV（UTF-8 或 GB18030）</span>
       <span class="hint" x-show="totalRows > 0" x-text="'共 ' + totalRows + ' 行'"></span>
     </div>
-    <div style="padding:14px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <div class="wrap-row row-sp12" style="padding:14px 16px">
       <input type="file" id="csv-file" accept=".csv,text/csv" @change="upload($event)">
       <span class="hint" style="font-size:12px;color:var(--muted)" x-show="uploading">上传解析中…</span>
     </div>

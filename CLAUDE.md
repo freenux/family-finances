@@ -31,7 +31,7 @@ README 里的 `uv run python -m wepay_classifier ...` 是独立的 Python 微信
 
 ### 测试约定
 
-当前有 50 个 `*_test.go`（usecase 23 / infrastructure/sqlite 11 / adapter/web/handler 9 / domain 4 / adapter/web 2 / adapter/bill 1）。新代码按同样的路子写：
+当前约 70 个 `*_test.go`（usecase 30 / infrastructure/sqlite 14 / adapter/web/handler 12 / domain 6 / adapter/web/apiv1 5 / adapter/web 2 / adapter/bill 1；以 `find . -name "*_test.go"` 为准，数字会过时）。新代码按同样的路子写：
 
 - **表驱动**：`tests := []struct{ name string; ... }{...}` + `for _, tt := range tests { t.Run(tt.name, ...) }`，约 20 个文件是这个形状。断言写成 `got = %v; want %v` 并在信息里说清"为什么该是这样"。
 - **`internal/infrastructure/sqlite` 用真库夹具**，不 mock SQL：`Open(filepath.Join(t.TempDir(), "test.db"))` + `Migrate(db)`，每个 repo 一个 `newTestXxxRepo(t)`（见 `report_repo_test.go`）。查询计划/索引形状用 `EXPLAIN QUERY PLAN` + `pragma_index_info` 钉住（`query_plan_test.go`、`migration_014_test.go`）。
@@ -56,7 +56,10 @@ internal/
   usecase/                 一个文件一个用例，完整清单看目录：QueryReport、QueryStats、ImportBill、
                            ClassifyByCustomRules、ClassifyPending、ContextPackBuilder、GenerateReport、
                            GenerateAdvice、Ask、BucketEngine、AllocationEngine、BudgetView、RecurringEngine、
-                           GoalView、InsuranceView、SpecialView、DigestService、Export、Scenario
+                           GoalView、InsuranceView、SpecialView、DigestService、Export、Scenario；
+                           多端共用的「查询/整形」也在这里：TxQuery（流水筛选排序分页+合计+facets）、Meta
+                           （下拉选项与科目分组 `GroupCategories`）、PeriodNav（周期规则）、UpdateTransaction /
+                           CreateTransaction（流水写入）、ReportView
   infrastructure/
     config/                env/godotenv 加载 Config
     sqlite/                sql.DB + goose 迁移 + Analyze + 各 Repo 实现
@@ -69,6 +72,7 @@ internal/
       render.go            html/template 渲染器，template/ 与 static/ 均 //go:embed
       handler/             HTTP handler（chi），Request → usecase → ViewModel → 模板；按功能拆成十几个文件
       apiv1/               平台无关 JSON API（/api/v1，手机浏览器/小程序共用），与 handler 平级；
+                           只剩 HTTP 壳（解析入参 → 调 usecase → 信封），不做数据整形；
                            依赖方向只能 handler → apiv1（复用信封），apiv1 不得 import handler
       template/            layout/base.html + pages/*.html（19 个）+ partials/*.html（4 个）
       static/css/          app.css
@@ -81,7 +85,7 @@ internal/
 
 ### 领域约定
 
-- **金额单位是 `int64` 分（fen）**，整条链路不用 float。账单解析器把元乘 100 并 +0.5 转分；模板里用 `{{yuan .Amount}}` 格式化回元，前端 JS 用 `tx_table.js` 的 `fmtYuan`。
+- **金额单位是 `int64` 分（fen）**，整条链路不用 float。账单解析器把元乘 100 并 +0.5 转分；模板里用 `{{yuan .Amount}}` 格式化回元。**金额格式化的方向是「服务端给 `xxx_text`，客户端只渲染」**（契约 §2）：流水页（`tx_table.js`）已不做任何金额格式化，直接显示 `/api/v1` 返回的 `amount_text` / `totals.*_text`。还没改薄的页面（统计页 `stats_page.js`、资产页 `assets.js`、预算页 `budget_page.js`）各自仍留着一份 `fmtYuan`，等它们有对应的 `/api/v1` 接口后再删，别在新页面里照抄。
 - **Period 标签格式**：季度 `"2025Q3"`、年度 `"2025"`、月度 `"2025-07"`。`domain.ParsePeriod` 是唯一解析入口；`Period.End` 是独占（`< End`），SQL 里对应 `occurred_at < ?`。
 - **Category ID 用点分命名空间**：一级（`level=1`）是分组（如 `income.salary`、`expense.discretion`），二级（`level=2`）是真正的科目（如 `expense.discretion.shopping`）。聚合与模板靠 `parent_id` 与 `strings.HasPrefix(GroupID, "income.")/"expense."` 分流。
 - **DiscretionRatio 告警阈值 35%**（`computeKPI` in `usecase/query_report.go`，`k.DiscretionWarning = k.DiscretionRatio > 0.35`）。**分子分母都是日常口径**：分子是 `expense.discretion` 组在日常分组里的小计，分母是 `KPI.DailyExpense` 而**不是** `TotalExpense`——用全口径的话一次装修把分母从 4 万抬到 18.5 万，占比被稀释到阈值以下，告警正好在最该响的时候静默关掉。改阈值或新增 KPI 就改 `computeKPI` 这一处。
@@ -89,7 +93,7 @@ internal/
   - 导入时：命中本地规则 → `confirmed`；未命中 → `pending_review`（等 LLM 或人工）。
   - 人工在列表页下拉改分类 / LLM 补上分类 → 自动转 `confirmed`。
   - 用户想彻底忽略某笔（如误记）→ 改为 `excluded`，不参与季/年报。
-- **Transaction.SpecialID**：所属专项（`special_projects.id`），**空 = 日常开支**。跟 `excluded` 是两回事：专项**仍然计入支出合计**（`ReportKPI.TotalExpense`、现金流表的「支出合计 (B)」都含它），只是可以按统计口径被剔除；`excluded` 才是彻底不参与任何聚合。判据是"非经常性"而不是"金额大"，所以只能人工标注（流水页单条下拉，或勾选后批量 `PATCH /api/transactions/batch`），不做金额阈值自动判定。
+- **Transaction.SpecialID**：所属专项（`special_projects.id`），**空 = 日常开支**。跟 `excluded` 是两回事：专项**仍然计入支出合计**（`ReportKPI.TotalExpense`、现金流表的「支出合计 (B)」都含它），只是可以按统计口径被剔除；`excluded` 才是彻底不参与任何聚合。判据是"非经常性"而不是"金额大"，所以只能人工标注（流水页单条下拉，或勾选后批量 `PATCH /api/v1/transactions/batch`，或把整个筛选结果归入 `PATCH /api/v1/transactions/by-filter`），不做金额阈值自动判定。
 - **Transaction.Note**：用户在流水列表就地填的备注，与 `Description`（来自账单的商品说明）分开存，不要覆盖。
 - **唯一键防重**：`imported_transaction_keys(source, transaction_no)` 由 `InsertBatch` 在事务内检查。重复导入同一文件全部跳过。
 
@@ -126,7 +130,7 @@ internal/
 
 ### 流水编辑（单条 / 批量）只有一份实现
 
-PATCH 的业务逻辑——叶子科目校验、status 白名单、`IsStorageAccount`、member 长度、`category_id` 非空自动 `confirmed`、专项校验、批量 ids 上限（`usecase.MaxBatchTxIDs`）与过滤空 id——全在 `usecase.UpdateTransaction`（`Update` / `AssignSpecial`）。`handler.UpdateTransaction` / `BatchUpdateTransactions`（204 / 纯文本错误）与 `apiv1`（信封）只做 HTTP 解析与响应格式，**不要在任一侧再写校验**。账户参数解析统一用 `domain.ParseAccount`（空串与非法值退回 `family`）。
+PATCH 的业务逻辑——叶子科目校验、status 白名单、`IsStorageAccount`、member 长度、`category_id` 非空自动 `confirmed`、专项校验、批量 ids 上限（`usecase.MaxBatchTxIDs`）与过滤空 id——全在 `usecase.UpdateTransaction`（`Update` / `AssignSpecial`）。`handler.UpdateTransaction` / `BatchUpdateTransactions`（旧 `/api/transactions/*`，204 / 纯文本错误；流水页已不使用，但按契约 §2 保持不动）与 `apiv1`（信封）只做 HTTP 解析与响应格式，**不要在任一侧再写校验**。账户参数解析统一用 `domain.ParseAccount`（空串与非法值退回 `family`）。
 
 ### 账单导入流程
 
@@ -150,24 +154,32 @@ PATCH 的业务逻辑——叶子科目校验、status 白名单、`IsStorageAcc
 - 写回时只认**本轮送进 prompt 的那批 id**，防止模型幻觉或账单文本里夹带的指令去改写其它流水。
 - 分类成功后自动把 `status` 转为 `confirmed`。
 
-### 流水列表就地编辑
+### 流水列表（薄客户端）
 
-- `pages/transactions.html` 里嵌入四个 `<script type="application/json">`：`data-transactions`、`data-categories`、`data-rule`、`data-specials`。
+流水页是第一个按「薄客户端」改造完的页面（契约 `docs/CLIENT-API-DESIGN.md` §0）：筛选 / 排序 / 分页 / 合计 / 中文文案 / 周期进位 / 规则匹配全在服务端，`tx_table.js` 只持有状态、拼 query、渲染响应，**不要把这些逻辑再长回前端**。
+
+- **首屏数据**：`pages/transactions.html` 嵌入两个 `<script type="application/json">`——`#data-transactions` 是整个 `usecase.TxQueryResult`（`rows / period / page / totals / facets / rule?`，与 `GET /api/v1/transactions` 同形），`#data-meta` 是 `usecase.MetaView`（科目分组、专项、账户、来源、状态、方向的下拉选项，与 `GET /api/v1/meta` 同形）。打开页面不再额外发请求。旧的 `data-categories` / `data-rule` / `data-specials` 已不存在（规则预筛信息在 `TxQueryResult.rule` 里）。
 - **重要**：嵌入 JSON 必须用 `{{rawJSON .X}}`（在 `render.go` 的 `funcMap` 里定义为 `template.JS`）。否则 Go `html/template` 在 `<script>` 上下文里会把整个 JSON 字符串再字符串化，前端 `JSON.parse` 会失败。
-- Alpine 组件 `txTable()`（`static/js/tx_table.js`）读取这些 JSON 做首屏 bootstrap，处理排序（点击列头三态）、筛选（方向/来源/状态/分类/关键词）、底部汇总（收入/支出/净额实时重算）；切换周期时 `GET /api/transactions` 重新拉一批。
-- 行内 `<select>`/`<input>` change/blur 触发 `fetch PATCH /api/transactions/{id}`（**注意 `/api` 前缀**），body 是 `{category_id?, note?, status?, account?, member?, special_id?}` 的任意子集。PATCH 一旦提交 `category_id` 非空，后端自动把 `status` 置为 `confirmed`；`special_id` 传空字符串表示归回日常。失败时前端回滚本地状态并 `alert`。
-- 勾选多行后批量归入专项走 `PATCH /api/transactions/batch`，body `{ids:[...], special_id}`，后端在单个事务里一条 `UPDATE ... WHERE id IN (...)` 写完。
+- **`txTable()`（`static/js/tx_table.js`）**：读取上面两份 JSON 做首屏 bootstrap；筛选 / 排序 / 翻页 / 换周期 / 换每页条数一变就 `GET /api/v1/transactions?...` 重新拉，把 `rows / totals / page / facets / period` 原样渲染。**不再**在前端排序、过滤或重算汇总；金额与枚举文案直接用响应里的 `*_text`；周期上一期 / 下一期用响应里的 `period.prev / next / has_next`。URL 上的筛选参数（含从统计页、规则页穿透来的）就是 API 参数，原样读回、原样写回地址栏。
+- **就地编辑**：行内 `<select>`/`<input>` 触发 `PATCH /api/v1/transactions/{id}`，body 是 `{category_id?, note?, status?, account?, member?, special_id?}` 的任意子集（响应是 `{"data":...}` / `{"error":{"code","message"}}` 信封）。乐观更新，失败时回滚本地状态并 `alert`；成功后静默重查（编辑可能改变筛选 / 排序 / 合计）。PATCH 一旦提交 `category_id` 非空，后端自动把 `status` 置为 `confirmed`；`special_id` 传空字符串表示归回日常。
+- **批量归入专项有两条路径**：① 勾选当页的行 → `PATCH /api/v1/transactions/batch`，body `{ids:[...], special_id}`；② 把「当前筛选的全部结果」（含其它页）→ `PATCH /api/v1/transactions/by-filter?<与列表相同的筛选参数>`，body `{special_id}`，命中哪些行完全由服务端按列表同一套 WHERE 决定。两者都在单个事务里写完。规则批量应用走 `POST /api/v1/rules/{id}/apply`。
+- **旧接口仍在，但流水页已不使用**：`GET /api/transactions`、`PATCH /api/transactions/{id}`、`PATCH /api/transactions/batch` 等旧 `/api/*` 仍注册在 `main.go` 里（契约 §2 要求本轮不删，等所有 PC 页面切到 v1 后再决定是否下线）。改流水编辑的业务规则只改 `usecase.UpdateTransaction`，两边共用。
 
 ### HTTP / 渲染
 
 - chi router，中间件 `Recoverer` + `Logger` + `Compress(5)`。**路由集中在 `cmd/server/main.go` 的 `r.Group(func(r chi.Router){...})`（`h.RequireAuth` 之内），改路由只看那一处**——这里不再逐条抄清单，抄一次过时一次。`/healthz`、`/auth/*`、`/static/*` 在鉴权组之外。
 - **chi 的静态段 vs 占位段（v5.1.0 实测；早先文档里"`{id}` 会吞掉同级字面量段（即使不同 method）"的说法是错的，别照着它绕路）**：
-  - **同 method 下静态段优先，且与注册顺序无关。** `PATCH /api/transactions/batch` 与 `PATCH /api/transactions/{id}` 安心共存：`/batch` 落静态处理器，`/batchx`、`/tx-1` 正确落到 `{id}`。同理 `POST /specials/{id}/delete` 和 `GET|POST /specials` 之间没有任何冲突。
+  - **同 method 下静态段优先，且与注册顺序无关。** `PATCH /api/v1/transactions/batch`（以及 `/by-filter`）与 `PATCH /api/v1/transactions/{id}` 安心共存（旧的 `/api/transactions/batch` 与 `/api/transactions/{id}` 同理）：`/batch` 落静态处理器，`/batchx`、`/tx-1` 正确落到 `{id}`。同理 `POST /specials/{id}/delete` 和 `GET|POST /specials` 之间没有任何冲突。
   - **真正会踩的是"同一段路径上，静态段和占位段挂在不同 method 上"**：静态节点没有该 method 的 endpoint 时，chi 会**回退到占位节点**而不是返回 405。例如同时有 `GET /transactions/new` 和 `PATCH /transactions/{id}` 时，`PATCH /transactions/new` 会静默落到 `{id}` 且 `id="new"`，返回 200 而不是 405。要让某个字面量段当"保留字"防守住所有 method，就得给 API 加 `/api` 前缀跟页面路由分开——**只有这种情况需要绕**。
 - **`/api/v1/*` 是给多端薄客户端的 JSON API**（实现在 `adapter/web/apiv1/`），挂在 `RequireAuth` 之内，仅 `/api/v1/auth/token` 在鉴权组之外；契约以 `docs/CLIENT-API-DESIGN.md` 为准。
 - 模板组织：`base.html`（layout，定义 `{{define "base"}}`）+ 每个 `pages/*.html`（定义 `{{define "content"}}` 和 `{{define "page"}}{{template "base" .}}{{end}}`）+ `partials/*.html`（独立 `define`，HTMX 局部刷新用）。
 - `Renderer.RenderPage(w, "dashboard", vm)` 渲染整页；`RenderPartial(w, "report_view", vm)` 给 HTMX 返回片段。新加页面时按 `pages/` 文件名即为 key，模板自动被 `NewRenderer` 注册。
-- 模板函数（`render.go` 的 `funcMap`）：`rawJSON`、`yuan`、`pct`、`goalPct`、`formatDate`、`categoryName`、`groupCategories`。新增函数加到那里。
+- 模板函数（`render.go` 的 `funcMap`）：`rawJSON`、`yuan`、`pct`、`goalPct`、`formatDate`、`categoryName`、`groupCategories`。新增函数加到那里。注意科目分组有两份实现：给 JSON 客户端用的整形在 `usecase.GroupCategories`（`/api/v1/meta` 与流水页 `#data-meta` 共用，`apiv1` 里没有任何分组逻辑）；`funcMap.groupCategories` 只服务规则页 / 导入页这类仍由模板渲染 `<select>` 的 SSR 表单，尚未合并。
+- **手机端适配（同一套模板、同一份 `app.css`，不 fork）**，细节与示例在 `app.css` 里「手机端适配（<= 700px）」一节的注释：
+  - **新增宽表要在手机上可用**：给 `<table>` 加类 `stacked-on-mobile`，每个 `<td>` 加 `data-label="列名"`（= 对应 `<th>` 文字；操作列、勾选列写 `data-label=""`）。手机下表格自动转成堆叠卡片，PC 不受影响，模板只加属性、不分叉结构。范本是 `pages/transactions.html`。
+  - **PC 靠双击 / hover 的交互，手机要补显式入口**：用 `.m-only` / `.pc-only` 控制显隐。范例：统计页科目行的「查看流水」链接与月/季对比条下的「切换到 / 查看流水」按钮（PC 的双击保留）；点击目标不小于 44×44px。
+  - **flex 间距不要写 `gap`**（iOS < 14.5 / 旧 X5 的 flex 不认）：用 `.flex-row` + `.row-sp8/10/12/14` 修饰类（可换行再加 `.row-wrap`），其余容器照 `app.css`「兼容层 A」的 margin 写法。**不要把 `gap` 写进 `style=""`**——`app.css` 里原来那层靠匹配 `style` 字符串（`[style*="gap:"]`）生效的 gap 垫片已清除，只剩 `partials/report_tables.html` 专项明细行（`gap:12px`）一处在用，那两条规则带着注释标明了归属，迁完即删。另有两处同类的属性选择器兜底仍在：内联 `overflow-x:auto` 的惯性滚动、内联 `grid-template-columns` 在手机下改单列，新页面请直接写 class。
+  - 输入框 `font-size >= 16px`；JS 目标 ES2017（不用 `?.` `??` `??=` `Array.prototype.at` `structuredClone`）；触屏图表要补 `touchstart/touchmove`（范例：`assets.js` 净值曲线）。
 - **htmx 与 alpinejs 是本地固定版本**，放在 `static/js/vendor/`（`htmx-1.9.12.min.js`、`alpinejs-3.14.1.min.js`），由 `base.html` `defer` 引入，**不走 CDN**。自有 JS 同样放 `static/js/` 并在 `base.html` `<head>` 里 `defer` 引入。
 
 ### 默认周期（规则只在服务端 `usecase.PeriodNav`；前端还剩一份待删的旧实现）

@@ -363,6 +363,11 @@ main {
   .report-grid { grid-template-columns: 1fr; }
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
 }
+/* 三列 KPI（专项页）：写在 900px 规则之后，特异性相同，PC 恒为三列；手机上金额放不下，改单列，否则会撑出视口 */
+.kpi-grid.kpi-grid--3 { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 700px) {
+  .kpi-grid.kpi-grid--3 { grid-template-columns: 1fr; }
+}
 
 /* ============================================================
    区块与账本表格
@@ -1502,7 +1507,7 @@ header.app-header nav > a + a { margin-left: 26px; }
 .period-nav > :not(template) ~ :not(template) { margin-left: 12px; }
 .seg > :not(template) ~ :not(template) { margin-left: 2px; }
 .kpi-card .label > :not(template) ~ :not(template) { margin-left: 5px; }
-.flex-row > :not(template) ~ :not(template) { margin-left: 16px; }
+.flex-row > :not(template) ~ :not(template) { margin-left: var(--row-sp, 16px); }
 .form-actions > :not(template) ~ :not(template) { margin-left: 10px; }
 .tx-summary > :not(template) ~ :not(template) { margin-left: 26px; }
 .rule-apply-bar > :not(template) ~ :not(template) { margin-left: 14px; }
@@ -1545,31 +1550,45 @@ header.app-header nav > a + a { margin-left: 26px; }
 .report-card .rc-head > * { margin: 4px; }
 .stat-chips { margin: 2px -4px 0; }                        /* 原 gap 8px / margin 6px 0 4px */
 .stat-chips > * { margin: 4px; }
-.stat-chips[style*="margin-bottom:10px"] { margin-bottom: 6px !important; } /* ask.html 内联了 margin-bottom:10px */
+.stat-chips.ask-chips { margin-bottom: 6px; }              /* ask.html 原内联 margin-bottom:10px，减去子元素下边距 4px */
 .rebalance-card .rb-head { margin: -5px; }                 /* 原 gap 10px */
 .rebalance-card .rb-head > * { margin: 5px; }
 .goal-nums { margin: -4px -9px; }                          /* 原 gap 8px 18px */
 .goal-nums > * { margin: 4px 9px; }
 
-/* 页面里写死在 style="" 中的 gap（pages/ 本阶段不能改，下一阶段应迁成 class 后删掉这一段）：
-   用属性选择器把内联 gap 清零并换成 margin。
-   其中 gap:8px / gap:14px 两条仍有人用：gap:14px → dashboard.html 页头；gap:8px → specials.html 行内按钮组。
-   流水页已改用 .tx-head-actions / .tx-batch-actions，不再依赖。 */
-[style*="gap:"][style*="display:flex"], .flex-row[style*="gap:"] { gap: 0 !important; }
-.flex-row[style*="gap:8px"]  > :not(template) ~ :not(template) { margin-left: 8px; }
-.flex-row[style*="gap:10px"] > :not(template) ~ :not(template) { margin-left: 10px; }
-.flex-row[style*="gap:12px"] > :not(template) ~ :not(template) { margin-left: 12px; }
-.flex-row[style*="gap:14px"] > :not(template) ~ :not(template) { margin-left: 14px; }
-.flex-row[style*="flex-wrap:wrap"][style*="gap:10px"] { margin: -5px; }
-.flex-row[style*="flex-wrap:wrap"][style*="gap:10px"] > * { margin: 5px; }
-/* stats.html 的 .stats-head 自带 border-bottom，不能用负 margin，改成「子元素下边距 + 减小容器 padding」 */
-.stats-head[style*="gap:10px"] { gap: 0 !important; padding-bottom: 6px; }
-.stats-head[style*="gap:10px"] > * { margin: 0 0 10px; }
-.stats-head[style*="gap:10px"] > :first-child { margin-right: 10px; }
-.stats-head > .flex-row[style*="flex-wrap:wrap"][style*="gap:10px"] { margin: -5px 5px 5px -5px; }
-div[style*="display:flex"][style*="flex-wrap:wrap"][style*="gap:12px"] { margin: -6px; }
-div[style*="display:flex"][style*="flex-wrap:wrap"][style*="gap:12px"] > * { margin: 6px; }
-div[style*="display:flex"][style*="gap:12px"]:not([style*="flex-wrap"]) > :not(template) ~ :not(template) { margin-left: 12px; }
+/* 间距修饰类（取代原先写在 style="" 里的 gap）：
+   .row-spN 只设置变量 --row-sp，兄弟间距由上面的 .flex-row 通用规则读取，
+   所以 PC 与手机用同一条规则，手机断点不需要 !important 去盖它。
+   .row-wrap（挂在 .flex-row 上）/ .wrap-row（独立的 flex 换行容器）是「可换行」写法：
+   子元素各加 sp/2 的 margin，容器用 -sp/2 的负 margin 抵消。
+   用法：<div class="flex-row row-sp10">；可换行：<div class="flex-row row-wrap row-sp10">。 */
+.row-sp8  { --row-sp: 8px; }
+.row-sp10 { --row-sp: 10px; }
+.row-sp12 { --row-sp: 12px; }
+.row-sp14 { --row-sp: 14px; }
+/* 带修饰类时多叠一层 .flex-row，特异性与旧垫片相同，才压得过 .goal-card .section-title form { margin: 0 } 这类带后代选择器的规则 */
+.flex-row.row-sp8  > :not(template) ~ :not(template),
+.flex-row.row-sp10 > :not(template) ~ :not(template),
+.flex-row.row-sp12 > :not(template) ~ :not(template),
+.flex-row.row-sp14 > :not(template) ~ :not(template) { margin-left: var(--row-sp); }
+.flex-row.row-wrap, .wrap-row { flex-wrap: wrap; margin: calc(var(--row-sp, 16px) / -2); }
+.flex-row.row-wrap > *,
+.flex-row.row-wrap > :not(template) ~ :not(template),
+.wrap-row > * { margin: calc(var(--row-sp, 16px) / 2); }
+.wrap-row { display: flex; align-items: center; }
+
+/* stats.html 的页头：.stats-head 自带 border-bottom，不能用负 margin，
+   改成「子元素下边距 + 减小容器 padding」（原 gap 10px）。双类选择器是为了盖过手机断点里的 .stats-head 通用规则。 */
+.stats-head.stats-head--wrap { align-items: center; flex-wrap: wrap; padding-bottom: 6px; }
+.stats-head.stats-head--wrap > * { margin: 0 0 10px; }
+.stats-head.stats-head--wrap > :first-child { margin-right: 10px; }
+.stats-head.stats-head--wrap > .flex-row.row-wrap { margin: -5px 5px 5px -5px; }
+
+/* 唯一还在用的「靠匹配 style 字符串生效」的垫片：
+   partials/report_tables.html:75（专项明细行，style="display:flex;justify-content:space-between;gap:12px;..."）。
+   partials/ 不在本轮可改范围内；待那一行迁成 class 后，这两条一并删除。 */
+div[style*="display:flex"][style*="gap:12px"] { gap: 0 !important; }
+div[style*="display:flex"][style*="gap:12px"] > :not(template) ~ :not(template) { margin-left: 12px; }
 
 /* ============================================================
    兼容层 B：带 style="overflow-x:auto" 的横向滚动容器
@@ -1583,6 +1602,15 @@ div[style*="display:flex"][style*="gap:12px"]:not([style*="flex-wrap"]) > :not(t
    手机端适配（<= 700px）
    原则：同一套模板、同一份 CSS，不 fork。下面三块都只在窄屏生效，PC 不受影响。
    ============================================================ */
+
+/* ---- B0. 显隐工具类：.m-only 只在手机断点显示，.pc-only 只在手机断点之外显示 ----
+   用于「触屏替代入口」：PC 靠双击 / hover 的交互，手机上补一个显式按钮或链接（契约 §8.2）。
+   .m-only 在手机下用 inline-flex 显示（可点击目标自带 44px 最小高度时再按需覆盖）。 */
+.m-only { display: none; }
+@media (max-width: 700px) {
+  .m-only { display: inline-flex; align-items: center; justify-content: center; }
+  .pc-only { display: none; }
+}
 
 /* ---- B1. 宽表转堆叠卡片：.stacked-on-mobile ----
    用法（模板侧要做的只有两件事，不改表格 HTML 结构）：
@@ -1762,8 +1790,14 @@ div[style*="display:flex"][style*="gap:12px"]:not([style*="flex-wrap"]) > :not(t
     flex-wrap: wrap;
   }
   .flex-row > *,
-  .flex-row > :not(template) ~ :not(template) {
-    margin: 4px 10px 4px 0 !important;
+  .flex-row > :not(template) ~ :not(template),
+  .flex-row.row-wrap > *,
+  .flex-row.row-wrap > :not(template) ~ :not(template),
+  .flex-row.row-sp8  > :not(template) ~ :not(template),
+  .flex-row.row-sp10 > :not(template) ~ :not(template),
+  .flex-row.row-sp12 > :not(template) ~ :not(template),
+  .flex-row.row-sp14 > :not(template) ~ :not(template) {
+    margin: 4px 10px 4px 0; /* 与上文 .row-spN 同特异性、写在后面，所以不需要 !important */
   }
   .seg {
     max-width: calc(100vw - 32px); /* 页面左右各 16px；百分比在 flex 里拿不到确定宽度 */

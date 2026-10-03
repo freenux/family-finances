@@ -13,7 +13,7 @@
   <div class="section" style="padding:10px 14px;margin-bottom:14px;color:var(--negative)">⚠️ {{.Error}}</div>
 {{end}}
 
-<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
+<div class="kpi-grid kpi-grid--3">
   <div class="kpi-card">
     <div class="label">专项数</div>
     <div class="value">{{len .Data.Rows}}</div>
@@ -44,7 +44,7 @@
               {{if not .Project.EndedOn.IsZero}} → {{formatDate .Project.EndedOn}}{{end}}
             </span>
           </span>
-          <span class="flex-row" style="gap:8px">
+          <span class="flex-row row-sp8">
             <a class="btn ghost" href="/specials?edit={{.Project.ID}}#special-form"
                style="font-size:12px;padding:4px 12px">编辑</a>
             <form method="post" action="/api/specials/{{.Project.ID}}/delete"
